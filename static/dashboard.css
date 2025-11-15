@@ -876,3 +876,191 @@ td {
   color: #9ca3af;
 }
 
+/* ===== Backtests Tab ===== */
+
+.backtests-layout {
+  display: grid;
+  grid-template-columns: 350px 1fr;
+  gap: 16px;
+  height: calc(100vh - 200px);
+}
+
+.backtests-list-panel {
+  overflow-y: auto;
+}
+
+.backtests-detail-panel {
+  overflow-y: auto;
+}
+
+.backtests-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.backtests-empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--muted);
+}
+
+.backtests-empty-state code {
+  background: rgba(99, 102, 241, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.85em;
+}
+
+.backtest-run-item {
+  padding: 12px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.backtest-run-item:hover {
+  background: rgba(15, 23, 42, 0.9);
+  border-color: var(--accent);
+}
+
+.backtest-run-item.selected {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.backtest-run-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.backtest-run-strategy {
+  font-weight: 600;
+  font-size: 0.95em;
+  color: var(--text);
+}
+
+.backtest-run-pnl {
+  font-weight: 600;
+  font-size: 0.9em;
+}
+
+.backtest-run-pnl.positive {
+  color: var(--accent-strong);
+}
+
+.backtest-run-pnl.negative {
+  color: var(--danger);
+}
+
+.backtest-run-pnl.neutral {
+  color: var(--muted);
+}
+
+.backtest-run-meta {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+  font-size: 0.8em;
+  color: var(--muted);
+}
+
+.backtest-run-meta-item {
+  display: flex;
+  justify-content: space-between;
+}
+
+.backtest-detail-empty-state {
+  text-align: center;
+  padding: 60px 20px;
+}
+
+.backtests-detail-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.backtest-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.backtest-detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.backtest-detail-item .label {
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.backtest-detail-item .value {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.backtest-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.metric-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 6px;
+}
+
+.metric-item .metric-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.metric-item .metric-value {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.metric-item .metric-value.positive {
+  color: var(--accent-strong);
+}
+
+.metric-item .metric-value.negative {
+  color: var(--danger);
+}
+
+.equity-chart-container {
+  width: 100%;
+  height: 300px;
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+#backtest-equity-chart {
+  width: 100%;
+  height: 100%;
+}
+
+.mt-sm {
+  margin-top: 12px;
+}
+
+

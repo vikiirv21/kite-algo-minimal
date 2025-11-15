@@ -40,6 +40,7 @@
       <button class="tab active" data-tab="overview">Overview</button>
       <button class="tab" data-tab="signals">Signals & Strategies</button>
       <button class="tab" data-tab="orders">Orders & Positions</button>
+      <button class="tab" data-tab="backtests">Backtests</button>
       <button class="tab" data-tab="logs">Logs</button>
       <button class="tab" data-tab="config">Config & Safety</button>
     </nav>
@@ -546,6 +547,128 @@
                   <!-- filled by JS -->
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- BACKTESTS TAB -->
+      <section class="tab-page" id="tab-backtests">
+        <div class="backtests-layout">
+          <!-- Left panel: Run list -->
+          <div class="backtests-list-panel">
+            <div class="card">
+              <div class="card-header">
+                <h2>Backtest Runs</h2>
+                <span class="badge badge-muted" id="backtests-count">0</span>
+              </div>
+              <div class="card-body">
+                <div id="backtests-list" class="backtests-list">
+                  <div class="backtests-empty-state">
+                    <p>No backtests found.</p>
+                    <p class="text-muted small">Run <code>scripts/run_backtest.py</code> to generate one.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right panel: Run details -->
+          <div class="backtests-detail-panel">
+            <div id="backtests-detail-empty" class="card">
+              <div class="card-body backtests-detail-empty-state">
+                <p class="text-muted">Select a backtest run to view details</p>
+              </div>
+            </div>
+
+            <div id="backtests-detail-content" class="backtests-detail-content" style="display: none;">
+              <!-- Run header -->
+              <div class="card">
+                <div class="card-header">
+                  <h2 id="backtest-detail-title">Backtest Details</h2>
+                  <span class="badge" id="backtest-detail-badge">Loading...</span>
+                </div>
+                <div class="card-body">
+                  <div class="backtest-detail-grid">
+                    <div class="backtest-detail-item">
+                      <span class="label">Strategy</span>
+                      <span class="value" id="backtest-strategy">—</span>
+                    </div>
+                    <div class="backtest-detail-item">
+                      <span class="label">Symbol</span>
+                      <span class="value" id="backtest-symbol">—</span>
+                    </div>
+                    <div class="backtest-detail-item">
+                      <span class="label">Timeframe</span>
+                      <span class="value" id="backtest-timeframe">—</span>
+                    </div>
+                    <div class="backtest-detail-item">
+                      <span class="label">Date Range</span>
+                      <span class="value" id="backtest-date-range">—</span>
+                    </div>
+                    <div class="backtest-detail-item">
+                      <span class="label">Starting Capital</span>
+                      <span class="value" id="backtest-capital">—</span>
+                    </div>
+                    <div class="backtest-detail-item">
+                      <span class="label">Run ID</span>
+                      <span class="value" id="backtest-run-id">—</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Metrics -->
+              <div class="card mt-sm">
+                <div class="card-header">
+                  <h2>Performance Metrics</h2>
+                </div>
+                <div class="card-body">
+                  <div class="backtest-metrics-grid">
+                    <div class="metric-item">
+                      <span class="metric-label">Net P&L</span>
+                      <span class="metric-value" id="backtest-net-pnl">₹0</span>
+                    </div>
+                    <div class="metric-item">
+                      <span class="metric-label">Total Trades</span>
+                      <span class="metric-value" id="backtest-total-trades">0</span>
+                    </div>
+                    <div class="metric-item">
+                      <span class="metric-label">Win Rate</span>
+                      <span class="metric-value" id="backtest-win-rate">0%</span>
+                    </div>
+                    <div class="metric-item">
+                      <span class="metric-label">Wins / Losses</span>
+                      <span class="metric-value" id="backtest-wins-losses">0 / 0</span>
+                    </div>
+                    <div class="metric-item">
+                      <span class="metric-label">Max Drawdown</span>
+                      <span class="metric-value" id="backtest-max-dd">0%</span>
+                    </div>
+                    <div class="metric-item">
+                      <span class="metric-label">Profit Factor</span>
+                      <span class="metric-value" id="backtest-profit-factor">—</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Equity Curve Chart -->
+              <div class="card mt-sm">
+                <div class="card-header">
+                  <h2>Equity Curve</h2>
+                  <span class="badge badge-muted" id="equity-curve-points">0 pts</span>
+                </div>
+                <div class="card-body">
+                  <div class="equity-chart-container">
+                    <svg id="backtest-equity-chart" viewBox="0 0 800 300" preserveAspectRatio="xMidYMid meet">
+                      <text x="400" y="150" text-anchor="middle" fill="#94a3b8" font-size="14">
+                        Loading equity curve...
+                      </text>
+                    </svg>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
