@@ -33,6 +33,15 @@ data:
   source: "broker"          # for now, always "broker" (Kite). Later: "nse", "cached".
   timeframe: "5minute"      # base timeframe for intraday decisions
   history_lookback: 50      # number of candles for indicators
+  
+  # Market Data Engine v2 Configuration
+  use_mde_v2: false         # Enable Market Data Engine v2 (set to true to activate)
+  feed: "kite"              # Data feed mode: "kite" (live) or "replay" (historical/backtest)
+  timeframes:               # Active timeframes for candle building
+    - "1m"
+    - "5m"
+  symbols: []               # Specific symbols for MDE v2 (empty = use universe)
+  replay_speed: 1.0         # Replay speed multiplier (1.0 = real-time, 10.0 = 10x faster)
 
 strategy_engine:
   version: 1                # 1 = legacy StrategyRunner, 2 = StrategyEngineV2
