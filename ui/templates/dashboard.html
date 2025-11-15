@@ -679,6 +679,13 @@
         <div class="card">
           <div class="card-header">
             <h2>Engine Logs</h2>
+            <div class="logs-tabs">
+              <button class="logs-tab active" data-log-kind="">All</button>
+              <button class="logs-tab" data-log-kind="engine">Engine</button>
+              <button class="logs-tab" data-log-kind="trades">Trades</button>
+              <button class="logs-tab" data-log-kind="signals">Signals</button>
+              <button class="logs-tab" data-log-kind="system">System</button>
+            </div>
           </div>
           <div class="card-body">
             <pre id="logs-stream" class="logs-body">Loading logs...</pre>
