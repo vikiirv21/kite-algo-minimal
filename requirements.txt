@@ -1,0 +1,7 @@
+kiteconnect
+python-dotenv
+pyyaml
+pandas
+numpy
+fastapi
+uvicorn

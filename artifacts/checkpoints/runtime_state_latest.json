@@ -1,0 +1,88 @@
+{
+  "engines": {
+    "fno": {
+      "running": true,
+      "thread_alive": true,
+      "status": "running",
+      "mode": "paper"
+    },
+    "options": {
+      "running": true,
+      "thread_alive": true,
+      "status": "running",
+      "mode": "paper"
+    },
+    "equity": {
+      "running": true,
+      "thread_alive": true,
+      "status": "running",
+      "mode": "paper"
+    }
+  },
+  "pnl": {
+    "day_pnl": 0.0,
+    "realized_pnl": 0.0,
+    "unrealized_pnl": 0.0,
+    "open_positions": 0,
+    "num_trades": 0,
+    "win_trades": 0,
+    "loss_trades": 0,
+    "win_rate": 0.0,
+    "largest_win": 0.0,
+    "largest_loss": 0.0,
+    "avg_r": 0.0
+  },
+  "ts": "2025-11-14T18:07:27.179634Z",
+  "mode": "PAPER",
+  "equity": {
+    "realized_pnl": 0.0,
+    "unrealized_pnl": 0.0,
+    "day_pnl": 0.0
+  },
+  "summary": {
+    "date": "2025-11-14",
+    "realized_pnl": 0.0,
+    "num_trades": 0,
+    "win_trades": 0,
+    "loss_trades": 0,
+    "win_rate": 0.0,
+    "open_positions": 0,
+    "largest_win": 0.0,
+    "largest_loss": 0.0,
+    "avg_r": 0.0,
+    "note": ""
+  },
+  "last_heartbeat_ts": "2025-11-14T18:07:25.319967+00:00",
+  "universe": {
+    "date": "2025-11-14",
+    "asof": "2025-11-14T16:12:27.690729Z",
+    "fno": [
+      "NIFTY",
+      "BANKNIFTY"
+    ],
+    "meta": {
+      "NIFTY": {
+        "tradingsymbol": "NIFTY25NOVFUT",
+        "instrument_token": 9485826,
+        "lot_size": 75,
+        "expiry": "2025-11-25",
+        "tick_size": 0.1,
+        "exchange": "NFO",
+        "segment": "NFO-FUT",
+        "name": "NIFTY",
+        "atr": null
+      },
+      "BANKNIFTY": {
+        "tradingsymbol": "BANKNIFTY25NOVFUT",
+        "instrument_token": 9485058,
+        "lot_size": 35,
+        "expiry": "2025-11-25",
+        "tick_size": 0.2,
+        "exchange": "NFO",
+        "segment": "NFO-FUT",
+        "name": "BANKNIFTY",
+        "atr": null
+      }
+    }
+  }
+}
