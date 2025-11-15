@@ -5,6 +5,37 @@ let marketClockOffsetMs = null;
 let clockTimerId = null;
 const currencyFormatters = {};
 
+/**
+ * Fetch with retry logic for improved resilience
+ * @param {string} url - The URL to fetch
+ * @param {object} options - Fetch options
+ * @param {number} retries - Number of retries (default: 3)
+ * @param {number} delayMs - Initial delay between retries in ms (default: 1000)
+ * @returns {Promise<Response>}
+ */
+async function fetchWithRetry(url, options = {}, retries = 3, delayMs = 1000) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const response = await fetch(url, options);
+      if (response.ok) {
+        return response;
+      }
+      // If not ok but not last attempt, retry
+      if (attempt < retries) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs * Math.pow(2, attempt)));
+        continue;
+      }
+      return response; // Return last failed response
+    } catch (error) {
+      if (attempt < retries) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs * Math.pow(2, attempt)));
+        continue;
+      }
+      throw error; // Throw on last attempt
+    }
+  }
+}
+
 function formatInr(value, fractionDigits = 2) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
     return "—";
@@ -67,8 +98,11 @@ function updateMarketClock() {
 
 async function refreshMeta() {
   try {
-    const res = await fetch("/api/meta");
-    if (!res.ok) return;
+    const res = await fetchWithRetry("/api/meta");
+    if (!res.ok) {
+      console.warn("Failed to refresh meta:", res.status);
+      return;
+    }
 
     const data = await res.json();
     const badge = document.getElementById("market-status-badge");
@@ -144,8 +178,9 @@ function renderEngineStatus(status) {
 
 async function refreshEngines() {
   try {
-    const res = await fetch("/api/engines/status");
+    const res = await fetchWithRetry("/api/engines/status");
     if (!res.ok) {
+      console.warn("Failed to refresh engines:", res.status);
       return;
     }
     const data = await res.json();
@@ -175,8 +210,9 @@ function setSignedValue(el, value) {
 
 async function fetchPortfolioSummary() {
   try {
-    const res = await fetch("/api/portfolio/summary");
+    const res = await fetchWithRetry("/api/portfolio/summary");
     if (!res.ok) {
+      console.warn(`Failed to fetch portfolio summary: HTTP ${res.status}`);
       throw new Error(`HTTP ${res.status}`);
     }
     const summary = await res.json();
@@ -224,7 +260,7 @@ async function fetchPortfolioSummary() {
     console.error("Failed to fetch portfolio summary:", err);
     const elEquity = document.getElementById("pf-equity");
     if (elEquity) {
-      elEquity.textContent = "Error";
+      elEquity.textContent = "Error loading data";
       elEquity.classList.remove("positive", "negative");
     }
   }
@@ -348,14 +384,17 @@ function renderSignalsDetailTable(signals) {
 
 async function fetchRecentSignals() {
   try {
-    const res = await fetch("/api/signals/recent?limit=50");
+    const res = await fetchWithRetry("/api/signals/recent?limit=50");
     if (!res.ok) {
+      console.warn(`Failed to fetch signals: HTTP ${res.status}`);
       throw new Error(`HTTP ${res.status}`);
     }
     const data = await res.json();
     renderSignalsTable(data);
   } catch (err) {
     console.error("Failed to fetch recent signals:", err);
+    // Render empty state on error
+    renderSignalsTable([]);
   }
 }
 
@@ -446,8 +485,9 @@ function renderLogsPanel(data) {
 
 async function fetchHealth() {
   try {
-    const res = await fetch("/api/health");
+    const res = await fetchWithRetry("/api/health");
     if (!res.ok) {
+      console.warn(`Failed to fetch health: HTTP ${res.status}`);
       throw new Error(`HTTP ${res.status}`);
     }
     const data = await res.json();
@@ -463,14 +503,20 @@ async function fetchRecentLogs(kind = null) {
     if (kind) {
       url += `&kind=${encodeURIComponent(kind)}`;
     }
-    const res = await fetch(url);
+    const res = await fetchWithRetry(url);
     if (!res.ok) {
+      console.warn(`Failed to fetch logs: HTTP ${res.status}`);
       throw new Error(`HTTP ${res.status}`);
     }
     const data = await res.json();
     renderLogsPanel(data);
   } catch (err) {
     console.error("Failed to fetch recent logs:", err);
+    // Show error in logs panel
+    const pre = document.getElementById("logs-body");
+    const tabPre = document.getElementById("logs-stream");
+    if (pre) pre.textContent = `Error loading logs: ${err.message}`;
+    if (tabPre) tabPre.textContent = `Error loading logs: ${err.message}`;
   }
 }
 
@@ -632,21 +678,24 @@ function renderRecentOrders(orders) {
 
 async function fetchOpenPositions() {
   try {
-    const res = await fetch("/api/positions/open");
+    const res = await fetchWithRetry("/api/positions/open");
     if (!res.ok) {
+      console.warn(`Failed to fetch positions: HTTP ${res.status}`);
       throw new Error(`HTTP ${res.status}`);
     }
     const data = await res.json();
     renderOpenPositions(data);
   } catch (err) {
     console.error("Failed to fetch open positions:", err);
+    renderOpenPositions([]);
   }
 }
 
 async function fetchRecentOrders() {
   try {
-    const res = await fetch("/api/orders/recent?limit=50");
+    const res = await fetchWithRetry("/api/orders/recent?limit=50");
     if (!res.ok) {
+      console.warn(`Failed to fetch orders: HTTP ${res.status}`);
       throw new Error(`HTTP ${res.status}`);
     }
     const data = await res.json();
@@ -654,13 +703,15 @@ async function fetchRecentOrders() {
     renderRecentOrders(orders);
   } catch (err) {
     console.error("Failed to fetch recent orders:", err);
+    renderRecentOrders([]);
   }
 }
 
 async function fetchStrategyStats() {
   try {
-    const res = await fetch("/api/stats/strategies?days=1");
+    const res = await fetchWithRetry("/api/stats/strategies?days=1");
     if (!res.ok) {
+      console.warn(`Failed to fetch strategy stats: HTTP ${res.status}`);
       throw new Error(`HTTP ${res.status}`);
     }
     const data = await res.json();
@@ -717,13 +768,22 @@ async function fetchStrategyStats() {
     }
   } catch (err) {
     console.error("Failed to fetch strategy stats:", err);
+    const tbody = document.getElementById("strategy-tbody");
+    if (tbody) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" class="text-muted small">Error loading strategy stats.</td>
+        </tr>
+      `;
+    }
   }
 }
 
 async function fetchEquityCurve() {
   try {
-    const res = await fetch("/api/stats/equity?days=1");
+    const res = await fetchWithRetry("/api/stats/equity?days=1");
     if (!res.ok) {
+      console.warn(`Failed to fetch equity curve: HTTP ${res.status}`);
       throw new Error(`HTTP ${res.status}`);
     }
     const data = await res.json();
@@ -781,13 +841,21 @@ async function fetchEquityCurve() {
     }
   } catch (err) {
     console.error("Failed to fetch equity curve:", err);
+    const svg = document.getElementById("equity-chart");
+    if (svg) {
+      svg.innerHTML = `
+        <text x="50" y="22" text-anchor="middle" fill="#ef4444" font-size="4">
+          Error loading equity curve.
+        </text>`;
+    }
   }
 }
 
 async function fetchConfigSummary() {
   try {
-    const res = await fetch("/api/config/summary");
+    const res = await fetchWithRetry("/api/config/summary");
     if (!res.ok) {
+      console.warn(`Failed to fetch config summary: HTTP ${res.status}`);
       throw new Error(`HTTP ${res.status}`);
     }
     const data = await res.json();
@@ -866,13 +934,19 @@ async function fetchConfigSummary() {
     }
   } catch (err) {
     console.error("Failed to fetch config summary:", err);
+    // Set error message in config card
+    const elPath = document.getElementById("config-path");
+    if (elPath) {
+      elPath.textContent = "Error loading config";
+    }
   }
 }
 
 async function fetchTodaySummary() {
   try {
-    const res = await fetch("/api/summary/today");
+    const res = await fetchWithRetry("/api/summary/today");
     if (!res.ok) {
+      console.warn(`Failed to fetch today summary: HTTP ${res.status}`);
       throw new Error(`HTTP ${res.status}`);
     }
     const data = await res.json();
@@ -914,14 +988,22 @@ async function fetchTodaySummary() {
     setText("today-avg-r", avgR.toFixed(2));
   } catch (err) {
     console.error("Failed to fetch today summary:", err);
+    const elPnl = document.getElementById("today-realized-pnl");
+    if (elPnl) {
+      elPnl.textContent = "Error";
+      elPnl.classList.remove("positive", "negative", "flat");
+    }
   }
 }
 
 // TODO: Plug your existing /api/state / SSE here
 async function refreshState() {
   try {
-    const res = await fetch("/api/state");
-    if (!res.ok) return;
+    const res = await fetchWithRetry("/api/state");
+    if (!res.ok) {
+      console.warn(`Failed to refresh state: HTTP ${res.status}`);
+      return;
+    }
 
     const data = await res.json();
 
@@ -946,15 +1028,12 @@ async function refreshState() {
       const liveOk = data.engines.live_ok ?? false;
       const scannerOk = data.engines.scanner_ok ?? true;
 
-      document
-        .getElementById("status-paper")
-        .classList.toggle("err", !paperOk);
-      document
-        .getElementById("status-live")
-        .classList.toggle("err", !liveOk);
-      document
-        .getElementById("status-scanner")
-        .classList.toggle("err", !scannerOk);
+      const statusPaper = document.getElementById("status-paper");
+      const statusLive = document.getElementById("status-live");
+      const statusScanner = document.getElementById("status-scanner");
+      if (statusPaper) statusPaper.classList.toggle("err", !paperOk);
+      if (statusLive) statusLive.classList.toggle("err", !liveOk);
+      if (statusScanner) statusScanner.classList.toggle("err", !scannerOk);
     }
 
     // Positions table (overview)
@@ -1044,9 +1123,9 @@ let currentBacktestRunId = null;
 
 async function fetchBacktestRuns() {
   try {
-    const res = await fetch("/api/backtests");
+    const res = await fetchWithRetry("/api/backtests");
     if (!res.ok) {
-      console.error("Failed to fetch backtest runs:", res.status);
+      console.warn("Failed to fetch backtest runs:", res.status);
       return;
     }
 
@@ -1130,6 +1209,15 @@ async function fetchBacktestRuns() {
     });
   } catch (err) {
     console.error("Error fetching backtest runs:", err);
+    const listContainer = document.getElementById("backtests-list");
+    if (listContainer) {
+      listContainer.innerHTML = `
+        <div class="backtests-empty-state">
+          <p>Error loading backtests.</p>
+          <p class="text-muted small">${err.message}</p>
+        </div>
+      `;
+    }
   }
 }
 
@@ -1159,9 +1247,9 @@ function selectBacktestRun(runId) {
 
 async function fetchBacktestDetails(runId) {
   try {
-    const res = await fetch(`/api/backtests/${encodeURIComponent(runId)}/summary`);
+    const res = await fetchWithRetry(`/api/backtests/${encodeURIComponent(runId)}/summary`);
     if (!res.ok) {
-      console.error("Failed to fetch backtest details:", res.status);
+      console.warn("Failed to fetch backtest details:", res.status);
       return;
     }
 
@@ -1213,14 +1301,18 @@ async function fetchBacktestDetails(runId) {
     setText("backtest-profit-factor", profitFactor);
   } catch (err) {
     console.error("Error fetching backtest details:", err);
+    const titleEl = document.getElementById("backtest-detail-title");
+    if (titleEl) {
+      titleEl.textContent = "Error loading details";
+    }
   }
 }
 
 async function fetchBacktestEquityCurve(runId) {
   try {
-    const res = await fetch(`/api/backtests/${encodeURIComponent(runId)}/equity_curve`);
+    const res = await fetchWithRetry(`/api/backtests/${encodeURIComponent(runId)}/equity_curve`);
     if (!res.ok) {
-      console.error("Failed to fetch equity curve:", res.status);
+      console.warn("Failed to fetch equity curve:", res.status);
       return;
     }
 
@@ -1235,6 +1327,14 @@ async function fetchBacktestEquityCurve(runId) {
     renderEquityCurve(curve);
   } catch (err) {
     console.error("Error fetching equity curve:", err);
+    const svg = document.getElementById("backtest-equity-chart");
+    if (svg) {
+      svg.innerHTML = `
+        <text x="400" y="150" text-anchor="middle" fill="#ef4444" font-size="14">
+          Error loading equity curve
+        </text>
+      `;
+    }
   }
 }
 
