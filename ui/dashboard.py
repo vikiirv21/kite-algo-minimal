@@ -1891,6 +1891,61 @@ async def api_scanner_universe() -> JSONResponse:
     return JSONResponse(payload)
 
 
+@router.get("/api/market_data/window")
+async def api_market_data_window(
+    symbol: str = Query(..., description="Trading symbol (e.g., NIFTY24DECFUT)"),
+    timeframe: str = Query("5m", description="Timeframe (e.g., 1m, 5m, 15m, 1h, 1d)"),
+    limit: int = Query(50, ge=1, le=1000, description="Number of candles to return (max 1000)")
+) -> JSONResponse:
+    """
+    Return the last N candles for the specified symbol and timeframe.
+    This endpoint is used for charting and analysis in the dashboard.
+    
+    Returns:
+        JSON array of candle objects with format:
+        [{
+            "ts": "2024-11-15T10:30:00+00:00",
+            "open": 19500.0,
+            "high": 19525.0,
+            "low": 19490.0,
+            "close": 19510.0,
+            "volume": 12345.0
+        }, ...]
+    """
+    try:
+        from core.market_data_engine import MarketDataEngine
+        from core.kite_env import make_kite_client_from_files
+        
+        # Create Kite client
+        try:
+            kite = make_kite_client_from_files()
+        except Exception:
+            kite = None
+        
+        # Load universe for token resolution
+        universe_snapshot = load_cached_universe()
+        
+        # Create market data engine
+        cache_dir = ARTIFACTS_ROOT / "market_data"
+        mde = MarketDataEngine(kite, universe_snapshot, cache_dir=cache_dir)
+        
+        # Get window of candles
+        candles = mde.get_window(symbol.upper(), timeframe, limit)
+        
+        return JSONResponse({
+            "symbol": symbol.upper(),
+            "timeframe": timeframe,
+            "count": len(candles),
+            "candles": candles
+        })
+    except Exception as exc:
+        logger.exception("Failed to fetch market data window: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch market data: {str(exc)}"
+        ) from exc
+
+
 @router.get("/api/backtests/list")
 async def api_backtests_list() -> JSONResponse:
     runs = _list_backtest_runs()

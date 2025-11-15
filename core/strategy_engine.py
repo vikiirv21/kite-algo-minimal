@@ -60,9 +60,11 @@ class StrategyRunner:
         paper_engine: Any,
         *,
         allowed_strategies: Optional[Iterable[str]] = None,
+        market_data_engine: Optional[Any] = None,
     ) -> None:
         # state_store retained for backward compatibility (unused now)
         self.paper_engine = paper_engine
+        self.market_data_engine = market_data_engine
         self.allowed_strategies = {code.strip(): True for code in (allowed_strategies or []) if code}
         self.strategies: Dict[str, BaseStrategy] = {}
         self._load_strategies()

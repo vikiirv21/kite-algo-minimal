@@ -681,6 +681,18 @@ class PaperEngine:
                     self.last_prices[symbol] = price
             return price_cache[symbol]
 
+        # Update market data cache for all symbols before strategies run
+        if self.market_data_engine:
+            for symbol in self.universe:
+                try:
+                    # Determine timeframe - use default or symbol-specific
+                    logical = self.logical_alias.get(symbol, symbol)
+                    timeframes = self.multi_tf_config.get(logical, [self.default_timeframe])
+                    tf = timeframes[0] if timeframes else self.default_timeframe
+                    self.market_data_engine.update_cache(symbol, tf)
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("Market data cache update failed for %s: %s", symbol, exc)
+
         ticks = {}
         for symbol in self.universe:
             ltp = _ltp(symbol)
