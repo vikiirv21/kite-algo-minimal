@@ -138,4 +138,4 @@ To add a new indicator:
 5. Update this documentation (auto-generated)
 
 ---
-*Auto-generated on 2025-11-15T21:49:59.731691+00:00*
+*Auto-generated on 2025-11-15T21:51:37.963247+00:00*

@@ -74,4 +74,4 @@ WebSocket Ticks → Market Data Engine → Strategy Engine → Risk Engine → E
 See `Commands.md` for running the system in different modes.
 
 ---
-*Auto-generated on 2025-11-15T21:49:59.697129+00:00*
+*Auto-generated on 2025-11-15T21:51:37.928118+00:00*

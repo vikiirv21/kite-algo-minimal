@@ -245,4 +245,4 @@ python scripts/run_backtest.py --strategy NEW_STRATEGY
 ```
 
 ---
-*Auto-generated on 2025-11-15T21:49:59.737940+00:00*
+*Auto-generated on 2025-11-15T21:51:37.969522+00:00*

@@ -140,4 +140,4 @@ risk_engine.update_state(fill_info)
 ```
 
 ---
-*Auto-generated on 2025-11-15T21:49:59.729383+00:00*
+*Auto-generated on 2025-11-15T21:51:37.960899+00:00*

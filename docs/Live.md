@@ -122,4 +122,4 @@ risk:
 - View P&L and performance metrics
 
 ---
-*Auto-generated on 2025-11-15T21:49:59.725634+00:00*
+*Auto-generated on 2025-11-15T21:51:37.957135+00:00*
