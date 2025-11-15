@@ -31,6 +31,7 @@ import time
 from typing import Any, Dict, List, Literal, Sequence
 
 from datetime import date, datetime, timezone
+from pathlib import Path
 
 from core.config import AppConfig, load_config
 from core.logging_utils import setup_logging
@@ -38,6 +39,11 @@ from core.json_log import install_engine_json_logger
 from engine.paper_engine import PaperEngine
 from engine.options_paper_engine import OptionsPaperEngine
 from engine.equity_paper_engine import EquityPaperEngine
+from engine.live_engine import LiveEngine
+from broker.kite_bridge import KiteBroker
+from core.market_data_engine import MarketDataEngine
+from core.risk_engine import RiskEngine
+from core.strategy_engine_v2 import StrategyEngineV2
 # Unified file-based secrets (no OS env at runtime)
 
 from kiteconnect import KiteConnect, exceptions as kite_exceptions
@@ -53,9 +59,10 @@ from core.kite_env import (
 )
 
 
-
 logger = logging.getLogger(__name__)
 log = logger
+
+BASE_DIR = Path(__file__).resolve().parents[1]
 
 EngineKind = Literal["fno", "options", "equity"]
 LOGIN_HINT = "python -m scripts.run_day --login --engines none"
@@ -462,22 +469,77 @@ def start_engines_from_config(
     cfg_obj = cfg or load_config(config_path)
     registry: Dict[EngineKind, Dict[str, Any]] = {}
 
+    # Check if LIVE mode is enabled
+    mode = _mode_from_config(cfg_obj)
+    is_live_mode = mode == "LIVE"
+    
+    if is_live_mode:
+        logger.warning("⚠️ LIVE TRADING MODE DETECTED - REAL ORDERS WILL BE PLACED ⚠️")
+        logger.warning("⚠️ Ensure you have reviewed all settings and risk limits ⚠️")
+
     logical_override, symbol_map_override = _extract_universe_overrides(runtime_universe)
 
     for kind in desired:
         engine = None
         if kind == "fno":
-            journal_store = JournalStateStore(mode="paper")
-            checkpoint_store = StateStore(checkpoint_path=journal_store.checkpoint_path)
-            engine = PaperEngine(
-                cfg_obj,
-                journal_store=journal_store,
-                checkpoint_store=checkpoint_store,
-                kite=kite,
-                logical_universe_override=logical_override,
-                symbol_map_override=symbol_map_override,
-            )
+            if is_live_mode:
+                # LIVE mode: Use LiveEngine
+                logger.info("🔴 Starting LIVE engine for FnO...")
+                
+                # Create broker
+                broker_config = cfg_obj.raw.get("broker", {})
+                broker = KiteBroker(broker_config, logger_instance=logger)
+                
+                # Create market data engine
+                from core.universe_builder import load_universe
+                universe_snapshot = load_universe()
+                cache_dir = BASE_DIR / "artifacts" / "market_data"
+                market_data_engine = MarketDataEngine(kite, universe_snapshot, cache_dir=cache_dir)
+                
+                # Create strategy engine v2
+                strategy_engine_config = cfg_obj.raw.get("strategy_engine", {})
+                strategy_engine = StrategyEngineV2(
+                    strategy_engine_config,
+                    market_data_engine,
+                    risk_engine=None,  # Will be set later
+                    logger_instance=logger
+                )
+                
+                # Create risk engine
+                risk_config = cfg_obj.risk or {}
+                journal_store = JournalStateStore(mode="live")
+                checkpoint_store = StateStore(checkpoint_path=journal_store.checkpoint_path)
+                risk_engine = RiskEngine(risk_config, checkpoint_store.load_checkpoint() or {}, logger)
+                
+                # Connect strategy engine to risk engine
+                strategy_engine.risk_engine = risk_engine
+                
+                # Create live engine
+                engine = LiveEngine(
+                    cfg_obj,
+                    broker=broker,
+                    market_data_engine=market_data_engine,
+                    strategy_engine=strategy_engine,
+                    risk_engine=risk_engine,
+                    state_store=checkpoint_store,
+                    journal_store=journal_store,
+                )
+            else:
+                # PAPER mode: Use PaperEngine
+                journal_store = JournalStateStore(mode="paper")
+                checkpoint_store = StateStore(checkpoint_path=journal_store.checkpoint_path)
+                engine = PaperEngine(
+                    cfg_obj,
+                    journal_store=journal_store,
+                    checkpoint_store=checkpoint_store,
+                    kite=kite,
+                    logical_universe_override=logical_override,
+                    symbol_map_override=symbol_map_override,
+                )
         elif kind == "options":
+            if is_live_mode:
+                logger.warning("Options engine not yet implemented for LIVE mode - skipping")
+                continue
             engine = OptionsPaperEngine(
                 cfg_obj,
                 kite=kite,
@@ -485,6 +547,9 @@ def start_engines_from_config(
                 underlying_futs_override=symbol_map_override,
             )
         elif kind == "equity":
+            if is_live_mode:
+                logger.warning("Equity engine not yet implemented for LIVE mode - skipping")
+                continue
             engine = EquityPaperEngine(cfg_obj, kite=kite)
         else:
             logger.warning("Unknown engine type requested: %s", kind)
@@ -492,7 +557,7 @@ def start_engines_from_config(
 
         thread = _start_engine_thread(engine, f"engine-{kind}")
         registry[kind] = {"engine": engine, "thread": thread}
-        logger.info("Started %s engine in background thread.", kind)
+        logger.info("Started %s engine in background thread (mode=%s).", kind, mode)
 
     if not registry:
         logger.error("No engines started. Selection=%s", desired)
@@ -500,11 +565,17 @@ def start_engines_from_config(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Unified daily runbook for algo trading (paper mode).")
+    parser = argparse.ArgumentParser(description="Unified daily runbook for algo trading (paper or live mode).")
     parser.add_argument(
         "--config",
         default="configs/dev.yaml",
         help="Path to YAML config file (default: configs/dev.yaml).",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["paper", "live"],
+        default=None,
+        help="Trading mode: paper (simulation) or live (real orders). Overrides config file if provided.",
     )
     parser.add_argument(
         "--engines",
@@ -524,10 +595,28 @@ def main() -> None:
     setup_logging(cfg.logging)
     install_engine_json_logger()
     runtime_state, state_from_checkpoint = _load_or_init_runtime_state(cfg)
-    desired_mode = _mode_from_config(cfg)
+    
+    # Override mode if specified via CLI
+    if args.mode:
+        desired_mode = args.mode.upper()
+        logger.info("Mode override from CLI: %s", desired_mode)
+        # Update config trading section
+        if not hasattr(cfg, 'trading'):
+            cfg.trading = {}
+        cfg.trading["mode"] = desired_mode
+    else:
+        desired_mode = _mode_from_config(cfg)
+    
     runtime_state["mode"] = desired_mode
+    
+    if desired_mode == "LIVE":
+        logger.warning("=" * 80)
+        logger.warning("⚠️  LIVE TRADING MODE ACTIVE ⚠️")
+        logger.warning("⚠️  REAL ORDERS WILL BE PLACED VIA KITE ⚠️")
+        logger.warning("⚠️  Ensure all settings and risk limits are correct ⚠️")
+        logger.warning("=" * 80)
 
-    logger.info("Runbook starting with config=%s, engines=%s", args.config, args.engines)
+    logger.info("Runbook starting with config=%s, mode=%s, engines=%s", args.config, desired_mode, args.engines)
 
     selected_engines = _resolve_engine_selection(args.engines)
 
