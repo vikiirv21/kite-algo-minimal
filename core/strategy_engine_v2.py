@@ -201,10 +201,12 @@ class StrategyEngineV2:
         config: Dict[str, Any],
         market_data_engine: MarketDataEngine,
         risk_engine: Optional[Any] = None,
-        logger_instance: Optional[logging.Logger] = None
+        logger_instance: Optional[logging.Logger] = None,
+        market_data_engine_v2: Optional[Any] = None
     ):
         self.config = config
         self.market_data = market_data_engine
+        self.market_data_v2 = market_data_engine_v2  # Optional MDE v2 instance
         self.risk_engine = risk_engine
         self.logger = logger_instance or logger
         
@@ -471,3 +473,88 @@ class StrategyEngineV2:
             
         except Exception as e:
             self.logger.exception("Failed to execute intent for %s: %s", symbol, e)
+    
+    def on_candle_close(self, symbol: str, timeframe: str, candle: Dict[str, Any]) -> None:
+        """
+        Handler for MDE v2 candle close events.
+        
+        This is called by MarketDataEngineV2 when a candle closes.
+        It triggers strategy execution for the given symbol and timeframe.
+        
+        Args:
+            symbol: Trading symbol
+            timeframe: Timeframe (e.g., '5m')
+            candle: Closed candle dict
+        """
+        if not self.market_data_v2:
+            # MDE v2 not configured, skip
+            return
+            
+        self.logger.debug(
+            "Candle close event: %s %s @ %.2f",
+            symbol,
+            timeframe,
+            candle.get("close", 0.0),
+        )
+        
+        # Run all registered strategies for this symbol/timeframe
+        for strategy_code, strategy in self.strategies.items():
+            # Check if strategy is interested in this timeframe
+            strategy_tf = getattr(strategy, "timeframe", self.config.get("timeframe", "5m"))
+            if strategy_tf != timeframe:
+                continue
+                
+            try:
+                # Fetch candle window from MDE v2
+                candles = self.market_data_v2.get_candles(symbol, timeframe, self.window_size)
+                
+                if not candles or len(candles) < 20:
+                    self.logger.debug(
+                        "Insufficient candles for %s/%s: %d",
+                        symbol,
+                        timeframe,
+                        len(candles),
+                    )
+                    continue
+                    
+                # Build series dict
+                series = {
+                    "open": [c["open"] for c in candles],
+                    "high": [c["high"] for c in candles],
+                    "low": [c["low"] for c in candles],
+                    "close": [c["close"] for c in candles],
+                    "volume": [c.get("volume", 0) for c in candles],
+                }
+                
+                # Compute indicators
+                indicators = self.compute_indicators(series)
+                
+                # Run strategy
+                decision = strategy.generate_signal(candle, series, indicators)
+                
+                # Process decision
+                if decision and decision.action in ["BUY", "SELL", "EXIT"]:
+                    intent = OrderIntent(
+                        symbol=symbol,
+                        action=decision.action,
+                        qty=None,
+                        reason=decision.reason,
+                        strategy_code=strategy_code,
+                        confidence=getattr(decision, "confidence", 0.0),
+                        metadata={"timeframe": timeframe}
+                    )
+                    self._process_intent(intent, symbol, timeframe, strategy_code)
+                    
+                # Also collect any pending intents
+                pending = strategy.get_pending_intents()
+                for intent in pending:
+                    self._process_intent(intent, symbol, timeframe, strategy_code)
+                    
+            except Exception as exc:
+                self.logger.exception(
+                    "Error processing candle close for %s/%s in strategy %s: %s",
+                    symbol,
+                    timeframe,
+                    strategy_code,
+                    exc,
+                )
