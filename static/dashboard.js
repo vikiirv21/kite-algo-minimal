@@ -995,7 +995,335 @@ document.addEventListener("DOMContentLoaded", () => {
   setInterval(fetchConfigSummary, 30000);
   setInterval(fetchTodaySummary, 30000);
 
+  // Backtests tab initialization
+  fetchBacktestRuns();
+
   // state polling every 3s (tune as you like)
   refreshState();
   setInterval(refreshState, 3000);
 });
+
+// ===== Backtests Tab =====
+
+let currentBacktestRunId = null;
+
+async function fetchBacktestRuns() {
+  try {
+    const res = await fetch("/api/backtests");
+    if (!res.ok) {
+      console.error("Failed to fetch backtest runs:", res.status);
+      return;
+    }
+
+    const data = await res.json();
+    const runs = data.runs || [];
+
+    const countBadge = document.getElementById("backtests-count");
+    if (countBadge) {
+      countBadge.textContent = runs.length;
+    }
+
+    const listContainer = document.getElementById("backtests-list");
+    if (!listContainer) return;
+
+    if (runs.length === 0) {
+      listContainer.innerHTML = `
+        <div class="backtests-empty-state">
+          <p>No backtests found.</p>
+          <p class="text-muted small">Run <code>scripts/run_backtest.py</code> to generate one.</p>
+        </div>
+      `;
+      return;
+    }
+
+    listContainer.innerHTML = "";
+
+    runs.forEach((run) => {
+      const item = document.createElement("div");
+      item.className = "backtest-run-item";
+      item.dataset.runId = `${run.strategy}/${run.run_id}`;
+
+      const pnl = parseFloat(run.net_pnl || 0);
+      const pnlClass = pnl > 0 ? "positive" : pnl < 0 ? "negative" : "neutral";
+      const pnlText = formatInr(pnl, 0);
+
+      const winRate = parseFloat(run.win_rate || 0).toFixed(1);
+      const totalTrades = parseInt(run.total_trades || 0);
+
+      // Format date range
+      const dateFrom = run.date_from ? run.date_from.split("T")[0] : "N/A";
+      const dateTo = run.date_to ? run.date_to.split("T")[0] : "N/A";
+
+      item.innerHTML = `
+        <div class="backtest-run-header">
+          <span class="backtest-run-strategy">${escapeHtml(run.strategy)}</span>
+          <span class="backtest-run-pnl ${pnlClass}">${pnlText}</span>
+        </div>
+        <div class="backtest-run-meta">
+          <div class="backtest-run-meta-item">
+            <span>Symbol:</span>
+            <span>${escapeHtml(run.symbol)}</span>
+          </div>
+          <div class="backtest-run-meta-item">
+            <span>TF:</span>
+            <span>${escapeHtml(run.timeframe || "N/A")}</span>
+          </div>
+          <div class="backtest-run-meta-item">
+            <span>Trades:</span>
+            <span>${totalTrades}</span>
+          </div>
+          <div class="backtest-run-meta-item">
+            <span>Win%:</span>
+            <span>${winRate}%</span>
+          </div>
+          <div class="backtest-run-meta-item">
+            <span>Period:</span>
+            <span>${dateFrom}</span>
+          </div>
+          <div class="backtest-run-meta-item">
+            <span>to:</span>
+            <span>${dateTo}</span>
+          </div>
+        </div>
+      `;
+
+      item.addEventListener("click", () => {
+        selectBacktestRun(item.dataset.runId);
+      });
+
+      listContainer.appendChild(item);
+    });
+  } catch (err) {
+    console.error("Error fetching backtest runs:", err);
+  }
+}
+
+function selectBacktestRun(runId) {
+  currentBacktestRunId = runId;
+
+  // Update selected state
+  document.querySelectorAll(".backtest-run-item").forEach((item) => {
+    if (item.dataset.runId === runId) {
+      item.classList.add("selected");
+    } else {
+      item.classList.remove("selected");
+    }
+  });
+
+  // Show loading state
+  const emptyState = document.getElementById("backtests-detail-empty");
+  const contentState = document.getElementById("backtests-detail-content");
+
+  if (emptyState) emptyState.style.display = "none";
+  if (contentState) contentState.style.display = "block";
+
+  // Fetch details
+  fetchBacktestDetails(runId);
+  fetchBacktestEquityCurve(runId);
+}
+
+async function fetchBacktestDetails(runId) {
+  try {
+    const res = await fetch(`/api/backtests/${encodeURIComponent(runId)}/summary`);
+    if (!res.ok) {
+      console.error("Failed to fetch backtest details:", res.status);
+      return;
+    }
+
+    const data = await res.json();
+    const summary = data.summary || {};
+    const summaryData = summary.summary || {};
+    const config = summary.config || {};
+
+    // Update title
+    const titleEl = document.getElementById("backtest-detail-title");
+    if (titleEl) {
+      titleEl.textContent = `Backtest: ${summary.strategy || "Unknown"}`;
+    }
+
+    // Update badge
+    const badgeEl = document.getElementById("backtest-detail-badge");
+    if (badgeEl) {
+      const pnl = parseFloat(summaryData.total_pnl || 0);
+      badgeEl.textContent = pnl > 0 ? "Profitable" : pnl < 0 ? "Loss" : "Break Even";
+      badgeEl.className = "badge " + (pnl > 0 ? "badge-open" : pnl < 0 ? "badge-closed" : "badge-muted");
+    }
+
+    // Update header details
+    setText("backtest-strategy", summary.strategy || "N/A");
+    setText("backtest-symbol", Array.isArray(config.symbols) ? config.symbols.join(", ") : config.symbols || "N/A");
+    setText("backtest-timeframe", config.timeframe || "N/A");
+    setText("backtest-date-range", `${config.from || "N/A"} to ${config.to || "N/A"}`);
+    setText("backtest-capital", formatInr(config.capital || 0, 0));
+    setText("backtest-run-id", runId);
+
+    // Update metrics
+    const netPnl = parseFloat(summaryData.total_pnl || 0);
+    const totalTrades = parseInt(summaryData.total_trades || 0);
+    const winRate = parseFloat(summaryData.win_rate || 0);
+    const wins = parseInt(summaryData.wins || 0);
+    const losses = parseInt(summaryData.losses || 0);
+    const maxDd = parseFloat(summaryData.max_drawdown_pct || 0);
+
+    setTextWithClass("backtest-net-pnl", formatInr(netPnl, 2), netPnl > 0 ? "positive" : netPnl < 0 ? "negative" : "");
+    setText("backtest-total-trades", totalTrades);
+    setText("backtest-win-rate", `${winRate.toFixed(1)}%`);
+    setText("backtest-wins-losses", `${wins} / ${losses}`);
+    setText("backtest-max-dd", `${maxDd.toFixed(2)}%`);
+
+    // Calculate profit factor if available
+    const grossProfit = parseFloat(summaryData.gross_profit || 0);
+    const grossLoss = Math.abs(parseFloat(summaryData.gross_loss || 0));
+    const profitFactor = grossLoss > 0 ? (grossProfit / grossLoss).toFixed(2) : "—";
+    setText("backtest-profit-factor", profitFactor);
+  } catch (err) {
+    console.error("Error fetching backtest details:", err);
+  }
+}
+
+async function fetchBacktestEquityCurve(runId) {
+  try {
+    const res = await fetch(`/api/backtests/${encodeURIComponent(runId)}/equity_curve`);
+    if (!res.ok) {
+      console.error("Failed to fetch equity curve:", res.status);
+      return;
+    }
+
+    const data = await res.json();
+    const curve = data.equity_curve || [];
+
+    const pointsEl = document.getElementById("equity-curve-points");
+    if (pointsEl) {
+      pointsEl.textContent = `${curve.length} pts`;
+    }
+
+    renderEquityCurve(curve);
+  } catch (err) {
+    console.error("Error fetching equity curve:", err);
+  }
+}
+
+function renderEquityCurve(curve) {
+  const svg = document.getElementById("backtest-equity-chart");
+  if (!svg || curve.length === 0) {
+    if (svg) {
+      svg.innerHTML = `
+        <text x="400" y="150" text-anchor="middle" fill="#94a3b8" font-size="14">
+          No equity curve data available
+        </text>
+      `;
+    }
+    return;
+  }
+
+  // Extract equity values
+  const equities = curve.map((p) => parseFloat(p.equity || 0));
+  const minEquity = Math.min(...equities);
+  const maxEquity = Math.max(...equities);
+
+  // Add padding
+  const range = maxEquity - minEquity;
+  const padding = range * 0.1 || 1000;
+  const yMin = minEquity - padding;
+  const yMax = maxEquity + padding;
+
+  const width = 800;
+  const height = 300;
+  const margin = { top: 20, right: 40, bottom: 30, left: 60 };
+  const chartWidth = width - margin.left - margin.right;
+  const chartHeight = height - margin.top - margin.bottom;
+
+  // Scale functions
+  const xScale = (i) => margin.left + (i / (curve.length - 1 || 1)) * chartWidth;
+  const yScale = (val) => margin.top + chartHeight - ((val - yMin) / (yMax - yMin)) * chartHeight;
+
+  // Build path
+  let pathData = "";
+  curve.forEach((point, i) => {
+    const x = xScale(i);
+    const y = yScale(parseFloat(point.equity || 0));
+    pathData += i === 0 ? `M ${x} ${y}` : ` L ${x} ${y}`;
+  });
+
+  // Clear and render
+  svg.innerHTML = "";
+
+  // Grid lines
+  const numGridLines = 5;
+  for (let i = 0; i <= numGridLines; i++) {
+    const y = margin.top + (i / numGridLines) * chartHeight;
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("x1", margin.left);
+    line.setAttribute("x2", width - margin.right);
+    line.setAttribute("y1", y);
+    line.setAttribute("y2", y);
+    line.setAttribute("stroke", "rgba(148, 163, 184, 0.2)");
+    line.setAttribute("stroke-width", "1");
+    svg.appendChild(line);
+
+    // Y-axis label
+    const value = yMax - (i / numGridLines) * (yMax - yMin);
+    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    text.setAttribute("x", margin.left - 10);
+    text.setAttribute("y", y + 4);
+    text.setAttribute("text-anchor", "end");
+    text.setAttribute("fill", "#94a3b8");
+    text.setAttribute("font-size", "10");
+    text.textContent = formatInr(value, 0);
+    svg.appendChild(text);
+  }
+
+  // Equity curve path
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", pathData);
+  path.setAttribute("fill", "none");
+  path.setAttribute("stroke", "#22c55e");
+  path.setAttribute("stroke-width", "2");
+  svg.appendChild(path);
+
+  // Starting equity line
+  const startEquity = equities[0];
+  const startY = yScale(startEquity);
+  const startLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  startLine.setAttribute("x1", margin.left);
+  startLine.setAttribute("x2", width - margin.right);
+  startLine.setAttribute("y1", startY);
+  startLine.setAttribute("y2", startY);
+  startLine.setAttribute("stroke", "#6366f1");
+  startLine.setAttribute("stroke-width", "1");
+  startLine.setAttribute("stroke-dasharray", "4");
+  svg.appendChild(startLine);
+
+  // Title
+  const title = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  title.setAttribute("x", width / 2);
+  title.setAttribute("y", 15);
+  title.setAttribute("text-anchor", "middle");
+  title.setAttribute("fill", "#e5e7eb");
+  title.setAttribute("font-size", "12");
+  title.setAttribute("font-weight", "600");
+  title.textContent = "Equity Over Time";
+  svg.appendChild(title);
+}
+
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
+}
+
+function setTextWithClass(id, value, className) {
+  const el = document.getElementById(id);
+  if (el) {
+    el.textContent = value;
+    if (className) {
+      el.className = "metric-value " + className;
+    }
+  }
+}
+
+function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
