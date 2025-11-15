@@ -409,13 +409,16 @@ function renderHealthSummary(payload) {
   }
 }
 
-function renderLogsPanel(entries) {
+function renderLogsPanel(data) {
   const pre = document.getElementById("logs-body");
   const countEl = document.getElementById("logs-count");
   const tabPre = document.getElementById("logs-stream");
   if (!pre) {
     return;
   }
+
+  // Extract entries from response
+  const entries = data.logs || data.entries || data || [];
 
   if (!Array.isArray(entries) || entries.length === 0) {
     const emptyMsg = "No logs available.";
@@ -617,7 +620,8 @@ async function fetchRecentOrders() {
       throw new Error(`HTTP ${res.status}`);
     }
     const data = await res.json();
-    renderRecentOrders(data);
+    const orders = data.orders || data || [];
+    renderRecentOrders(orders);
   } catch (err) {
     console.error("Failed to fetch recent orders:", err);
   }
