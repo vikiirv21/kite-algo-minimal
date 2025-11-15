@@ -409,13 +409,16 @@ function renderHealthSummary(payload) {
   }
 }
 
-function renderLogsPanel(entries) {
+function renderLogsPanel(data) {
   const pre = document.getElementById("logs-body");
   const countEl = document.getElementById("logs-count");
   const tabPre = document.getElementById("logs-stream");
   if (!pre) {
     return;
   }
+
+  // Extract entries from response
+  const entries = data.logs || data.entries || data || [];
 
   if (!Array.isArray(entries) || entries.length === 0) {
     const emptyMsg = "No logs available.";
@@ -454,9 +457,13 @@ async function fetchHealth() {
   }
 }
 
-async function fetchRecentLogs() {
+async function fetchRecentLogs(kind = null) {
   try {
-    const res = await fetch("/api/logs/recent?limit=120");
+    let url = "/api/logs/recent?limit=120";
+    if (kind) {
+      url += `&kind=${encodeURIComponent(kind)}`;
+    }
+    const res = await fetch(url);
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
@@ -465,6 +472,32 @@ async function fetchRecentLogs() {
   } catch (err) {
     console.error("Failed to fetch recent logs:", err);
   }
+}
+
+function setupLogsTabs() {
+  const logsTabs = document.querySelectorAll(".logs-tab");
+  let currentLogsKind = null;
+  let logsRefreshInterval = null;
+
+  logsTabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const kind = tab.getAttribute("data-log-kind") || null;
+      currentLogsKind = kind;
+
+      // Update active tab
+      logsTabs.forEach((t) => t.classList.remove("active"));
+      tab.classList.add("active");
+
+      // Fetch logs for this kind
+      fetchRecentLogs(kind);
+
+      // Clear and restart the refresh interval
+      if (logsRefreshInterval) {
+        clearInterval(logsRefreshInterval);
+      }
+      logsRefreshInterval = setInterval(() => fetchRecentLogs(kind), 15000);
+    });
+  });
 }
 
 function renderOpenPositions(positions) {
@@ -617,7 +650,8 @@ async function fetchRecentOrders() {
       throw new Error(`HTTP ${res.status}`);
     }
     const data = await res.json();
-    renderRecentOrders(data);
+    const orders = data.orders || data || [];
+    renderRecentOrders(orders);
   } catch (err) {
     console.error("Failed to fetch recent orders:", err);
   }
@@ -970,6 +1004,7 @@ async function refreshState() {
 
 document.addEventListener("DOMContentLoaded", () => {
   setupTabs();
+  setupLogsTabs();
   refreshMeta();
   setInterval(refreshMeta, 5000);
   refreshEngines();
