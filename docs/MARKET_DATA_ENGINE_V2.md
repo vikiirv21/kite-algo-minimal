@@ -1,182 +1,77 @@
-# Market Data Engine v2 - Implementation Summary
+# Market Data Engine v2 (MDE v2)
 
 ## Overview
-This implementation integrates the Market Data Engine v2 with the existing trading infrastructure, providing unified candle cache management, historical data fetching, and replay capabilities.
 
-## Changes Made
+Market Data Engine v2 (MDE v2) is a robust, event-driven market data processing system that serves as the single source of truth for:
 
-### 1. Core Module Updates
+- **Real-time ticks** (live or replay)
+- **Multi-timeframe candle building**
+- **Historical data replay** for backtesting
+- **Strategy triggers** via event callbacks
 
-#### `core/strategy_engine.py`
-- **Modified**: `StrategyRunner.__init__()` to accept optional `market_data_engine` parameter
-- **Purpose**: Enable strategies to access historical market data through MarketDataEngine
-- **Impact**: Backward compatible - parameter is optional, existing code continues to work
+## Key Features
 
-#### `core/market_data_engine.py` (No changes needed)
-- Already exists with full implementation of required functionality:
-  - `load_cache()`, `save_cache()` - Cache management
-  - `fetch_historical()`, `fetch_latest()` - Kite API integration
-  - `update_cache()` - Merge latest candles into cache
-  - `get_latest_candle()`, `get_window()` - Data retrieval
-  - `replay()` - Backtest support with timestamp filtering
+### 1. Event-Driven Architecture
 
-### 2. Engine Updates
+MDE v2 uses callbacks for candle lifecycle events:
 
-#### `engine/paper_engine.py`
-- **Modified**: Main loop `_loop_once()` method
-- **Added**: Cache update logic before strategy execution
-  ```python
-  # Update market data cache for all symbols before strategies run
-  if self.market_data_engine:
-      for symbol in self.universe:
-          logical = self.logical_alias.get(symbol, symbol)
-          timeframes = self.multi_tf_config.get(logical, [self.default_timeframe])
-          tf = timeframes[0] if timeframes else self.default_timeframe
-          self.market_data_engine.update_cache(symbol, tf)
-  ```
-- **Purpose**: Ensure fresh market data is cached before strategies run each tick
-- **Impact**: Strategies now have access to updated candle data for technical analysis
+- `on_candle_open`: Fired when a new candle starts
+- `on_candle_update`: Fired on each tick that updates a candle
+- `on_candle_close`: Fired when a candle completes
 
-### 3. Dashboard API
+This decouples market data processing from strategy logic.
 
-#### `ui/dashboard.py`
-- **Added**: New endpoint `/api/market_data/window`
-- **Parameters**:
-  - `symbol`: Trading symbol (required)
-  - `timeframe`: Candle timeframe (default: 5m)
-  - `limit`: Number of candles to return (1-1000, default: 50)
-- **Response Format**:
-  ```json
-  {
-    "symbol": "NIFTY24DECFUT",
-    "timeframe": "5m",
-    "count": 50,
-    "candles": [
-      {
-        "ts": "2024-11-15T10:00:00+00:00",
-        "open": 19500.0,
-        "high": 19525.0,
-        "low": 19490.0,
-        "close": 19510.0,
-        "volume": 12345.0
-      },
-      ...
-    ]
-  }
-  ```
-- **Purpose**: Enable dashboard charting and technical analysis visualization
+### 2. Multi-Timeframe Support
 
-### 4. Scripts
+MDE v2 simultaneously builds candles for multiple timeframes:
 
-#### `scripts/refresh_market_cache.py` (New)
-- **Purpose**: Warm the market data cache at start of day or on-demand
-- **Usage**:
-  ```bash
-  # Refresh all symbols from config
-  python scripts/refresh_market_cache.py
-  
-  # Refresh specific symbols
-  python scripts/refresh_market_cache.py --symbols NIFTY BANKNIFTY
-  
-  # Custom timeframe and count
-  python scripts/refresh_market_cache.py --timeframe 1m --count 500
-  ```
-- **Features**:
-  - Supports FnO symbol resolution
-  - Configurable timeframe and candle count
-  - Detailed logging and error reporting
-  - Summary statistics
+- **Supported**: 1m, 3m, 5m, 10m, 15m, 30m, 60m (1h)
+- **Efficient**: Single tick updates all relevant timeframes
+- **Independent**: Each symbol+timeframe tracked separately
 
-### 5. Tests
+### 3. Data Validation
 
-#### `tests/test_market_data_integration.py` (New)
-- **Coverage**:
-  - StrategyRunner accepts MarketDataEngine parameter
-  - MarketDataEngine basic operations (save/load/window)
-  - refresh_market_cache.py script existence
-  - Dashboard API endpoint registration
-  - PaperEngine integration
-- **Results**: All tests pass ✓
+Built-in safeguards:
 
-## Backward Compatibility
+- **Stale tick detection**: Ignores old data
+- **Invalid price filtering**: Rejects null/negative prices
+- **Anomaly detection**: Flags >5% price jumps
 
-All changes maintain backward compatibility:
+## Configuration
 
-1. **StrategyRunner**: MarketDataEngine parameter is optional
-2. **PaperEngine**: Cache updates are safe - fail gracefully if MDE unavailable
-3. **Existing Strategies**: Continue to work with tick-based data
-4. **MarketDataEngine**: Can operate without Kite client (offline mode)
+Enable in `configs/dev.yaml`:
 
-## Integration Points
-
-The implementation integrates seamlessly with:
-
-- ✓ **TradeState**: No conflicts, operates independently
-- ✓ **RiskEngine**: No conflicts, operates independently  
-- ✓ **StrategyEngine**: Enhanced with market data access
-- ✓ **PaperEngine**: Cache updates before strategy execution
-- ✓ **Dashboard**: New API endpoint for candle data
-
-## Cache Storage
-
-Market data is cached at:
-```
-artifacts/market_data/<SYMBOL>_<TIMEFRAME>.json
+```yaml
+data:
+  use_mde_v2: true
+  feed: "kite"              # "kite", "replay", or "mock"
+  timeframes: ["1m", "5m"]
+  replay_speed: 1.0
 ```
 
-Example:
-- `artifacts/market_data/NIFTY24DECFUT_5m.json`
-- `artifacts/market_data/BANKNIFTY24DECFUT_1m.json`
+## Usage Example
 
-## Security
+```python
+from core.market_data_engine_v2 import MarketDataEngineV2
 
-- ✓ CodeQL scan: **0 vulnerabilities found**
-- ✓ No secrets or credentials in code
-- ✓ Safe file operations with proper error handling
-- ✓ Input validation on API endpoints
+# Initialize
+config = {"data": {"feed": "kite", "timeframes": ["1m", "5m"]}}
+mde = MarketDataEngineV2(config=config, broker=kite_broker)
 
-## Performance Considerations
+# Subscribe & start
+mde.subscribe_symbols(["NIFTY24DECFUT"])
+mde.start()
 
-1. **Cache Updates**: Occur once per symbol per tick (configurable interval)
-2. **Memory**: Candles stored on disk, loaded on-demand
-3. **Network**: Minimal - only fetches new candles via Kite API
-4. **Disk I/O**: Optimized with in-memory cache layer
-
-## Future Enhancements (Not in Scope)
-
-- Multi-timeframe candle aggregation
-- Real-time WebSocket integration
-- Advanced cache eviction policies
-- Candle compression for storage optimization
-
-## Testing
-
-Run tests:
-```bash
-python tests/test_market_data_integration.py
+# Register callback
+def on_candle_close(symbol, timeframe, candle):
+    print(f"Candle closed: {symbol} {timeframe}")
+mde.on_candle_close_handlers.append(on_candle_close)
 ```
 
-Test cache refresh:
-```bash
-# Dry run (will fail without valid Kite credentials)
-python scripts/refresh_market_cache.py --symbols TEST --help
-```
+## Dashboard API
 
-## Files Changed
+- `GET /api/market_data/latest_tick?symbol=NIFTY24DECFUT`
+- `GET /api/market_data/candles?symbol=...&timeframe=5m&limit=100`
+- `GET /api/market_data/v2/stats`
 
-1. `core/strategy_engine.py` - Add MarketDataEngine parameter
-2. `engine/paper_engine.py` - Add cache updates in main loop
-3. `ui/dashboard.py` - Add market data API endpoint
-4. `scripts/refresh_market_cache.py` - New cache refresh script
-5. `tests/test_market_data_integration.py` - New integration tests
-
-## Summary
-
-The Market Data Engine v2 integration is complete and production-ready:
-
-- ✅ All functionality implemented as specified
-- ✅ Backward compatible with existing code
-- ✅ Tests pass (5/5)
-- ✅ No security vulnerabilities
-- ✅ Documentation complete
-- ✅ Ready for code review
+See full documentation for detailed API reference and examples.
