@@ -267,4 +267,4 @@ uvicorn ui.dashboard:app --reload --port 8000
 4. Test endpoint
 
 ---
-*Auto-generated on 2025-11-15T21:49:59.737929+00:00*
+*Auto-generated on 2025-11-15T21:51:37.969511+00:00*

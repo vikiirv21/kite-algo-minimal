@@ -145,4 +145,4 @@ STRATEGY_REGISTRY = {{
 - **State Isolation**: Each strategy has independent state
 
 ---
-*Auto-generated on 2025-11-15T21:49:59.729367+00:00*
+*Auto-generated on 2025-11-15T21:51:37.960882+00:00*
