@@ -73,6 +73,17 @@ from analytics.trade_journal import finalize_trade, TRADE_JOURNAL_FIELDS
 from analytics.multi_timeframe_engine import MultiTimeframeEngine
 from core.strategy_engine import StrategyRunner
 
+# Strategy Engine v2 (optional - fallback to v1 if not available)
+try:
+    from core.strategy_engine_v2 import StrategyEngineV2, StrategyState
+    from strategies.ema20_50_intraday_v2 import EMA2050IntradayV2
+    STRATEGY_ENGINE_V2_AVAILABLE = True
+except ImportError:
+    STRATEGY_ENGINE_V2_AVAILABLE = False
+    StrategyEngineV2 = None
+    StrategyState = None
+    EMA2050IntradayV2 = None
+
 from engine.meta_strategy_engine import (
     MetaDecision,
     MetaStrategyEngine,
@@ -543,11 +554,56 @@ class PaperEngine:
         universe_snapshot = load_universe()
         cache_dir = self.artifacts_dir / "market_data"
         self.market_data_engine = MarketDataEngine(self.kite, universe_snapshot, cache_dir=cache_dir)
-        self.strategy_runner = StrategyRunner(
-            self.state_store,
-            self,
-            market_data_engine=self.market_data_engine,
-        )
+        
+        # Initialize Strategy Engine (v1 or v2 based on config)
+        strategy_engine_config = self.cfg.raw.get("strategy_engine", {})
+        strategy_engine_version = strategy_engine_config.get("version", 1)
+        
+        if strategy_engine_version == 2 and STRATEGY_ENGINE_V2_AVAILABLE:
+            # Initialize Strategy Engine v2
+            logger.info("Initializing Strategy Engine v2")
+            v2_config = {
+                "history_lookback": strategy_engine_config.get("window_size", 200),
+                "strategies": strategy_engine_config.get("strategies_v2", []),
+                "timeframe": self.default_timeframe,
+            }
+            self.strategy_engine_v2 = StrategyEngineV2(
+                v2_config,
+                self.market_data_engine,
+                risk_engine=None,  # Will be set later
+                logger_instance=logger
+            )
+            self.strategy_engine_v2.set_paper_engine(self)
+            
+            # Register v2 strategies
+            for strategy_code in strategy_engine_config.get("strategies_v2", []):
+                if strategy_code == "ema20_50_intraday_v2":
+                    state = StrategyState()
+                    strategy_config = {
+                        "name": strategy_code,
+                        "timeframe": self.default_timeframe,
+                        "ema_fast": 20,
+                        "ema_slow": 50,
+                    }
+                    strategy = EMA2050IntradayV2(strategy_config, state)
+                    self.strategy_engine_v2.register_strategy(strategy_code, strategy)
+                    logger.info("Registered v2 strategy: %s", strategy_code)
+            
+            self.strategy_runner = None  # Disable v1 when using v2
+            logger.info("Strategy Engine v2 initialized with %d strategies", 
+                       len(strategy_engine_config.get("strategies_v2", [])))
+        else:
+            # Use legacy Strategy Engine v1
+            if strategy_engine_version == 2:
+                logger.warning("Strategy Engine v2 requested but not available, falling back to v1")
+            logger.info("Using Strategy Engine v1 (legacy)")
+            self.strategy_runner = StrategyRunner(
+                self.state_store,
+                self,
+                market_data_engine=self.market_data_engine,
+            )
+            self.strategy_engine_v2 = None
+        
         risk_config = self.cfg.risk or {}
         self.risk_engine = RiskEngine(risk_config, self.state_store.load_checkpoint() or {}, logger)
 
@@ -699,7 +755,13 @@ class PaperEngine:
             if ltp is not None:
                 ticks[symbol] = {"close": ltp}
 
-        if self.strategy_runner:
+        # Run strategy engine (v1 or v2 based on initialization)
+        if self.strategy_engine_v2:
+            # Use Strategy Engine v2
+            symbols = list(self.universe)
+            self.strategy_engine_v2.run(symbols)
+        elif self.strategy_runner:
+            # Use Strategy Engine v1 (legacy)
             self.strategy_runner.run(ticks)
 
         # Enforce per-trade stop-loss on open positions
