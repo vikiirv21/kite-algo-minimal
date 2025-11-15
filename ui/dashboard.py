@@ -1963,6 +1963,111 @@ async def api_backtests_result(
     return JSONResponse(payload)
 
 
+# --- New Backtest Explorer API endpoints ---
+
+@router.get("/api/backtests")
+async def api_backtests() -> JSONResponse:
+    """
+    List all available backtest runs with summary information.
+    
+    Returns:
+        {
+            "runs": [
+                {
+                    "run_id": "2025-11-14_1545",
+                    "strategy": "ema20_50_intraday",
+                    "symbol": "NIFTY",
+                    "timeframe": "5m",
+                    "date_from": "2025-11-01",
+                    "date_to": "2025-11-14",
+                    "net_pnl": 12500.50,
+                    "win_rate": 65.5,
+                    "total_trades": 42,
+                    "created_at": 1700000000.0
+                },
+                ...
+            ]
+        }
+    """
+    try:
+        from core.backtest_registry import list_backtest_runs
+        runs = list_backtest_runs(str(BACKTESTS_ROOT))
+        return JSONResponse({"runs": runs})
+    except Exception as exc:
+        logger.exception("Failed to list backtest runs: %s", exc)
+        return JSONResponse({"runs": []})
+
+
+@router.get("/api/backtests/{run_id:path}/summary")
+async def api_backtest_summary(run_id: str) -> JSONResponse:
+    """
+    Get full summary data for a specific backtest run.
+    
+    Args:
+        run_id: Full path like "ema20_50_intraday/2025-11-14_1545"
+    
+    Returns:
+        {
+            "run_id": "ema20_50_intraday/2025-11-14_1545",
+            "summary": { ... full result.json contents ... }
+        }
+    """
+    try:
+        from core.backtest_registry import load_backtest_summary
+        summary = load_backtest_summary(run_id, str(BACKTESTS_ROOT))
+        
+        if summary is None:
+            raise HTTPException(status_code=404, detail="Backtest run not found")
+        
+        return JSONResponse({
+            "run_id": run_id,
+            "summary": summary,
+        })
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to load backtest summary for %s: %s", run_id, exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to load backtest summary: {str(exc)}"
+        ) from exc
+
+
+@router.get("/api/backtests/{run_id:path}/equity_curve")
+async def api_backtest_equity_curve(run_id: str) -> JSONResponse:
+    """
+    Get equity curve data for a specific backtest run.
+    
+    Args:
+        run_id: Full path like "ema20_50_intraday/2025-11-14_1545"
+    
+    Returns:
+        {
+            "run_id": "ema20_50_intraday/2025-11-14_1545",
+            "equity_curve": [
+                {"ts": "2025-11-14T10:30:00", "equity": 1000050.0, "pnl": 50.0},
+                {"ts": "2025-11-14T10:35:00", "equity": 1000125.0, "pnl": 125.0},
+                ...
+            ]
+        }
+    """
+    try:
+        from core.backtest_registry import load_backtest_equity_curve
+        curve = load_backtest_equity_curve(run_id, str(BACKTESTS_ROOT))
+        
+        return JSONResponse({
+            "run_id": run_id,
+            "equity_curve": curve,
+        })
+    except Exception as exc:
+        logger.exception("Failed to load equity curve for %s: %s", run_id, exc)
+        # Return empty curve instead of error to handle missing data gracefully
+        return JSONResponse({
+            "run_id": run_id,
+            "equity_curve": [],
+        })
+
+
 @router.get("/api/logs/recent")
 async def api_logs_recent(
     limit: int = Query(150, ge=10, le=500),
