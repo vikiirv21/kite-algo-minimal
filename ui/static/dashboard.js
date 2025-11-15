@@ -1,1120 +1,1329 @@
-async function fetchJSON(url) {
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) {
-    throw new Error(res.status + " " + res.statusText);
+// Simple tab switching + meta refresh.
+// You can later plug in your existing /api/state polling in the TODO section.
+
+let marketClockOffsetMs = null;
+let clockTimerId = null;
+const currencyFormatters = {};
+
+function formatInr(value, fractionDigits = 2) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return "—";
   }
-  return res.json();
+  const key = `inr-${fractionDigits}`;
+  if (!currencyFormatters[key]) {
+    currencyFormatters[key] = new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: "INR",
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
+    });
+  }
+  return currencyFormatters[key].format(Number(value));
 }
 
-function formatMoney(v) {
-  const value = Number(v);
-  if (Number.isNaN(value)) return "\u20b90";
-  const sign = value < 0 ? "-" : "";
-  const num = Math.abs(value).toFixed(0);
-  return sign + "\u20b9" + Number(num).toLocaleString("en-IN");
-}
-
-function formatPct(v, decimals = 1) {
-  if (v === null || v === undefined || Number.isNaN(Number(v))) return "0.0%";
-  return Number(v).toFixed(decimals) + "%";
-}
-
-function kpiClassForValue(v) {
-  if (v > 0) return "kpi-main pos";
-  if (v < 0) return "kpi-main neg";
-  return "kpi-main";
-}
-
-const LOG_TAB_KINDS = {
-  engine: "engine",
-  trades: "trades",
-  signals: "signals",
-  system: "system",
-};
-
-const LOG_LEVEL_META = {
-  INFO: { icon: "ℹ️", cls: "log-info" },
-  WARN: { icon: "⚠️", cls: "log-warn" },
-  ERROR: { icon: "❗", cls: "log-error" },
-  DEBUG: { icon: "🐞", cls: "log-debug" },
-};
-
-let activeLogTab = "engine";
-let followLogTail = true;
-let logRefreshTimer = null;
-let serverClockOffsetMs = null;
-let logClockTimer = null;
-let serverClockPollTimer = null;
-
-let backtestRunsIndex = [];
-let backtestRunsByStrategy = new Map();
-let backtestSelectedStrategy = "";
-let backtestSelectedPath = "";
-let backtestCurrentData = null;
-
-    /* ---------- Header pills ---------- */
-
-    function setPill(pillId, dotId, status, labelValue) {
-      const pill = document.getElementById(pillId);
-      const dot  = document.getElementById(dotId);
-      const valueEl = pill?.querySelector(".pill-value");
-      if (!pill || !dot || !valueEl) return;
-
-      let color = "amber";
-      if (status === "ok" || status === "open" || status === "running") color = "green";
-      if (status === "bad" || status === "closed") color = "red";
-
-      dot.className = "pill-dot " + color;
-      valueEl.textContent = labelValue;
-    }
-
-    async function updateHeaderPills() {
-      try {
-        const [eng, auth] = await Promise.all([
-          fetchJSON("/api/engines/status"),
-          fetchJSON("/api/auth/status"),
-        ]);
-
-        const e = (eng.engines || [])[0] || {};
-        setPill("pill-engine", "pill-engine-dot", e.running ? "running" : "bad", e.running ? "Running" : "Offline");
-
-        const marketOpen = !!e.market_open;
-        setPill("pill-market", "pill-market-dot", marketOpen ? "open" : "closed", marketOpen ? "Open" : "Closed");
-
-        const goodAuth = !!auth.is_logged_in && auth.token_valid;
-        setPill("pill-auth", "pill-auth-dot", goodAuth ? "ok" : "bad", goodAuth ? (auth.user_id || "OK") : "Login");
-      } catch (err) {
-        setPill("pill-engine", "pill-engine-dot", "bad", "Error");
-        setPill("pill-market", "pill-market-dot", "bad", "Error");
-        setPill("pill-auth", "pill-auth-dot", "bad", "Error");
-      }
-    }
-
-    /* ---------- Top KPIs ---------- */
-
-    async function renderTopKpis() {
-      const eqEl  = document.getElementById("kpi-equity-body");
-      const pnlEl = document.getElementById("kpi-daypnl-body");
-      const trEl  = document.getElementById("kpi-trades-body");
-      const riskEl = document.getElementById("kpi-risk-body");
-
-      try {
-        const [today, port, cfg] = await Promise.all([
-          fetchJSON("/api/summary/today"),
-          fetchJSON("/api/portfolio/summary"),
-          fetchJSON("/api/config/summary"),
-        ]);
-
-        const realized = today.realized_pnl ?? 0;
-        const unreal = port.total_unrealized_pnl ?? 0;
-        const dayPnl = (realized || 0) + (unreal || 0);
-        const winRate = today.win_rate ?? today.winRate ?? 0;
-
-        // Equity
-        const equity = port.equity ?? (port.paper_capital || 0);
-        eqEl.innerHTML = `
-          <div class="${kpiClassForValue(equity - (port.paper_capital || 0))}">
-            ${formatMoney(equity)}
-          </div>
-          <div class="kpi-label">Starting: ${formatMoney(port.paper_capital || 0)}</div>
-          <div class="kpi-extra">
-            <span>Realized: <strong>${formatMoney(port.total_realized_pnl || 0)}</strong></span>
-            <span>Unrealized: <strong>${formatMoney(port.total_unrealized_pnl || 0)}</strong></span>
-          </div>
-        `;
-
-        // Day PnL
-        pnlEl.innerHTML = `
-          <div class="${kpiClassForValue(dayPnl)}">
-            ${formatMoney(dayPnl)}
-          </div>
-          <div class="kpi-label">Today</div>
-          <div class="kpi-extra">
-            <span>Realized: <strong>${formatMoney(realized || 0)}</strong></span>
-            <span>Unrealized: <strong>${formatMoney(unreal || 0)}</strong></span>
-          </div>
-        `;
-
-        // Trades
-        const trades = today.num_trades ?? today.trades ?? 0;
-        trEl.innerHTML = `
-          <div class="kpi-main">${trades}</div>
-          <div class="kpi-label">Filled orders</div>
-          <div class="kpi-extra">
-            <span>Win: <strong>${today.win_trades ?? 0}</strong></span>
-            <span>Loss: <strong>${today.loss_trades ?? 0}</strong></span>
-            <span>Win rate: <strong>${formatPct(winRate, 1)}</strong></span>
-          </div>
-        `;
-
-        // Risk
-        const r = cfg || {};
-        const riskPct = (r.risk_per_trade_pct ?? 0) * 100;
-        const maxExp = (r.max_exposure_pct ?? 0) * 100;
-        const expPct = port.exposure_pct != null ? port.exposure_pct * 100 : null;
-        riskEl.innerHTML = `
-          <div class="kpi-main">${(r.risk_profile || "Default")}</div>
-          <div class="kpi-label">Risk mode</div>
-          <div class="kpi-extra">
-            <span>Risk / trade: <strong>${riskPct.toFixed(2)}%</strong></span>
-            <span>Max exposure: <strong>${maxExp.toFixed(1)}%</strong></span>
-            <span>Current exposure: <strong>${expPct != null ? expPct.toFixed(1) + "%" : "—"}</strong></span>
-          </div>
-        `;
-      } catch (err) {
-        const html = `<div class="error">Failed to load KPIs</div>`;
-        eqEl.innerHTML = pnlEl.innerHTML = trEl.innerHTML = riskEl.innerHTML = html;
-      }
-    }
-
-    /* ---------- Equity curve ---------- */
-
-    async function renderEquity() {
-      const canvas = document.getElementById("equity-canvas");
-      const left = document.getElementById("equity-summary-left");
-      const right = document.getElementById("equity-summary-right");
-      if (!canvas) return;
-
-      const ctx = canvas.getContext("2d");
-
-      function resize() {
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width * window.devicePixelRatio;
-        canvas.height = rect.height * window.devicePixelRatio;
-        ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
-      }
-      resize();
-
-      try {
-        const data = await fetchJSON("/api/stats/equity?days=1");
-        if (!Array.isArray(data) || data.length === 0) {
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          ctx.fillStyle = "#6b7280";
-          ctx.font = "11px " + getComputedStyle(document.body).fontFamily;
-          ctx.fillText("No equity snapshots yet.", 12, 20);
-          left.textContent = "";
-          right.textContent = "";
-          return;
-        }
-
-        const points = data
-          .map(d => ({
-            ts: new Date(d.ts),
-            equity: Number(d.equity ?? d.equity_curve ?? d.equityCurve ?? 0),
-          }))
-          .filter(p => !isNaN(p.equity));
-
-        if (!points.length) {
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          ctx.fillStyle = "#6b7280";
-          ctx.font = "11px " + getComputedStyle(document.body).fontFamily;
-          ctx.fillText("No equity data.", 12, 20);
-          left.textContent = "";
-          right.textContent = "";
-          return;
-        }
-
-        const w = canvas.width / window.devicePixelRatio;
-        const h = canvas.height / window.devicePixelRatio;
-        const padding = 18;
-        const x0 = padding;
-        const x1 = w - padding;
-        const y0 = h - padding;
-        const y1 = padding;
-
-        const minEq = Math.min(...points.map(p => p.equity));
-        const maxEq = Math.max(...points.map(p => p.equity));
-        const t0 = points[0].ts.getTime();
-        const t1 = points[points.length - 1].ts.getTime() || t0 + 1;
-        const eqMin = minEq === maxEq ? minEq - 1 : minEq;
-        const eqMax = minEq === maxEq ? maxEq + 1 : maxEq;
-
-        function xs(t) {
-          if (t1 === t0) return (x0 + x1) / 2;
-          return x0 + (x1 - x0) * ((t - t0) / (t1 - t0));
-        }
-        function ys(eq) {
-          if (eqMax === eqMin) return (y0 + y1) / 2;
-          return y0 - (y0 - y1) * ((eq - eqMin) / (eqMax - eqMin));
-        }
-
-        ctx.clearRect(0, 0, w, h);
-
-        // axes
-        ctx.strokeStyle = "rgba(148, 163, 184, 0.5)";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(x0, y1);
-        ctx.lineTo(x0, y0);
-        ctx.lineTo(x1, y0);
-        ctx.stroke();
-
-        // equity line
-        ctx.beginPath();
-        ctx.strokeStyle = "#38bdf8";
-        ctx.lineWidth = 1.8;
-        points.forEach((p, i) => {
-          const x = xs(p.ts.getTime());
-          const y = ys(p.equity);
-          if (i === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        });
-        ctx.stroke();
-
-        // fill under curve
-        const gradient = ctx.createLinearGradient(0, y1, 0, y0);
-        gradient.addColorStop(0, "rgba(56, 189, 248, 0.35)");
-        gradient.addColorStop(1, "rgba(15, 23, 42, 0)");
-        ctx.fillStyle = gradient;
-        ctx.lineTo(xs(points[points.length - 1].ts.getTime()), y0);
-        ctx.lineTo(xs(points[0].ts.getTime()), y0);
-        ctx.closePath();
-        ctx.fill();
-
-        const firstEq = points[0].equity;
-        const lastEq = points[points.length - 1].equity || firstEq;
-        const delta = lastEq - firstEq;
-        const deltaPct = firstEq ? (delta / firstEq) * 100 : 0;
-
-        left.textContent =
-          "Points: " + points.length +
-          " · Start: " + formatMoney(firstEq) +
-          " · End: " + formatMoney(lastEq);
-        right.textContent =
-          "Δ: " + formatMoney(delta) +
-          " (" + deltaPct.toFixed(2) + "%)";
-      } catch (err) {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = "#f97373";
-        ctx.font = "11px " + getComputedStyle(document.body).fontFamily;
-        ctx.fillText("Failed to load equity curve.", 12, 20);
-        left.textContent = "";
-        right.textContent = "";
-      }
-    }
-
-    /* ---------- Trade flow ---------- */
-
-    async function renderTradeFlow() {
-      const el = document.getElementById("tradeflow-body");
-      try {
-        const snap = await fetchJSON("/api/monitor/trade_flow");
-        const tf = snap.trade_flow || {};
-        const funnel = snap.funnel || [];
-
-        const stagesHtml = funnel.map(f => `
-          <tr>
-            <td>${f.label}</td>
-            <td>${f.count ?? 0}</td>
-            <td class="muted">${f.last_ts ?? "—"}</td>
-          </tr>
-        `).join("");
-
-        el.innerHTML = `
-          <table>
-            <thead>
-              <tr>
-                <th>Stage</th>
-                <th>Count</th>
-                <th>Last event</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${stagesHtml || `<tr><td colspan="3" class="muted">No trade activity yet.</td></tr>`}
-            </tbody>
-          </table>
-          <div class="muted" style="margin-top:4px;">
-            Risk blocks: ${tf.risk_blocks ?? 0} · Time blocks: ${tf.time_blocks ?? 0} ·
-            Stops: ${tf.stop_hits ?? 0} · Targets: ${tf.target_hits ?? 0}
-          </div>
-        `;
-      } catch (err) {
-        el.innerHTML = `<div class="error">Failed to load trade pipe.</div>`;
-      }
-    }
-
-    /* ---------- Engine & Config/Auth ---------- */
-
-    async function renderEngine() {
-      const el = document.getElementById("engine-body");
-      try {
-        const data = await fetchJSON("/api/engines/status");
-        const e = (data.engines || [])[0] || {};
-
-        const status = e.running ? "Running" : "Offline";
-        el.innerHTML = `
-          <div class="stat-list">
-            <div>
-              <div class="stat-label">Engine</div>
-              <div class="stat-value">${e.engine || "fno_paper"}</div>
-            </div>
-            <div>
-              <div class="stat-label">Status</div>
-              <div class="stat-value">${status}</div>
-            </div>
-            <div>
-              <div class="stat-label">Market</div>
-              <div class="stat-value">${e.market_open ? "Open" : "Closed"}</div>
-            </div>
-            <div>
-              <div class="stat-label">Checkpoint age</div>
-              <div class="stat-value">${(e.checkpoint_age_seconds ?? 0).toFixed(0)}s</div>
-            </div>
-          </div>
-          <div class="muted" style="margin-top:4px;">
-            Checkpoint: ${e.last_checkpoint_ts || "—"}
-          </div>
-        `;
-      } catch (err) {
-        el.innerHTML = `<div class="error">Failed to load engine state.</div>`;
-      }
-    }
-
-    async function renderConfigAuth() {
-      const el = document.getElementById("config-body");
-      try {
-        const [cfg, auth] = await Promise.all([
-          fetchJSON("/api/config/summary"),
-          fetchJSON("/api/auth/status"),
-        ]);
-
-        const uni = (cfg.fno_universe || []).join(", ") || "—";
-        el.innerHTML = `
-          <div class="stat-list">
-            <div>
-              <div class="stat-label">Mode</div>
-              <div class="stat-value">${(cfg.mode || "").toUpperCase()}</div>
-            </div>
-            <div>
-              <div class="stat-label">Paper capital</div>
-              <div class="stat-value">${formatMoney(cfg.paper_capital || 0)}</div>
-            </div>
-            <div>
-              <div class="stat-label">Universe</div>
-              <div class="stat-value">${uni}</div>
-            </div>
-            <div>
-              <div class="stat-label">User / Token</div>
-              <div class="stat-value">
-                ${auth.user_id || "—"}
-                <span class="pill-small" style="margin-left:4px;">
-                  <strong>${auth.token_valid ? "TOKEN OK" : "LOGIN"}</strong>
-                </span>
-              </div>
-            </div>
-          </div>
-          <div class="muted" style="margin-top:4px;">
-            Last login: ${auth.login_ts || "—"}
-          </div>
-        `;
-      } catch (err) {
-        el.innerHTML = `<div class="error">Failed to load config/auth.</div>`;
-      }
-    }
-
-    /* ---------- Signals ---------- */
-
-    function badgeForSignal(sig) {
-      const s = (sig || "").toUpperCase();
-      if (!s) return "";
-      const cls = "badge-signal-" + s;
-      return `<span class="badge ${cls}">${s}</span>`;
-    }
-
-    async function renderSignals() {
-      const el = document.getElementById("signals-body");
-      try {
-        const rows = await fetchJSON("/api/signals/recent?limit=40");
-        if (!Array.isArray(rows) || !rows.length) {
-          el.innerHTML = `<div class="muted">No recent signals.</div>`;
-          return;
-        }
-        const htmlRows = rows.slice(-40).reverse().map(r => {
-          const ts = r.ts || r.timestamp || "";
-          const sym = r.symbol || "";
-          const tf = r.tf || r.timeframe || "";
-          const strat = r.strategy || "";
-          const price = r.price != null ? Number(r.price).toFixed(2) : "—";
-          const sig = (r.signal || "").toUpperCase();
-          return `
-            <tr>
-              <td class="mono">${ts.slice(11, 19)}</td>
-              <td>${sym}</td>
-              <td>${tf}</td>
-              <td>${strat}</td>
-              <td>${badgeForSignal(sig)}</td>
-              <td class="mono">${price}</td>
-            </tr>
-          `;
-        }).join("");
-        el.innerHTML = `
-          <table class="row-striped">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Symbol</th>
-                <th>TF</th>
-                <th>Strategy</th>
-                <th>Signal</th>
-                <th>Price</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${htmlRows}
-            </tbody>
-          </table>
-        `;
-      } catch (err) {
-        el.innerHTML = `<div class="error">Failed to load signals.</div>`;
-      }
-    }
-
-    /* ---------- Orders ---------- */
-
-    function badgeForStatus(status) {
-      const s = (status || "").toUpperCase();
-      if (!s) return "";
-      const cls = "badge-status-" + s;
-      return `<span class="badge ${cls}">${s}</span>`;
-    }
-
-    async function renderOrders() {
-      const el = document.getElementById("orders-body");
-      try {
-        const rows = await fetchJSON("/api/orders/recent?limit=40");
-        if (!Array.isArray(rows) || !rows.length) {
-          el.innerHTML = `<div class="muted">No recent orders.</div>`;
-          return;
-        }
-        const htmlRows = rows.slice(-40).reverse().map(r => {
-          const ts = r.ts || r.timestamp || "";
-          const sym = r.symbol || "";
-          const side = (r.side || r.transaction_type || "").toUpperCase();
-          const qty = r.quantity ?? r.qty ?? r.filled_quantity ?? 0;
-          const price = r.price != null ? Number(r.price).toFixed(2) :
-                        (r.avg_price != null ? Number(r.avg_price).toFixed(2) : "—");
-          const status = (r.status || "").toUpperCase();
-          const strat = r.strategy || "";
-          return `
-            <tr>
-              <td class="mono">${ts.slice(11, 19)}</td>
-              <td>${sym}</td>
-              <td>${side}</td>
-              <td>${qty}</td>
-              <td class="mono">${price}</td>
-              <td>${badgeForStatus(status)}</td>
-              <td>${strat}</td>
-            </tr>
-          `;
-        }).join("");
-        el.innerHTML = `
-          <table class="row-striped">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Symbol</th>
-                <th>Side</th>
-                <th>Qty</th>
-                <th>Price</th>
-                <th>Status</th>
-                <th>Strategy</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${htmlRows}
-            </tbody>
-          </table>
-        `;
-      } catch (err) {
-        el.innerHTML = `<div class="error">Failed to load orders.</div>`;
-      }
-    }
-
-    /* ---------- Logs ---------- */
-
-    function formatLogTimestamp(ts) {
-      if (!ts) {
-        return "--:--:--";
-      }
-      const date = new Date(ts);
-      if (Number.isNaN(date.getTime())) {
-        return ts;
-      }
-      const hh = String(date.getHours()).padStart(2, "0");
-      const mm = String(date.getMinutes()).padStart(2, "0");
-      const ss = String(date.getSeconds()).padStart(2, "0");
-      return `${hh}:${mm}:${ss}`;
-    }
-
-    function updateLogsClockDisplay() {
-      const clock = document.getElementById("logs-clock");
-      if (!clock) return;
-      const now = serverClockOffsetMs == null
-        ? new Date()
-        : new Date(Date.now() - serverClockOffsetMs);
-      const hh = String(now.getHours()).padStart(2, "0");
-      const mm = String(now.getMinutes()).padStart(2, "0");
-      const ss = String(now.getSeconds()).padStart(2, "0");
-      clock.textContent = `${hh}:${mm}:${ss}`;
-    }
-
-    async function pollServerTime() {
-      try {
-        const data = await fetchJSON("/api/system/time");
-        const utc = data?.utc;
-        if (utc) {
-          const ts = Date.parse(utc);
-          if (!Number.isNaN(ts)) {
-            serverClockOffsetMs = Date.now() - ts;
-          }
-        }
-      } catch (err) {
-        serverClockOffsetMs = null;
-      } finally {
-        updateLogsClockDisplay();
-      }
-    }
-
-    function startServerClock() {
-      if (!logClockTimer) {
-        logClockTimer = setInterval(updateLogsClockDisplay, 1_000);
-      }
-      if (!serverClockPollTimer) {
-        pollServerTime();
-        serverClockPollTimer = setInterval(pollServerTime, 5_000);
-      }
-    }
-
-    function setActiveLogTab(tabName, force = false) {
-      const target = tabName || "engine";
-      if (!force && target === activeLogTab) {
-        return;
-      }
-      activeLogTab = target;
-      document.querySelectorAll(".log-tab").forEach((btn) => {
-        btn.classList.toggle("active", btn.dataset.logTab === target);
-      });
-      fetchLogStream();
-      scheduleLogRefresh();
-    }
-
-    function renderLogEntries(entries) {
-      const viewer = document.getElementById("log-viewer");
-      if (!viewer) return;
-      if (!Array.isArray(entries) || entries.length === 0) {
-        viewer.innerHTML = `<div class="muted">No log entries yet.</div>`;
-        return;
-      }
-
-      const lines = entries
-        .map((entry) => {
-          const level = (entry.level || "INFO").toUpperCase();
-          const meta = LOG_LEVEL_META[level] || LOG_LEVEL_META.INFO;
-          const loggerName = entry.logger || "engine";
-          const message = entry.message || "";
-          const time = formatLogTimestamp(entry.ts);
-          return `
-            <div class="log-line ${meta.cls}">
-              <span class="log-time">[${time}]</span>
-              <span class="log-level">${meta.icon} ${level}</span>
-              <span class="log-message"><span class="log-source">${loggerName}:</span> ${message}</span>
-            </div>
-          `;
-        })
-        .join("");
-
-      viewer.innerHTML = lines;
-      if (followLogTail) {
-        viewer.scrollTop = viewer.scrollHeight;
-      }
-    }
-
-    async function fetchLogStream() {
-      const viewer = document.getElementById("log-viewer");
-      if (!viewer) return;
-      const params = new URLSearchParams({ limit: "150" });
-      const kind = LOG_TAB_KINDS[activeLogTab];
-      if (kind) {
-        params.set("kind", kind);
-      }
-      const endpoint = `/api/logs?${params.toString()}`;
-      try {
-        const payload = await fetchJSON(endpoint);
-        const entries = payload.logs || payload.entries || [];
-        renderLogEntries(entries);
-      } catch (err) {
-        viewer.innerHTML = `<div class="error">Failed to load logs.</div>`;
-      }
-    }
-
-    function scheduleLogRefresh() {
-      if (logRefreshTimer) {
-        clearInterval(logRefreshTimer);
-      }
-      logRefreshTimer = setInterval(fetchLogStream, 5_000);
-    }
-
-    function bindLogScrollControls() {
-      const viewer = document.getElementById("log-viewer");
-      const followToggle = document.getElementById("log-follow");
-      if (!viewer) return;
-
-      viewer.addEventListener("scroll", () => {
-        const nearBottom = viewer.scrollHeight - viewer.scrollTop - viewer.clientHeight < 18;
-        if (!nearBottom && followLogTail) {
-          followLogTail = false;
-          if (followToggle) {
-            followToggle.checked = false;
-          }
-        } else if (nearBottom && followToggle && followToggle.checked) {
-          followLogTail = true;
+function setupTabs() {
+  const tabs = document.querySelectorAll(".tabs .tab");
+  const pages = document.querySelectorAll(".tab-page");
+
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const target = tab.getAttribute("data-tab");
+
+      tabs.forEach((t) => t.classList.remove("active"));
+      tab.classList.add("active");
+
+      pages.forEach((page) => {
+        if (page.id === `tab-${target}`) {
+          page.classList.add("active");
+        } else {
+          page.classList.remove("active");
         }
       });
-
-      if (followToggle) {
-        followToggle.checked = true;
-        followToggle.addEventListener("change", (event) => {
-          followLogTail = !!event.target.checked;
-          if (followLogTail) {
-            viewer.scrollTop = viewer.scrollHeight;
-          }
-        });
-      }
-    }
-
-    function initLogConsole() {
-      const viewer = document.getElementById("log-viewer");
-      const tabs = document.querySelectorAll(".log-tab");
-      if (!viewer || !tabs.length) {
-        return;
-      }
-
-      tabs.forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const target = btn.dataset.logTab || "engine";
-          setActiveLogTab(target);
-        });
-      });
-
-      bindLogScrollControls();
-      setActiveLogTab(activeLogTab, true);
-      startServerClock();
-    }
-
-    /* ---------- Strategy Performance ---------- */
-
-    async function renderStrategies() {
-      const el = document.getElementById("strategies-body");
-      try {
-        const data = await fetchJSON("/api/strategy_performance");
-        const perStrat = data.per_strategy || [];
-        if (!perStrat.length) {
-          el.innerHTML = `<div class="muted">No strategy performance yet (backend may not be writing trades).</div>`;
-          return;
-        }
-
-        const rows = perStrat.map(s => {
-          const pnl = Number(s.realized_pnl || 0);
-          const pnlCls = pnl > 0 ? "kpi-main pos" : (pnl < 0 ? "kpi-main neg" : "kpi-main");
-          return `
-            <tr>
-              <td>${s.strategy}</td>
-              <td>${s.round_trips ?? 0}</td>
-              <td>${s.num_orders ?? 0}</td>
-              <td class="mono">${formatMoney(s.total_notional || 0)}</td>
-              <td class="${pnlCls}" style="font-size:11px;">${formatMoney(pnl)}</td>
-            </tr>
-          `;
-        }).join("");
-
-        el.innerHTML = `
-          <table class="row-striped">
-            <thead>
-              <tr>
-                <th>Strategy</th>
-                <th>Round trips</th>
-                <th>Orders</th>
-                <th>Notional</th>
-                <th>Realized PnL</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows}
-            </tbody>
-          </table>
-          <div class="muted" style="margin-top:4px;">
-            Data from /api/strategy_performance
-            ${perStrat.length ? "" : "(backend wiring pending)"}
-          </div>
-        `;
-      } catch (err) {
-        el.innerHTML = `<div class="error">Failed to load strategy performance (is /api/strategy_performance implemented?).</div>`;
-      }
-    }
-
-    /* ---------- Backtests ---------- */
-
-    async function refreshBacktestRuns() {
-      try {
-        const payload = await fetchJSON("/api/backtests/list");
-        backtestRunsIndex = Array.isArray(payload.runs) ? payload.runs : [];
-        backtestRunsByStrategy = new Map();
-        backtestRunsIndex.forEach((run) => {
-          if (!run || !run.strategy) return;
-          const bucket = backtestRunsByStrategy.get(run.strategy) || [];
-          bucket.push(run);
-          backtestRunsByStrategy.set(run.strategy, bucket);
-        });
-        backtestRunsByStrategy.forEach((runs) => runs.sort((a, b) => b.run.localeCompare(a.run)));
-        populateBacktestStrategies();
-      } catch (err) {
-        const summaryEl = document.getElementById("backtest-summary");
-        if (summaryEl) {
-          summaryEl.innerHTML = `<div class="error">Failed to load backtest runs: ${err.message || err}</div>`;
-        }
-      }
-    }
-
-    function populateBacktestStrategies() {
-      const select = document.getElementById("backtest-strategy");
-      const runSelect = document.getElementById("backtest-run");
-      const summaryEl = document.getElementById("backtest-summary");
-      if (!select || !runSelect || !summaryEl) return;
-
-      const strategies = Array.from(backtestRunsByStrategy.keys());
-      select.innerHTML = `<option value="">Select strategy</option>`;
-      strategies.forEach((strategy) => {
-        const opt = document.createElement("option");
-        opt.value = strategy;
-        opt.textContent = strategy;
-        if (strategy === backtestSelectedStrategy) {
-          opt.selected = true;
-        }
-        select.appendChild(opt);
-      });
-
-      if (!strategies.length) {
-        runSelect.innerHTML = `<option value="">Select run</option>`;
-        runSelect.disabled = true;
-        resetBacktestSections("No backtest runs available.");
-        updateBacktestDownload(null);
-        return;
-      }
-
-      if (!strategies.includes(backtestSelectedStrategy)) {
-        backtestSelectedStrategy = "";
-        if (strategies.length === 1) {
-          backtestSelectedStrategy = strategies[0];
-          select.value = backtestSelectedStrategy;
-        }
-      }
-      populateBacktestRuns();
-    }
-
-    function populateBacktestRuns() {
-      const runSelect = document.getElementById("backtest-run");
-      if (!runSelect) return;
-      runSelect.innerHTML = `<option value="">Select run</option>`;
-      if (!backtestSelectedStrategy) {
-        runSelect.disabled = true;
-        resetBacktestSections("Select a strategy to view runs.");
-        updateBacktestDownload(null);
-        return;
-      }
-      const runs = backtestRunsByStrategy.get(backtestSelectedStrategy) || [];
-      runs.forEach((run) => {
-        const opt = document.createElement("option");
-        opt.value = run.path;
-        opt.textContent = run.run;
-        if (run.path === backtestSelectedPath) {
-          opt.selected = true;
-        }
-        runSelect.appendChild(opt);
-      });
-      runSelect.disabled = runs.length === 0;
-      if (!runs.length) {
-        resetBacktestSections("No runs found for this strategy.");
-        updateBacktestDownload(null);
-        return;
-      }
-      if (!runs.find((run) => run.path === backtestSelectedPath)) {
-        backtestSelectedPath = "";
-        runSelect.value = "";
-        resetBacktestSections("Select a backtest run to view details.");
-        updateBacktestDownload(null);
-      } else if (backtestSelectedPath) {
-        loadBacktestResult(backtestSelectedPath);
-      }
-    }
-
-    function resetBacktestSections(message) {
-      const summaryEl = document.getElementById("backtest-summary");
-      const tradesEl = document.getElementById("backtest-trades");
-      const canvas = document.getElementById("backtest-equity");
-      if (summaryEl) {
-        summaryEl.innerHTML = `<div class="muted">${message}</div>`;
-      }
-      if (tradesEl) {
-        tradesEl.innerHTML = `<div class="muted">${message}</div>`;
-      }
-      if (canvas) {
-        const ctx = canvas.getContext("2d");
-        if (ctx) {
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          ctx.fillStyle = "#94a3b8";
-          ctx.font = "12px Inter, system-ui, sans-serif";
-          ctx.fillText("No equity data.", 12, 20);
-        }
-      }
-    }
-
-    function updateBacktestDownload(path) {
-      const button = document.getElementById("backtest-download");
-      if (!button) return;
-      if (path) {
-        button.disabled = false;
-        button.dataset.path = path;
-      } else {
-        button.disabled = true;
-        button.dataset.path = "";
-      }
-    }
-
-    async function loadBacktestResult(path) {
-      const summaryEl = document.getElementById("backtest-summary");
-      const tradesEl = document.getElementById("backtest-trades");
-      if (!summaryEl || !tradesEl) return;
-      if (!path) {
-        resetBacktestSections("Select a backtest run to view details.");
-        return;
-      }
-      summaryEl.innerHTML = `<div class="muted">Loading backtest summary...</div>`;
-      tradesEl.innerHTML = `<div class="muted">Loading trades...</div>`;
-      try {
-        const data = await fetchJSON(`/api/backtests/result?path=${encodeURIComponent(path)}`);
-        backtestSelectedPath = path;
-        backtestCurrentData = data;
-        renderBacktestSummary(data);
-        renderBacktestEquityCurve(data);
-        renderBacktestTrades(data);
-        updateBacktestDownload(path);
-      } catch (err) {
-        summaryEl.innerHTML = `<div class="error">Failed to load backtest summary: ${err.message || err}</div>`;
-        tradesEl.innerHTML = `<div class="error">Failed to load trades.</div>`;
-        backtestCurrentData = null;
-        updateBacktestDownload(null);
-      }
-    }
-
-    function renderBacktestSummary(data) {
-      const summaryEl = document.getElementById("backtest-summary");
-      if (!summaryEl) return;
-      const summary = data.summary || {};
-      const rows = [
-        { label: "Total PnL", value: summary.total_pnl || 0, formatter: formatMoney },
-        { label: "Win Rate", value: summary.win_rate || 0, formatter: (v) => formatPct(v, 1) },
-        { label: "Trades", value: summary.total_trades || 0, formatter: (v) => Number(v).toLocaleString("en-IN") },
-        { label: "Wins", value: summary.wins || 0, formatter: (v) => Number(v).toLocaleString("en-IN") },
-        { label: "Losses", value: summary.losses || 0, formatter: (v) => Number(v).toLocaleString("en-IN") },
-        { label: "Max Drawdown", value: summary.max_drawdown || 0, formatter: formatMoney },
-        { label: "Max Drawdown %", value: summary.max_drawdown_pct || 0, formatter: (v) => formatPct(v, 1) },
-      ];
-
-      summaryEl.innerHTML = `
-        <div class="backtest-summary-grid">
-          ${rows
-            .map(
-              (row) => `
-              <div class="backtest-summary-item">
-                <div class="backtest-summary-label">${row.label}</div>
-                <div class="backtest-summary-value ${kpiClassForValue(Number(row.value || 0))}">
-                  ${row.formatter(row.value || 0)}
-                </div>
-              </div>
-            `
-            )
-            .join("")}
-        </div>
-      `;
-    }
-
-    function renderBacktestEquityCurve(data) {
-      const canvas = document.getElementById("backtest-equity");
-      if (!canvas) return;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      const rect = canvas.getBoundingClientRect();
-      canvas.width = rect.width * window.devicePixelRatio;
-      canvas.height = rect.height * window.devicePixelRatio;
-      ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
-
-      const rawPoints = Array.isArray(data.equity_curve) ? data.equity_curve : [];
-      const points = rawPoints
-        .map((entry) => ({
-          ts: new Date(entry[0]),
-          equity: Number(entry[1]),
-        }))
-        .filter((p) => Number.isFinite(p.equity) && !Number.isNaN(p.ts.getTime()));
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      if (!points.length) {
-        ctx.fillStyle = "#94a3b8";
-        ctx.font = "12px Inter, system-ui, sans-serif";
-        ctx.fillText("No equity data.", 12, 20);
-        return;
-      }
-
-      const minEq = Math.min(...points.map((p) => p.equity));
-      const maxEq = Math.max(...points.map((p) => p.equity));
-      const w = canvas.width / window.devicePixelRatio;
-      const h = canvas.height / window.devicePixelRatio;
-      const padding = 16;
-      const x0 = padding;
-      const x1 = w - padding;
-      const y0 = h - padding;
-      const y1 = padding;
-      const tsStart = points[0].ts.getTime();
-      const tsEnd = points[points.length - 1].ts.getTime() || tsStart + 1;
-      const eqMin = minEq === maxEq ? minEq - 1 : minEq;
-      const eqMax = minEq === maxEq ? maxEq + 1 : maxEq;
-
-      const xScale = (t) => {
-        if (tsEnd === tsStart) return (x0 + x1) / 2;
-        return x0 + ((t - tsStart) / (tsEnd - tsStart)) * (x1 - x0);
-      };
-      const yScale = (eq) => {
-        if (eqMax === eqMin) return (y0 + y1) / 2;
-        return y0 - ((eq - eqMin) / (eqMax - eqMin)) * (y0 - y1);
-      };
-
-      ctx.strokeStyle = "rgba(148, 163, 184, 0.35)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(x0, y1);
-      ctx.lineTo(x0, y0);
-      ctx.lineTo(x1, y0);
-      ctx.stroke();
-
-      ctx.strokeStyle = "#38bdf8";
-      ctx.lineWidth = 1.8;
-      ctx.beginPath();
-      points.forEach((point, idx) => {
-        const x = xScale(point.ts.getTime());
-        const y = yScale(point.equity);
-        if (idx === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      });
-      ctx.stroke();
-    }
-
-    function renderBacktestTrades(data) {
-      const tradesEl = document.getElementById("backtest-trades");
-      if (!tradesEl) return;
-      const trades = Array.isArray(data.trades) ? data.trades : [];
-      if (!trades.length) {
-        tradesEl.innerHTML = `<div class="muted">No trades recorded for this run.</div>`;
-        return;
-      }
-      const rows = trades
-        .map((trade) => {
-          const ts = trade.timestamp ? new Date(trade.timestamp).toLocaleString() : "-";
-          const pnlCls = kpiClassForValue(Number(trade.pnl || 0));
-          return `
-            <tr>
-              <td>${ts}</td>
-              <td>${trade.symbol || "-"}</td>
-              <td>${trade.side || "-"}</td>
-              <td>${trade.qty || trade.quantity || 0}</td>
-              <td>${Number(trade.entry_price || 0).toFixed(2)}</td>
-              <td>${Number(trade.exit_price || 0).toFixed(2)}</td>
-              <td class="${pnlCls}">${formatMoney(trade.pnl || 0)}</td>
-              <td>${trade.holding_time || "-"}</td>
-            </tr>
-          `;
-        })
-        .join("");
-      tradesEl.innerHTML = `
-        <div class="table-scroll">
-          <table class="row-striped">
-            <thead>
-              <tr>
-                <th>Timestamp</th>
-                <th>Symbol</th>
-                <th>Side</th>
-                <th>Qty</th>
-                <th>Entry</th>
-                <th>Exit</th>
-                <th>PnL</th>
-                <th>Holding</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
-      `;
-    }
-
-    function initBacktestCard() {
-      const strategySelect = document.getElementById("backtest-strategy");
-      const runSelect = document.getElementById("backtest-run");
-      const downloadBtn = document.getElementById("backtest-download");
-      if (!strategySelect || !runSelect || !downloadBtn) {
-        return;
-      }
-
-      strategySelect.addEventListener("change", (event) => {
-        backtestSelectedStrategy = event.target.value || "";
-        backtestSelectedPath = "";
-        populateBacktestRuns();
-      });
-
-      runSelect.addEventListener("change", (event) => {
-        backtestSelectedPath = event.target.value || "";
-        loadBacktestResult(backtestSelectedPath);
-      });
-
-      downloadBtn.addEventListener("click", () => {
-        const path = downloadBtn.dataset.path;
-        if (!path) return;
-        window.open(`/api/backtests/result?path=${encodeURIComponent(path)}`, "_blank");
-      });
-
-      refreshBacktestRuns();
-    }
-
-    /* ---------- Init ---------- */
-
-function initDashboard() {
-  updateHeaderPills();
-  renderTopKpis();
-  renderEquity();
-  renderTradeFlow();
-      renderEngine();
-      renderConfigAuth();
-      renderSignals();
-      renderOrders();
-  initLogConsole();
-  renderStrategies();
-  initBacktestCard();
-
-  setInterval(updateHeaderPills, 15_000);
-  setInterval(renderTopKpis, 15_000);
-  setInterval(renderEquity, 25_000);
-      setInterval(renderTradeFlow, 20_000);
-      setInterval(renderEngine, 20_000);
-  setInterval(renderConfigAuth, 40_000);
-  setInterval(renderSignals, 15_000);
-  setInterval(renderOrders, 15_000);
-  setInterval(renderStrategies, 30_000);
-
-  window.addEventListener("resize", () => {
-    renderEquity();
-    if (backtestCurrentData) {
-      renderBacktestEquityCurve(backtestCurrentData);
-    }
+    });
   });
 }
 
-    document.addEventListener("DOMContentLoaded", initDashboard);
+function startClockTicker() {
+  if (clockTimerId) {
+    return;
+  }
+  clockTimerId = setInterval(updateMarketClock, 1000);
+}
+
+function updateMarketClock() {
+  if (marketClockOffsetMs == null) {
+    return;
+  }
+  const clock = document.getElementById("market-clock");
+  if (!clock) {
+    return;
+  }
+  const now = new Date(Date.now() - marketClockOffsetMs);
+  const hh = now.getHours().toString().padStart(2, "0");
+  const mm = now.getMinutes().toString().padStart(2, "0");
+  const ss = now.getSeconds().toString().padStart(2, "0");
+  clock.textContent = `${hh}:${mm}:${ss} IST`;
+}
+
+async function refreshMeta() {
+  try {
+    const res = await fetch("/api/meta");
+    if (!res.ok) return;
+
+    const data = await res.json();
+    const badge = document.getElementById("market-status-badge");
+    const clock = document.getElementById("market-clock");
+
+    const isOpen = !!data.market_open;
+
+    if (isOpen) {
+      badge.textContent = "MARKET OPEN";
+      badge.classList.remove("badge-closed");
+      badge.classList.add("badge-open");
+    } else {
+      badge.textContent = "MARKET CLOSED";
+      badge.classList.remove("badge-open");
+      badge.classList.add("badge-closed");
+    }
+
+    if (data.now_ist) {
+      const serverTs = Date.parse(data.now_ist);
+      if (!Number.isNaN(serverTs)) {
+        marketClockOffsetMs = Date.now() - serverTs;
+        updateMarketClock();
+        startClockTicker();
+      }
+    }
+  } catch (err) {
+    console.error("Failed to refresh meta:", err);
+  }
+}
+
+function formatAge(seconds) {
+  if (seconds == null || Number.isNaN(seconds)) {
+    return "unknown age";
+  }
+  if (seconds < 60) {
+    return `${Math.round(seconds)}s ago`;
+  }
+  if (seconds < 3600) {
+    return `${(seconds / 60).toFixed(1)}m ago`;
+  }
+  return `${(seconds / 3600).toFixed(1)}h ago`;
+}
+
+function renderEngineStatus(status) {
+  const badge = document.getElementById("engine-status-badge");
+  const meta = document.getElementById("engines-meta");
+  if (!badge || !meta) {
+    return;
+  }
+
+  if (!status) {
+    badge.textContent = "UNKNOWN";
+    badge.className = "engine-badge badge badge-muted";
+    meta.textContent = "Engine status unavailable.";
+    return;
+  }
+
+  const running = Boolean(status.running);
+  badge.textContent = running ? "RUNNING" : "STOPPED";
+  badge.className = `engine-badge badge ${running ? "badge-success" : "badge-danger"}`;
+
+  const ageSeconds = typeof status.checkpoint_age_seconds === "number" ? status.checkpoint_age_seconds : null;
+  const checkpointTs = status.last_checkpoint_ts ? new Date(status.last_checkpoint_ts) : null;
+  const checkpointLabel = checkpointTs && !Number.isNaN(checkpointTs.valueOf())
+    ? checkpointTs.toLocaleString()
+    : "unknown";
+  const ageLabel = formatAge(ageSeconds);
+  const marketLabel = status.market_open ? "Market OPEN" : "Market CLOSED";
+  const errorLabel = status.error ? ` • ${status.error}` : "";
+
+  meta.textContent = `Last checkpoint: ${checkpointLabel} • Age: ${ageLabel} • ${marketLabel}${errorLabel}`;
+}
+
+async function refreshEngines() {
+  try {
+    const res = await fetch("/api/engines/status");
+    if (!res.ok) {
+      return;
+    }
+    const data = await res.json();
+    const status = Array.isArray(data.engines) ? data.engines[0] : null;
+    renderEngineStatus(status);
+  } catch (err) {
+    console.error("Failed to refresh engines:", err);
+  }
+}
+
+function fmtMoney(value) {
+  return formatInr(value, 2);
+}
+
+function setSignedValue(el, value) {
+  if (!el) return;
+  el.classList.remove("positive", "negative");
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    el.textContent = "—";
+    return;
+  }
+  const num = Number(value);
+  el.textContent = fmtMoney(num);
+  if (num > 0) el.classList.add("positive");
+  if (num < 0) el.classList.add("negative");
+}
+
+async function fetchPortfolioSummary() {
+  try {
+    const res = await fetch("/api/portfolio/summary");
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const summary = await res.json();
+
+    const elEquity = document.getElementById("pf-equity");
+    if (!elEquity) {
+      return;
+    }
+    const elReal = document.getElementById("pf-realized");
+    const elUnreal = document.getElementById("pf-unrealized");
+    const elDaily = document.getElementById("pf-daily");
+    const elExposure = document.getElementById("pf-exposure");
+    const elFree = document.getElementById("pf-free");
+    const elPos = document.getElementById("pf-positions");
+
+    elEquity.textContent = fmtMoney(summary.equity);
+    setSignedValue(elReal, summary.total_realized_pnl);
+    setSignedValue(elUnreal, summary.total_unrealized_pnl);
+    setSignedValue(elDaily, summary.daily_pnl);
+
+    if (summary.exposure_pct === null || summary.exposure_pct === undefined) {
+      if (elExposure) {
+        elExposure.textContent = "—";
+        elExposure.classList.remove("positive", "negative");
+      }
+    } else if (elExposure) {
+      const pctValue = Number(summary.exposure_pct) * 100;
+      const pctText = `${pctValue.toFixed(1)}%`;
+      elExposure.textContent = pctText;
+      elExposure.classList.remove("positive", "negative");
+      if (pctValue <= 50) elExposure.classList.add("positive");
+      if (pctValue >= 90) elExposure.classList.add("negative");
+    }
+
+    if (elFree) {
+      elFree.textContent = fmtMoney(summary.free_notional);
+      elFree.classList.remove("positive", "negative");
+    }
+
+    if (elPos) {
+      const count = summary.position_count ?? 0;
+      elPos.textContent = summary.has_positions ? `Positions: ${count}` : "Positions: none";
+    }
+  } catch (err) {
+    console.error("Failed to fetch portfolio summary:", err);
+    const elEquity = document.getElementById("pf-equity");
+    if (elEquity) {
+      elEquity.textContent = "Error";
+      elEquity.classList.remove("positive", "negative");
+    }
+  }
+}
+
+function renderSignalsTable(signals) {
+  const tbody = document.getElementById("signals-body");
+  const countEl = document.getElementById("signals-count");
+  if (!tbody) {
+    return;
+  }
+
+  tbody.innerHTML = "";
+
+  if (!Array.isArray(signals) || signals.length === 0) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 6;
+    cell.className = "text-muted small";
+    cell.textContent = "No signals yet.";
+    row.appendChild(cell);
+    tbody.appendChild(row);
+    if (countEl) {
+      countEl.textContent = "0";
+    }
+    return;
+  }
+
+  if (countEl) {
+    countEl.textContent = String(signals.length);
+  }
+
+  signals
+    .slice()
+    .reverse()
+    .forEach((signal) => {
+      const tr = document.createElement("tr");
+
+      const ts = signal.ts || signal.timestamp || "";
+      const timeDisplay = ts ? ts.replace("T", " ").slice(0, 19) : "—";
+
+      const tdTime = document.createElement("td");
+      tdTime.textContent = timeDisplay;
+      tr.appendChild(tdTime);
+
+      const tdSymbol = document.createElement("td");
+      tdSymbol.textContent = signal.symbol || signal.logical || "—";
+      tr.appendChild(tdSymbol);
+
+      const tdTf = document.createElement("td");
+      tdTf.textContent = signal.tf || "";
+      tr.appendChild(tdTf);
+
+      const tdSignal = document.createElement("td");
+      const sigText = (signal.signal || "").toUpperCase() || "—";
+      const badge = document.createElement("span");
+      badge.classList.add("signal-tag");
+      if (sigText === "BUY") badge.classList.add("signal-buy");
+      else if (sigText === "SELL") badge.classList.add("signal-sell");
+      else if (sigText === "HOLD") badge.classList.add("signal-hold");
+      else badge.classList.add("signal-other");
+      badge.textContent = sigText;
+      tdSignal.appendChild(badge);
+      tr.appendChild(tdSignal);
+
+      const tdPrice = document.createElement("td");
+      const price = signal.price;
+      if (price === null || price === undefined || Number.isNaN(Number(price))) {
+        tdPrice.textContent = "—";
+      } else {
+        tdPrice.textContent = Number(price).toFixed(2);
+      }
+      tr.appendChild(tdPrice);
+
+      const tdStrategy = document.createElement("td");
+      tdStrategy.textContent = signal.strategy || signal.profile || "";
+      tr.appendChild(tdStrategy);
+
+      tbody.appendChild(tr);
+    });
+
+  renderSignalsDetailTable(signals);
+}
+
+function renderSignalsDetailTable(signals) {
+  const table = document.getElementById("table-all-signals");
+  if (!table) {
+    return;
+  }
+  if (!Array.isArray(signals) || signals.length === 0) {
+    table.innerHTML = `
+      <tr>
+        <td colspan="8" class="text-muted small">No strategy signals yet.</td>
+      </tr>
+    `;
+    return;
+  }
+  const rows = signals
+    .slice()
+    .reverse()
+    .map((s) => {
+      const ts = s.ts || s.timestamp || "";
+      const timeDisplay = ts ? ts.replace("T", " ").slice(0, 19) : "—";
+      const sigText = (s.signal || "").toUpperCase();
+      return `
+        <tr>
+          <td>${timeDisplay}</td>
+          <td>${s.symbol || s.logical || "—"}</td>
+          <td>${s.tf || s.timeframe || ""}</td>
+          <td>${sigText}</td>
+          <td>${s.price != null ? Number(s.price).toFixed(2) : "—"}</td>
+          <td>${s.profile || ""}</td>
+          <td>${s.confidence || ""}</td>
+          <td>${s.reason || ""}</td>
+        </tr>
+      `;
+    })
+    .join("");
+  table.innerHTML = rows;
+}
+
+async function fetchRecentSignals() {
+  try {
+    const res = await fetch("/api/signals/recent?limit=50");
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    renderSignalsTable(data);
+  } catch (err) {
+    console.error("Failed to fetch recent signals:", err);
+  }
+}
+
+function formatTimestamp(ts) {
+  if (!ts) {
+    return "—";
+  }
+  const date = new Date(ts);
+  if (Number.isNaN(date.getTime())) {
+    return ts.replace("T", " ").slice(0, 19);
+  }
+  return date.toLocaleString("en-IN", { hour12: false });
+}
+
+function renderHealthSummary(payload) {
+  const pill = document.getElementById("health-market-pill");
+  if (pill) {
+    const status = (payload.market_status?.status || "").toUpperCase();
+    pill.classList.remove("pill-open", "pill-closed", "pill-preopen");
+    let label = "Market Closed";
+    let cls = "pill-closed";
+    if (status === "OPEN") {
+      label = "Market Open";
+      cls = "pill-open";
+    } else if (status === "PRE_OPEN") {
+      label = "Pre-Open";
+      cls = "pill-preopen";
+    }
+    pill.textContent = label;
+    pill.classList.add(cls);
+  }
+
+  const logHealth = payload.log_health || {};
+  const lastLogEl = document.getElementById("health-last-log");
+  if (lastLogEl) {
+    lastLogEl.textContent = formatTimestamp(logHealth.last_log_ts);
+  }
+  const lastErrEl = document.getElementById("health-last-error");
+  if (lastErrEl) {
+    lastErrEl.textContent = logHealth.last_error_ts
+      ? formatTimestamp(logHealth.last_error_ts)
+      : "No recent errors";
+  }
+  const errCountEl = document.getElementById("health-error-count");
+  if (errCountEl) {
+    errCountEl.textContent = logHealth.error_count_recent ?? 0;
+  }
+  const warnCountEl = document.getElementById("health-warning-count");
+  if (warnCountEl) {
+    warnCountEl.textContent = logHealth.warning_count_recent ?? 0;
+  }
+}
+
+function renderLogsPanel(entries) {
+  const pre = document.getElementById("logs-body");
+  const countEl = document.getElementById("logs-count");
+  const tabPre = document.getElementById("logs-stream");
+  if (!pre) {
+    return;
+  }
+
+  if (!Array.isArray(entries) || entries.length === 0) {
+    const emptyMsg = "No logs available.";
+    pre.textContent = emptyMsg;
+    if (tabPre) tabPre.textContent = emptyMsg;
+    if (countEl) countEl.textContent = "0";
+    return;
+  }
+
+  const lines = entries.map((entry) => {
+    const ts = formatTimestamp(entry.ts);
+    const level = (entry.level || "").toUpperCase() || "INFO";
+    const loggerName = entry.logger ? `${entry.logger} - ` : "";
+    return `[${level}] ${ts} ${loggerName}${entry.message || ""}`.trim();
+  });
+  pre.textContent = lines.join("\n");
+  if (tabPre) {
+    tabPre.textContent = lines.join("\n");
+    tabPre.scrollTop = tabPre.scrollHeight;
+  }
+  if (countEl) {
+    countEl.textContent = String(entries.length);
+  }
+}
+
+async function fetchHealth() {
+  try {
+    const res = await fetch("/api/health");
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    renderHealthSummary(data);
+  } catch (err) {
+    console.error("Failed to fetch system health:", err);
+  }
+}
+
+async function fetchRecentLogs() {
+  try {
+    const res = await fetch("/api/logs/recent?limit=120");
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    renderLogsPanel(data);
+  } catch (err) {
+    console.error("Failed to fetch recent logs:", err);
+  }
+}
+
+function renderOpenPositions(positions) {
+  const tbody = document.getElementById("positions-body");
+  const detailTable = document.getElementById("table-positions-detailed");
+  const countEl = document.getElementById("positions-count");
+  if (!tbody) {
+    return;
+  }
+
+  const renderPlaceholder = (target, cols) => {
+    target.innerHTML = `
+      <tr>
+        <td colspan="${cols}" class="text-muted small">No open positions.</td>
+      </tr>
+    `;
+  };
+
+  tbody.innerHTML = "";
+
+  if (!Array.isArray(positions) || positions.length === 0) {
+    renderPlaceholder(tbody, 5);
+    if (detailTable) {
+      renderPlaceholder(detailTable, 6);
+    }
+    if (countEl) {
+      countEl.textContent = "0";
+    }
+    return;
+  }
+
+  if (countEl) {
+    countEl.textContent = String(positions.length);
+  }
+
+  const rowsOverview = [];
+  const rowsDetailed = [];
+
+  positions.forEach((pos) => {
+    const unreal = pos.unrealized_pnl != null ? Number(pos.unrealized_pnl) : 0;
+    rowsOverview.push(`
+      <tr>
+        <td>${pos.symbol || "—"}</td>
+        <td>${pos.side || "FLAT"}</td>
+        <td>${pos.quantity ?? "0"}</td>
+        <td>${pos.avg_price != null ? Number(pos.avg_price).toFixed(2) : "—"}</td>
+        <td class="${unreal > 0 ? "text-profit" : unreal < 0 ? "text-loss" : ""}">${unreal.toFixed(2)}</td>
+      </tr>
+    `);
+
+    const lastValue =
+      pos.last_price != null
+        ? Number(pos.last_price).toFixed(2)
+        : pos.avg_price != null
+        ? Number(pos.avg_price).toFixed(2)
+        : "—";
+    rowsDetailed.push(`
+      <tr>
+        <td>${pos.symbol || "—"}</td>
+        <td>${pos.side || ""}</td>
+        <td>${pos.quantity ?? "0"}</td>
+        <td>${pos.avg_price != null ? Number(pos.avg_price).toFixed(2) : "—"}</td>
+        <td>${lastValue}</td>
+        <td class="${unreal > 0 ? "text-profit" : unreal < 0 ? "text-loss" : ""}">${unreal.toFixed(2)}</td>
+      </tr>
+    `);
+  });
+
+  tbody.innerHTML = rowsOverview.join("");
+  if (detailTable) {
+    detailTable.innerHTML = rowsDetailed.join("");
+  }
+}
+
+function renderRecentOrders(orders) {
+  const tbody = document.getElementById("orders-body");
+  const countEl = document.getElementById("orders-count");
+  const detailTable = document.getElementById("table-recent-orders");
+  if (!tbody) {
+    return;
+  }
+
+  const renderPlaceholder = (target, cols) => {
+    target.innerHTML = `
+      <tr>
+        <td colspan="${cols}" class="text-muted small">No orders yet.</td>
+      </tr>
+    `;
+  };
+
+  tbody.innerHTML = "";
+
+  if (!Array.isArray(orders) || orders.length === 0) {
+    renderPlaceholder(tbody, 6);
+    if (detailTable) {
+      renderPlaceholder(detailTable, 6);
+    }
+    if (countEl) {
+      countEl.textContent = "0";
+    }
+    return;
+  }
+
+  if (countEl) {
+    countEl.textContent = String(orders.length);
+  }
+
+  const rows = orders
+    .slice()
+    .reverse()
+    .map((order) => {
+      const ts = order.ts || "";
+      const timeDisplay = ts ? ts.replace("T", " ").slice(0, 19) : "—";
+      return `
+        <tr>
+          <td>${timeDisplay}</td>
+          <td>${order.symbol || "—"}</td>
+          <td>${order.side || ""}</td>
+          <td>${order.quantity ?? "0"}</td>
+          <td>${order.price != null ? Number(order.price).toFixed(2) : "—"}</td>
+          <td>${order.status || ""}</td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  tbody.innerHTML = rows;
+  if (detailTable) {
+    detailTable.innerHTML = rows;
+  }
+}
+
+async function fetchOpenPositions() {
+  try {
+    const res = await fetch("/api/positions/open");
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    renderOpenPositions(data);
+  } catch (err) {
+    console.error("Failed to fetch open positions:", err);
+  }
+}
+
+async function fetchRecentOrders() {
+  try {
+    const res = await fetch("/api/orders/recent?limit=50");
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    renderRecentOrders(data);
+  } catch (err) {
+    console.error("Failed to fetch recent orders:", err);
+  }
+}
+
+async function fetchStrategyStats() {
+  try {
+    const res = await fetch("/api/stats/strategies?days=1");
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    const tbody = document.getElementById("strategy-tbody");
+    const countEl = document.getElementById("strategy-count");
+    if (!tbody) {
+      return;
+    }
+
+    if (!Array.isArray(data) || data.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" class="text-muted small">No strategy signals yet.</td>
+        </tr>
+      `;
+      if (countEl) {
+        countEl.textContent = "0";
+      }
+      return;
+    }
+
+    const rows = data.map((row) => {
+      const logical = row.logical || row.key || "";
+      const symbol = row.symbol || "";
+      const tf = row.timeframe || "";
+      const lastSignal = (row.last_signal || "").toUpperCase();
+      const lastPrice =
+        row.last_price != null ? Number(row.last_price).toFixed(2) : "–";
+      const buyCount = row.buy_count ?? 0;
+      const sellCount = row.sell_count ?? 0;
+      const exitCount = row.exit_count ?? 0;
+      const holdCount = row.hold_count ?? 0;
+
+      let pillClass = "signal-hold";
+      if (lastSignal === "BUY") pillClass = "signal-buy";
+      else if (lastSignal === "SELL") pillClass = "signal-sell";
+      else if (lastSignal === "EXIT") pillClass = "signal-exit";
+
+      return `
+        <tr>
+          <td>${logical}</td>
+          <td>${symbol}</td>
+          <td>${tf}</td>
+          <td><span class="signal-pill ${pillClass}">${lastSignal || "–"}</span></td>
+          <td>${lastPrice}</td>
+          <td>${buyCount} / ${sellCount} / ${exitCount} / ${holdCount}</td>
+        </tr>
+      `;
+    });
+
+    tbody.innerHTML = rows.join("");
+    if (countEl) {
+      countEl.textContent = String(data.length);
+    }
+  } catch (err) {
+    console.error("Failed to fetch strategy stats:", err);
+  }
+}
+
+async function fetchEquityCurve() {
+  try {
+    const res = await fetch("/api/stats/equity?days=1");
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const data = await res.json();
+
+    const svg = document.getElementById("equity-chart");
+    const countEl = document.getElementById("equity-points-count");
+    if (!svg) {
+      return;
+    }
+
+    if (!Array.isArray(data) || data.length === 0) {
+      svg.innerHTML = `
+        <text x="50" y="22" text-anchor="middle" fill="#9ca3af" font-size="4">
+          No equity snapshots yet.
+        </text>`;
+      if (countEl) {
+        countEl.textContent = "0 pts";
+      }
+      return;
+    }
+
+    const equities = data.map((d) => Number(d.equity || 0));
+    const capitals = data.map((d) => Number(d.paper_capital || 0));
+    const realizeds = data.map((d) => Number(d.realized || 0));
+    const combined = equities.concat(capitals);
+    const minY = Math.min(...combined);
+    const maxY = Math.max(...combined);
+    const spanY = maxY - minY || 1;
+    const n = data.length;
+    const stepX = n > 1 ? 100 / (n - 1) : 0;
+
+    function makePath(values) {
+      return values
+        .map((value, idx) => {
+          const x = idx * stepX;
+          const norm = (value - minY) / spanY;
+          const y = 40 - norm * 30 - 5;
+          return `${idx === 0 ? "M" : "L"}${x.toFixed(2)} ${y.toFixed(2)}`;
+        })
+        .join(" ");
+    }
+
+    const pathCapital = makePath(capitals);
+    const pathEquity = makePath(equities);
+    const pathRealized = makePath(realizeds);
+
+    svg.innerHTML = `
+      <path d="${pathCapital}" fill="none" stroke="#3b82f6" stroke-width="0.7" stroke-opacity="0.8" />
+      <path d="${pathEquity}" fill="none" stroke="#22c55e" stroke-width="0.9" stroke-opacity="0.9" />
+      <path d="${pathRealized}" fill="none" stroke="#f97316" stroke-width="0.7" stroke-opacity="0.9" stroke-dasharray="2 2" />
+    `;
+
+    if (countEl) {
+      countEl.textContent = `${data.length} pts`;
+    }
+  } catch (err) {
+    console.error("Failed to fetch equity curve:", err);
+  }
+}
+
+async function fetchConfigSummary() {
+  try {
+    const res = await fetch("/api/config/summary");
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const data = await res.json();
+
+    const mode = (data.mode || "").toLowerCase();
+    const cfgPath = data.config_path || "";
+    const universe = Array.isArray(data.fno_universe)
+      ? data.fno_universe.join(", ")
+      : String(data.fno_universe || "");
+    const capital = Number(data.paper_capital || 0);
+    const riskPerTrade = Number(data.risk_per_trade_pct || 0);
+    const maxDailyLoss = Number(data.max_daily_loss || 0);
+    const maxExposure = Number(data.max_exposure_pct || 0);
+    const riskProfile = data.risk_profile || "Default";
+    const metaEnabled = Boolean(data.meta_enabled);
+
+    const elPath = document.getElementById("config-path");
+    if (elPath) {
+      const trimmed = cfgPath.replace(/.*kite-algo-minimal[\\/]/, "");
+      elPath.textContent = trimmed || cfgPath || "—";
+    }
+    const elUniverse = document.getElementById("config-universe");
+    if (elUniverse) {
+      elUniverse.textContent = universe || "—";
+    }
+    const elCap = document.getElementById("config-capital");
+    if (elCap) {
+      elCap.textContent = capital
+        ? capital.toLocaleString("en-IN", {
+            style: "currency",
+            currency: "INR",
+            maximumFractionDigits: 0,
+          })
+        : "—";
+    }
+    const elRpt = document.getElementById("config-risk-per-trade");
+    if (elRpt) {
+      elRpt.textContent = `${(riskPerTrade * 100).toFixed(2)} %`;
+    }
+    const elDaily = document.getElementById("config-max-daily-loss");
+    if (elDaily) {
+      elDaily.textContent = maxDailyLoss
+        ? maxDailyLoss.toLocaleString("en-IN", {
+            style: "currency",
+            currency: "INR",
+            maximumFractionDigits: 0,
+          })
+        : "—";
+    }
+    const elExposure = document.getElementById("config-max-exposure");
+    if (elExposure) {
+      elExposure.textContent = `${maxExposure.toFixed(2)}x`;
+    }
+    const elProfile = document.getElementById("config-risk-profile");
+    if (elProfile) {
+      elProfile.textContent = riskProfile;
+      elProfile.dataset.profile = riskProfile;
+    }
+    const elMeta = document.getElementById("config-meta-enabled");
+    if (elMeta) {
+      elMeta.textContent = metaEnabled ? "Enabled" : "Disabled";
+      elMeta.style.color = metaEnabled ? "#22c55e" : "#9ca3af";
+    }
+    const elMode = document.getElementById("config-mode-pill");
+    if (elMode) {
+      const modeUpper = mode ? mode.toUpperCase() : "UNKNOWN";
+      elMode.textContent = modeUpper;
+      elMode.classList.remove("config-pill-paper", "config-pill-live", "config-pill-replay");
+      if (mode === "paper") {
+        elMode.classList.add("config-pill-paper");
+      } else if (mode === "live") {
+        elMode.classList.add("config-pill-live");
+      } else if (mode === "replay") {
+        elMode.classList.add("config-pill-replay");
+      }
+    }
+  } catch (err) {
+    console.error("Failed to fetch config summary:", err);
+  }
+}
+
+async function fetchTodaySummary() {
+  try {
+    const res = await fetch("/api/summary/today");
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    const realized = Number(data.realized_pnl || 0);
+    const numTrades = Number(data.num_trades || 0);
+    const winTrades = Number(data.win_trades || 0);
+    const lossTrades = Number(data.loss_trades || 0);
+    const winRate = Number(data.win_rate || 0);
+    const largestWin = Number(data.largest_win || 0);
+    const largestLoss = Number(data.largest_loss || 0);
+    const avgR = Number(data.avg_r || 0);
+
+    const elDate = document.getElementById("today-date-label");
+    if (elDate) {
+      elDate.textContent = data.date || "Today";
+    }
+
+    const elPnl = document.getElementById("today-realized-pnl");
+    if (elPnl) {
+      elPnl.classList.remove("positive", "negative", "flat");
+      elPnl.textContent = formatInr(realized, 0);
+      if (realized > 0) elPnl.classList.add("positive");
+      else if (realized < 0) elPnl.classList.add("negative");
+      else elPnl.classList.add("flat");
+    }
+
+    const setText = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = value;
+    };
+
+    setText("today-num-trades", numTrades.toString());
+    setText("today-win-trades", winTrades.toString());
+    setText("today-loss-trades", lossTrades.toString());
+    setText("today-win-rate", `${winRate.toFixed(1)} %`);
+
+    setText("today-largest-win", formatInr(largestWin, 0));
+    setText("today-largest-loss", formatInr(largestLoss, 0));
+    setText("today-avg-r", avgR.toFixed(2));
+  } catch (err) {
+    console.error("Failed to fetch today summary:", err);
+  }
+}
+
+// TODO: Plug your existing /api/state / SSE here
+async function refreshState() {
+  try {
+    const res = await fetch("/api/state");
+    if (!res.ok) return;
+
+    const data = await res.json();
+
+    // Example mapping; adjust field names to your actual JSON:
+    // P&L
+    if (data.paper_state && data.paper_state.meta) {
+      const meta = data.paper_state.meta;
+      const realized = meta.total_realized_pnl || 0;
+      const unrealized = meta.total_unrealized_pnl || 0;
+      const equity = meta.equity || 0;
+      const realizedEl = document.getElementById("pnl-realized");
+      const unrealEl = document.getElementById("pnl-unrealized");
+      const equityEl = document.getElementById("pnl-equity");
+      if (realizedEl) realizedEl.textContent = formatInr(realized, 0);
+      if (unrealEl) unrealEl.textContent = formatInr(unrealized, 0);
+      if (equityEl) equityEl.textContent = formatInr(equity, 0);
+    }
+
+    // Engine status (example booleans)
+    if (data.engines) {
+      const paperOk = data.engines.paper_ok ?? true;
+      const liveOk = data.engines.live_ok ?? false;
+      const scannerOk = data.engines.scanner_ok ?? true;
+
+      document
+        .getElementById("status-paper")
+        .classList.toggle("err", !paperOk);
+      document
+        .getElementById("status-live")
+        .classList.toggle("err", !liveOk);
+      document
+        .getElementById("status-scanner")
+        .classList.toggle("err", !scannerOk);
+    }
+
+    // Positions table (overview)
+    const posBody = document.getElementById("table-open-positions");
+    if (posBody && Array.isArray(data.positions)) {
+      posBody.innerHTML = "";
+      data.positions.slice(0, 20).forEach((p) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${p.symbol}</td>
+          <td>${p.qty}</td>
+          <td>${p.avg_price?.toFixed?.(2) ?? p.avg_price ?? "-"}</td>
+          <td>${p.ltp?.toFixed?.(2) ?? p.ltp ?? "-"}</td>
+          <td>${p.unrealized_pnl?.toFixed?.(0) ?? "-"}</td>
+        `;
+        posBody.appendChild(tr);
+      });
+    }
+
+    // Recent signals (overview)
+    const sigBody = document.getElementById("table-recent-signals");
+    if (sigBody && Array.isArray(data.signals)) {
+      sigBody.innerHTML = "";
+      data.signals.slice(-30).reverse().forEach((s) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${s.time || ""}</td>
+          <td>${s.symbol || ""}</td>
+          <td>${s.tf || ""}</td>
+          <td>${s.signal || ""}</td>
+          <td>${s.price != null ? s.price.toFixed?.(2) ?? s.price : "-"}</td>
+          <td>${s.reason || ""}</td>
+        `;
+        sigBody.appendChild(tr);
+      });
+    }
+
+    // TODO: map to:
+    // - table-all-signals
+    // - table-positions-detailed
+    // - table-recent-orders
+    // using the data shape you already have
+  } catch (err) {
+    console.error("Failed to refresh state:", err);
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  setupTabs();
+  refreshMeta();
+  setInterval(refreshMeta, 5000);
+  refreshEngines();
+  setInterval(refreshEngines, 5000);
+  fetchPortfolioSummary();
+  setInterval(fetchPortfolioSummary, 7000);
+  fetchRecentSignals();
+  setInterval(fetchRecentSignals, 8000);
+  fetchOpenPositions();
+  fetchRecentOrders();
+  setInterval(fetchOpenPositions, 9000);
+  setInterval(fetchRecentOrders, 9000);
+  fetchHealth();
+  fetchRecentLogs();
+  fetchStrategyStats();
+  fetchEquityCurve();
+  fetchConfigSummary();
+  fetchTodaySummary();
+  setInterval(fetchHealth, 15000);
+  setInterval(fetchRecentLogs, 15000);
+  setInterval(fetchStrategyStats, 15000);
+  setInterval(fetchEquityCurve, 20000);
+  setInterval(fetchConfigSummary, 30000);
+  setInterval(fetchTodaySummary, 30000);
+
+  // Backtests tab initialization
+  fetchBacktestRuns();
+
+  // state polling every 3s (tune as you like)
+  refreshState();
+  setInterval(refreshState, 3000);
+});
+
+// ===== Backtests Tab =====
+
+let currentBacktestRunId = null;
+
+async function fetchBacktestRuns() {
+  try {
+    const res = await fetch("/api/backtests");
+    if (!res.ok) {
+      console.error("Failed to fetch backtest runs:", res.status);
+      return;
+    }
+
+    const data = await res.json();
+    const runs = data.runs || [];
+
+    const countBadge = document.getElementById("backtests-count");
+    if (countBadge) {
+      countBadge.textContent = runs.length;
+    }
+
+    const listContainer = document.getElementById("backtests-list");
+    if (!listContainer) return;
+
+    if (runs.length === 0) {
+      listContainer.innerHTML = `
+        <div class="backtests-empty-state">
+          <p>No backtests found.</p>
+          <p class="text-muted small">Run <code>scripts/run_backtest.py</code> to generate one.</p>
+        </div>
+      `;
+      return;
+    }
+
+    listContainer.innerHTML = "";
+
+    runs.forEach((run) => {
+      const item = document.createElement("div");
+      item.className = "backtest-run-item";
+      item.dataset.runId = `${run.strategy}/${run.run_id}`;
+
+      const pnl = parseFloat(run.net_pnl || 0);
+      const pnlClass = pnl > 0 ? "positive" : pnl < 0 ? "negative" : "neutral";
+      const pnlText = formatInr(pnl, 0);
+
+      const winRate = parseFloat(run.win_rate || 0).toFixed(1);
+      const totalTrades = parseInt(run.total_trades || 0);
+
+      // Format date range
+      const dateFrom = run.date_from ? run.date_from.split("T")[0] : "N/A";
+      const dateTo = run.date_to ? run.date_to.split("T")[0] : "N/A";
+
+      item.innerHTML = `
+        <div class="backtest-run-header">
+          <span class="backtest-run-strategy">${escapeHtml(run.strategy)}</span>
+          <span class="backtest-run-pnl ${pnlClass}">${pnlText}</span>
+        </div>
+        <div class="backtest-run-meta">
+          <div class="backtest-run-meta-item">
+            <span>Symbol:</span>
+            <span>${escapeHtml(run.symbol)}</span>
+          </div>
+          <div class="backtest-run-meta-item">
+            <span>TF:</span>
+            <span>${escapeHtml(run.timeframe || "N/A")}</span>
+          </div>
+          <div class="backtest-run-meta-item">
+            <span>Trades:</span>
+            <span>${totalTrades}</span>
+          </div>
+          <div class="backtest-run-meta-item">
+            <span>Win%:</span>
+            <span>${winRate}%</span>
+          </div>
+          <div class="backtest-run-meta-item">
+            <span>Period:</span>
+            <span>${dateFrom}</span>
+          </div>
+          <div class="backtest-run-meta-item">
+            <span>to:</span>
+            <span>${dateTo}</span>
+          </div>
+        </div>
+      `;
+
+      item.addEventListener("click", () => {
+        selectBacktestRun(item.dataset.runId);
+      });
+
+      listContainer.appendChild(item);
+    });
+  } catch (err) {
+    console.error("Error fetching backtest runs:", err);
+  }
+}
+
+function selectBacktestRun(runId) {
+  currentBacktestRunId = runId;
+
+  // Update selected state
+  document.querySelectorAll(".backtest-run-item").forEach((item) => {
+    if (item.dataset.runId === runId) {
+      item.classList.add("selected");
+    } else {
+      item.classList.remove("selected");
+    }
+  });
+
+  // Show loading state
+  const emptyState = document.getElementById("backtests-detail-empty");
+  const contentState = document.getElementById("backtests-detail-content");
+
+  if (emptyState) emptyState.style.display = "none";
+  if (contentState) contentState.style.display = "block";
+
+  // Fetch details
+  fetchBacktestDetails(runId);
+  fetchBacktestEquityCurve(runId);
+}
+
+async function fetchBacktestDetails(runId) {
+  try {
+    const res = await fetch(`/api/backtests/${encodeURIComponent(runId)}/summary`);
+    if (!res.ok) {
+      console.error("Failed to fetch backtest details:", res.status);
+      return;
+    }
+
+    const data = await res.json();
+    const summary = data.summary || {};
+    const summaryData = summary.summary || {};
+    const config = summary.config || {};
+
+    // Update title
+    const titleEl = document.getElementById("backtest-detail-title");
+    if (titleEl) {
+      titleEl.textContent = `Backtest: ${summary.strategy || "Unknown"}`;
+    }
+
+    // Update badge
+    const badgeEl = document.getElementById("backtest-detail-badge");
+    if (badgeEl) {
+      const pnl = parseFloat(summaryData.total_pnl || 0);
+      badgeEl.textContent = pnl > 0 ? "Profitable" : pnl < 0 ? "Loss" : "Break Even";
+      badgeEl.className = "badge " + (pnl > 0 ? "badge-open" : pnl < 0 ? "badge-closed" : "badge-muted");
+    }
+
+    // Update header details
+    setText("backtest-strategy", summary.strategy || "N/A");
+    setText("backtest-symbol", Array.isArray(config.symbols) ? config.symbols.join(", ") : config.symbols || "N/A");
+    setText("backtest-timeframe", config.timeframe || "N/A");
+    setText("backtest-date-range", `${config.from || "N/A"} to ${config.to || "N/A"}`);
+    setText("backtest-capital", formatInr(config.capital || 0, 0));
+    setText("backtest-run-id", runId);
+
+    // Update metrics
+    const netPnl = parseFloat(summaryData.total_pnl || 0);
+    const totalTrades = parseInt(summaryData.total_trades || 0);
+    const winRate = parseFloat(summaryData.win_rate || 0);
+    const wins = parseInt(summaryData.wins || 0);
+    const losses = parseInt(summaryData.losses || 0);
+    const maxDd = parseFloat(summaryData.max_drawdown_pct || 0);
+
+    setTextWithClass("backtest-net-pnl", formatInr(netPnl, 2), netPnl > 0 ? "positive" : netPnl < 0 ? "negative" : "");
+    setText("backtest-total-trades", totalTrades);
+    setText("backtest-win-rate", `${winRate.toFixed(1)}%`);
+    setText("backtest-wins-losses", `${wins} / ${losses}`);
+    setText("backtest-max-dd", `${maxDd.toFixed(2)}%`);
+
+    // Calculate profit factor if available
+    const grossProfit = parseFloat(summaryData.gross_profit || 0);
+    const grossLoss = Math.abs(parseFloat(summaryData.gross_loss || 0));
+    const profitFactor = grossLoss > 0 ? (grossProfit / grossLoss).toFixed(2) : "—";
+    setText("backtest-profit-factor", profitFactor);
+  } catch (err) {
+    console.error("Error fetching backtest details:", err);
+  }
+}
+
+async function fetchBacktestEquityCurve(runId) {
+  try {
+    const res = await fetch(`/api/backtests/${encodeURIComponent(runId)}/equity_curve`);
+    if (!res.ok) {
+      console.error("Failed to fetch equity curve:", res.status);
+      return;
+    }
+
+    const data = await res.json();
+    const curve = data.equity_curve || [];
+
+    const pointsEl = document.getElementById("equity-curve-points");
+    if (pointsEl) {
+      pointsEl.textContent = `${curve.length} pts`;
+    }
+
+    renderEquityCurve(curve);
+  } catch (err) {
+    console.error("Error fetching equity curve:", err);
+  }
+}
+
+function renderEquityCurve(curve) {
+  const svg = document.getElementById("backtest-equity-chart");
+  if (!svg || curve.length === 0) {
+    if (svg) {
+      svg.innerHTML = `
+        <text x="400" y="150" text-anchor="middle" fill="#94a3b8" font-size="14">
+          No equity curve data available
+        </text>
+      `;
+    }
+    return;
+  }
+
+  // Extract equity values
+  const equities = curve.map((p) => parseFloat(p.equity || 0));
+  const minEquity = Math.min(...equities);
+  const maxEquity = Math.max(...equities);
+
+  // Add padding
+  const range = maxEquity - minEquity;
+  const padding = range * 0.1 || 1000;
+  const yMin = minEquity - padding;
+  const yMax = maxEquity + padding;
+
+  const width = 800;
+  const height = 300;
+  const margin = { top: 20, right: 40, bottom: 30, left: 60 };
+  const chartWidth = width - margin.left - margin.right;
+  const chartHeight = height - margin.top - margin.bottom;
+
+  // Scale functions
+  const xScale = (i) => margin.left + (i / (curve.length - 1 || 1)) * chartWidth;
+  const yScale = (val) => margin.top + chartHeight - ((val - yMin) / (yMax - yMin)) * chartHeight;
+
+  // Build path
+  let pathData = "";
+  curve.forEach((point, i) => {
+    const x = xScale(i);
+    const y = yScale(parseFloat(point.equity || 0));
+    pathData += i === 0 ? `M ${x} ${y}` : ` L ${x} ${y}`;
+  });
+
+  // Clear and render
+  svg.innerHTML = "";
+
+  // Grid lines
+  const numGridLines = 5;
+  for (let i = 0; i <= numGridLines; i++) {
+    const y = margin.top + (i / numGridLines) * chartHeight;
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("x1", margin.left);
+    line.setAttribute("x2", width - margin.right);
+    line.setAttribute("y1", y);
+    line.setAttribute("y2", y);
+    line.setAttribute("stroke", "rgba(148, 163, 184, 0.2)");
+    line.setAttribute("stroke-width", "1");
+    svg.appendChild(line);
+
+    // Y-axis label
+    const value = yMax - (i / numGridLines) * (yMax - yMin);
+    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    text.setAttribute("x", margin.left - 10);
+    text.setAttribute("y", y + 4);
+    text.setAttribute("text-anchor", "end");
+    text.setAttribute("fill", "#94a3b8");
+    text.setAttribute("font-size", "10");
+    text.textContent = formatInr(value, 0);
+    svg.appendChild(text);
+  }
+
+  // Equity curve path
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", pathData);
+  path.setAttribute("fill", "none");
+  path.setAttribute("stroke", "#22c55e");
+  path.setAttribute("stroke-width", "2");
+  svg.appendChild(path);
+
+  // Starting equity line
+  const startEquity = equities[0];
+  const startY = yScale(startEquity);
+  const startLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  startLine.setAttribute("x1", margin.left);
+  startLine.setAttribute("x2", width - margin.right);
+  startLine.setAttribute("y1", startY);
+  startLine.setAttribute("y2", startY);
+  startLine.setAttribute("stroke", "#6366f1");
+  startLine.setAttribute("stroke-width", "1");
+  startLine.setAttribute("stroke-dasharray", "4");
+  svg.appendChild(startLine);
+
+  // Title
+  const title = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  title.setAttribute("x", width / 2);
+  title.setAttribute("y", 15);
+  title.setAttribute("text-anchor", "middle");
+  title.setAttribute("fill", "#e5e7eb");
+  title.setAttribute("font-size", "12");
+  title.setAttribute("font-weight", "600");
+  title.textContent = "Equity Over Time";
+  svg.appendChild(title);
+}
+
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
+}
+
+function setTextWithClass(id, value, className) {
+  const el = document.getElementById(id);
+  if (el) {
+    el.textContent = value;
+    if (className) {
+      el.className = "metric-value " + className;
+    }
+  }
+}
+
+function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
