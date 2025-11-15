@@ -33,6 +33,16 @@ from core.universe_builder import load_universe
 from data.instruments import resolve_fno_symbols
 from types import SimpleNamespace
 
+# Strategy Engine v2 support (optional)
+try:
+    from core.strategy_engine_v2 import StrategyEngineV2, StrategyState
+    from strategies.ema20_50_intraday_v2 import EMA2050IntradayV2
+    STRATEGY_ENGINE_V2_AVAILABLE = True
+except ImportError:
+    STRATEGY_ENGINE_V2_AVAILABLE = False
+    StrategyEngineV2 = None
+    StrategyState = None
+
 logger = logging.getLogger(__name__)
 
 ARTIFACTS_DIR = BASE_DIR / "artifacts"
@@ -71,13 +81,53 @@ class BacktestEngine:
         # Initialize broker
         self.broker = BacktestBroker(starting_cash=capital)
         
-        # Initialize strategy runner
-        self.strategy_runner = StrategyRunner(
-            None,
-            self,
-            allowed_strategies=[strategy_code],
-            market_data_engine=market_data_engine,
+        # Determine if we should use Strategy Engine v2
+        strategy_engine_config = cfg.raw.get("strategy_engine", {})
+        use_v2 = (
+            strategy_engine_config.get("version", 1) == 2 
+            and STRATEGY_ENGINE_V2_AVAILABLE
+            and strategy_code.endswith("_v2")
         )
+        
+        if use_v2:
+            # Initialize Strategy Engine v2
+            logger.info("Backtest using Strategy Engine v2")
+            v2_config = {
+                "history_lookback": strategy_engine_config.get("window_size", 200),
+                "strategies": [strategy_code],
+                "timeframe": "5m",  # Will be overridden by run() call
+            }
+            self.strategy_engine_v2 = StrategyEngineV2(
+                v2_config,
+                market_data_engine,
+                risk_engine=None,
+                logger_instance=logger
+            )
+            self.strategy_engine_v2.set_paper_engine(self)
+            
+            # Register v2 strategy
+            if strategy_code == "ema20_50_intraday_v2":
+                state = StrategyState()
+                strategy_config = {
+                    "name": strategy_code,
+                    "timeframe": "5m",
+                    "ema_fast": 20,
+                    "ema_slow": 50,
+                }
+                strategy = EMA2050IntradayV2(strategy_config, state)
+                self.strategy_engine_v2.register_strategy(strategy_code, strategy)
+            
+            self.strategy_runner = None
+        else:
+            # Initialize Strategy Engine v1
+            logger.info("Backtest using Strategy Engine v1")
+            self.strategy_runner = StrategyRunner(
+                None,
+                self,
+                allowed_strategies=[strategy_code],
+                market_data_engine=market_data_engine,
+            )
+            self.strategy_engine_v2 = None
         
         # Initialize risk engine
         risk_cfg_dict = cfg.risk or {}
@@ -162,8 +212,13 @@ class BacktestEngine:
             # Create tick for strategy
             ticks = {self.symbol: {"close": close_price}}
             
-            # Run strategies
-            self.strategy_runner.run(ticks)
+            # Run strategies (v1 or v2)
+            if self.strategy_engine_v2:
+                # Use Strategy Engine v2
+                self.strategy_engine_v2.run([self.symbol], timeframe)
+            elif self.strategy_runner:
+                # Use Strategy Engine v1
+                self.strategy_runner.run(ticks)
             
         except Exception as exc:
             logger.warning("Error processing candle at %s: %s", candle.get("ts"), exc)
