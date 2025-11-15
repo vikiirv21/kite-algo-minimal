@@ -1822,6 +1822,121 @@ async def api_positions_open() -> JSONResponse:
     return JSONResponse(load_open_positions())
 
 
+def load_open_positions() -> List[Dict[str, Any]]:
+    """
+    Return open positions from the latest checkpoint.
+    """
+    try:
+        state = _load_runtime_state_payload()
+        if not state:
+            return []
+        
+        quotes = _load_quotes()
+        ticks = _load_ticks_cache(state)
+        
+        positions_data = state.get("positions") or []
+        if isinstance(positions_data, dict):
+            positions_list = list(positions_data.values())
+        else:
+            positions_list = list(positions_data)
+        
+        open_positions = []
+        for pos in positions_list:
+            if not isinstance(pos, dict):
+                continue
+            
+            qty = _safe_float(pos.get("quantity") or pos.get("qty"), 0.0)
+            if qty == 0:
+                continue
+            
+            symbol = pos.get("symbol") or pos.get("tradingsymbol") or ""
+            if not symbol:
+                continue
+            
+            avg_price = _safe_float(pos.get("avg_price") or pos.get("average_price"), 0.0)
+            last_price = resolve_last_for_symbol(symbol, pos, quotes, ticks)
+            unrealized_pnl = compute_unrealized_pnl(avg_price, last_price, qty)
+            
+            open_positions.append({
+                "symbol": symbol,
+                "side": "LONG" if qty > 0 else "SHORT",
+                "quantity": int(qty),
+                "avg_price": avg_price,
+                "last_price": last_price,
+                "unrealized_pnl": unrealized_pnl,
+            })
+        
+        return open_positions
+    except Exception as exc:
+        logger.exception("Failed to load open positions: %s", exc)
+        return []
+
+
+def _default_trade_flow() -> Dict[str, Any]:
+    """
+    Return default empty trade flow stats.
+    """
+    return {
+        "signals_seen": 0,
+        "signals_evaluated": 0,
+        "trades_allowed": 0,
+        "trades_vetoed": 0,
+        "orders_placed": 0,
+        "orders_filled": 0,
+        "stop_hits": 0,
+        "target_hits": 0,
+        "last_events": {},
+    }
+
+
+def _build_trade_flow_funnel(stats: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Build funnel visualization data from trade flow stats.
+    """
+    signals_seen = int(stats.get("signals_seen", 0))
+    signals_evaluated = int(stats.get("signals_evaluated", 0))
+    trades_allowed = int(stats.get("trades_allowed", 0))
+    trades_vetoed = int(stats.get("trades_vetoed", 0))
+    orders_placed = int(stats.get("orders_placed", 0))
+    orders_filled = int(stats.get("orders_filled", 0))
+    
+    return [
+        {"stage": "Signals Seen", "count": signals_seen},
+        {"stage": "Evaluated", "count": signals_evaluated},
+        {"stage": "Allowed", "count": trades_allowed},
+        {"stage": "Vetoed", "count": trades_vetoed},
+        {"stage": "Orders Placed", "count": orders_placed},
+        {"stage": "Orders Filled", "count": orders_filled},
+    ]
+
+
+def load_trade_flow_snapshot() -> Dict[str, Any]:
+    """
+    Load trade flow snapshot from trade monitor.
+    """
+    try:
+        monitor_snapshot = trade_monitor.snapshot()
+        stats = monitor_snapshot or _default_trade_flow()
+        funnel = _build_trade_flow_funnel(stats)
+        
+        return {
+            "snapshot_ts": datetime.now(timezone.utc).isoformat(),
+            "trade_flow": stats,
+            "funnel": funnel,
+            "risk_reasons": [],
+            "time_reasons": [],
+        }
+    except Exception as exc:
+        logger.exception("Failed to load trade flow snapshot: %s", exc)
+        return {
+            "snapshot_ts": datetime.now(timezone.utc).isoformat(),
+            "trade_flow": _default_trade_flow(),
+            "funnel": [],
+            "risk_reasons": [],
+            "time_reasons": [],
+        }
+
+
 def load_recent_orders(limit: int = 40) -> Dict[str, List[Dict[str, Any]]]:
     """
     Return up to `limit` most recent paper orders from today's journal.
