@@ -1,233 +1,707 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Arthayukti · HFT Console</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="/static/dashboard.css" />
-
+  <title>Arthayukti HFT Dashboard</title>
+  <link rel="stylesheet" href="/static/dashboard.css" />
 </head>
 <body>
-  <header>
-    <div class="brand">
-      <div class="brand-mark"><span>A</span></div>
-      <div class="brand-text">
-        <h1>Arthayukti · HFT Console</h1>
-        <p class="sub">Paper session · NFO / EQ · Zerodha Kite</p>
-      </div>
-    </div>
-    <div class="header-right">
-      <div class="pill" id="pill-market">
-        <div class="pill-dot" id="pill-market-dot"></div>
-        <div class="pill-label" id="pill-market-label">MARKET</div>
-        <div class="pill-value" id="pill-market-value">—</div>
-      </div>
-      <div class="pill" id="pill-engine">
-        <div class="pill-dot" id="pill-engine-dot"></div>
-        <div class="pill-label">ENGINE</div>
-        <div class="pill-value" id="pill-engine-value">—</div>
-      </div>
-      <div class="pill" id="pill-auth">
-        <div class="pill-dot" id="pill-auth-dot"></div>
-        <div class="pill-label">AUTH</div>
-        <div class="pill-value" id="pill-auth-value">—</div>
-      </div>
-    </div>
-  </header>
+  <div class="app-shell">
 
-  <main>
-    <!-- Row 1: Top KPIs -->
-    <section class="row top">
-      <article class="card border-strong" id="kpi-equity">
-        <div class="card-header">
-          <div class="card-title">Equity</div>
+    <!-- Top bar -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="brand">
+          <span class="brand-logo">A</span>
+          <span class="brand-text">Arthayukti HFT</span>
         </div>
-        <div class="card-main" id="kpi-equity-body">
-          <div class="muted">Loading…</div>
-        </div>
-      </article>
-      <article class="card border-strong" id="kpi-daypnl">
-        <div class="card-header">
-          <div class="card-title">Day P&amp;L</div>
-        </div>
-        <div class="card-main" id="kpi-daypnl-body">
-          <div class="muted">Loading…</div>
-        </div>
-      </article>
-      <article class="card border-strong" id="kpi-trades">
-        <div class="card-header">
-          <div class="card-title">Trades · Today</div>
-        </div>
-        <div class="card-main" id="kpi-trades-body">
-          <div class="muted">Loading…</div>
-        </div>
-      </article>
-      <article class="card border-strong" id="kpi-risk">
-        <div class="card-header">
-          <div class="card-title">Risk &amp; Limits</div>
-        </div>
-        <div class="card-main" id="kpi-risk-body">
-          <div class="muted">Loading…</div>
-        </div>
-      </article>
-    </section>
+      </div>
 
-    <!-- Row 2: Equity curve + engine/trade/config -->
-    <section class="row mid">
-      <!-- Left: Equity curve -->
-      <article class="card" id="card-equity">
-        <div class="card-header">
-          <div class="card-title">Equity Curve · 1 Day</div>
+      <div class="topbar-center">
+        <div class="market-status" id="market-status">
+          <span class="badge badge-closed" id="market-status-badge">
+            MARKET CLOSED
+          </span>
+          <span class="market-clock" id="market-clock">--:--:-- IST</span>
         </div>
-        <div class="card-main">
-          <div class="chart-shell">
-            <div class="chart-wrapper">
-              <canvas id="equity-canvas"></canvas>
+      </div>
+
+      <div class="topbar-right">
+        <div class="engine-pills">
+          <span class="pill pill-ok" id="pill-paper">Paper</span>
+          <span class="pill pill-warn" id="pill-live">Live</span>
+          <span class="pill pill-ok" id="pill-scanner">Scanner</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Tabs -->
+    <nav class="tabs">
+      <button class="tab active" data-tab="overview">Overview</button>
+      <button class="tab" data-tab="signals">Signals & Strategies</button>
+      <button class="tab" data-tab="orders">Orders & Positions</button>
+      <button class="tab" data-tab="backtests">Backtests</button>
+      <button class="tab" data-tab="logs">Logs</button>
+      <button class="tab" data-tab="config">Config & Safety</button>
+    </nav>
+
+    <!-- Main content -->
+    <main class="tab-container">
+
+      <!-- OVERVIEW TAB -->
+      <section class="tab-page active" id="tab-overview">
+        <div class="grid grid-3">
+          <section class="card engines-card">
+            <div class="card-header">
+              <h2>Engines</h2>
             </div>
-            <div class="chart-meta">
-              <span id="equity-summary-left"></span>
-              <span id="equity-summary-right"></span>
+            <div class="card-body" id="engines-status">
+              <div class="engine-row">
+                <span class="engine-name">F&amp;O Paper Engine</span>
+                <span class="engine-badge badge badge-muted" id="engine-status-badge">Loading...</span>
+              </div>
+              <div class="engine-meta small text-muted" id="engines-meta">
+                Awaiting checkpoint data...
+              </div>
             </div>
-          </div>
-        </div>
-      </article>
+          </section>
 
-      <!-- Right: Trade Flow + Engine + Config/Auth -->
-      <div class="row" style="grid-template-columns: minmax(0, 1fr); gap: 10px;">
-        <article class="card" id="card-tradeflow">
-          <div class="card-header">
-            <div class="card-title">Trade Pipe · Today</div>
-          </div>
-          <div class="card-main" id="tradeflow-body">
-            <div class="muted">Loading…</div>
-          </div>
-        </article>
-
-        <article class="card" id="card-engine">
-          <div class="card-header">
-            <div class="card-title">Engine &amp; Session</div>
-          </div>
-          <div class="card-main" id="engine-body">
-            <div class="muted">Loading…</div>
-          </div>
-        </article>
-
-        <article class="card" id="card-config">
-          <div class="card-header">
-            <div class="card-title">Config &amp; Auth</div>
-          </div>
-          <div class="card-main" id="config-body">
-            <div class="muted">Loading…</div>
-          </div>
-        </article>
-      </div>
-    </section>
-
-    <!-- Row 3: Signals & Orders -->
-    <section class="row mid2">
-      <article class="card" id="card-signals">
-        <div class="card-header">
-          <div class="card-title">Signals · Recent</div>
-        </div>
-        <div class="card-main" id="signals-body">
-          <div class="muted">Loading…</div>
-        </div>
-      </article>
-
-      <article class="card" id="card-orders">
-        <div class="card-header">
-          <div class="card-title">Orders · Recent</div>
-        </div>
-        <div class="card-main" id="orders-body">
-          <div class="muted">Loading…</div>
-        </div>
-      </article>
-    </section>
-
-    <!-- Row 4: Log Console -->
-    <section class="row logs-row">
-      <article class="card card-log-console" id="card-logs">
-        <div class="card-header">
-          <div>
-            <div class="card-title">Engine Log Stream</div>
-            <div class="card-sub">Live events from /api/logs/* endpoints</div>
-          </div>
-        </div>
-        <div class="log-console">
-          <div class="log-console-header">
-            <div class="log-tabs" role="tablist">
-              <button class="log-tab active" type="button" data-log-tab="engine">Engine</button>
-              <button class="log-tab" type="button" data-log-tab="trades">Trades</button>
-              <button class="log-tab" type="button" data-log-tab="signals">Signals</button>
-              <button class="log-tab" type="button" data-log-tab="system">System</button>
+          <section class="card portfolio-card">
+            <div class="card-header">
+              <h2>Portfolio &amp; P&amp;L</h2>
             </div>
-            <div class="log-controls">
-              <label class="follow-toggle">
-                <input type="checkbox" id="log-follow" checked />
-                <span>Follow Tail</span>
-              </label>
-              <div class="log-clock">
-                <span class="log-clock-label">Server •</span>
-                <span id="logs-clock">--:--:--</span>
+            <div class="card-body" id="portfolio-summary">
+              <div class="metric-row">
+                <span class="metric-label">Equity</span>
+                <span class="metric-value" id="pf-equity">—</span>
+              </div>
+              <div class="metric-row">
+                <span class="metric-label">Realized P&amp;L</span>
+                <span class="metric-value" id="pf-realized">—</span>
+              </div>
+              <div class="metric-row">
+                <span class="metric-label">Unrealized P&amp;L</span>
+                <span class="metric-value" id="pf-unrealized">—</span>
+              </div>
+              <div class="metric-row">
+                <span class="metric-label">Daily P&amp;L</span>
+                <span class="metric-value" id="pf-daily">—</span>
+              </div>
+              <div class="metric-row">
+                <span class="metric-label">Exposure</span>
+                <span class="metric-value" id="pf-exposure">—</span>
+              </div>
+              <div class="metric-row">
+                <span class="metric-label">Free Notional</span>
+                <span class="metric-value" id="pf-free">—</span>
+              </div>
+              <div class="metric-row small text-muted">
+                <span id="pf-positions">Positions: —</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="card config-card">
+            <div class="card-header">
+              <h2>Run Config &amp; Risk</h2>
+              <span id="config-mode-pill" class="config-pill config-pill-paper">PAPER</span>
+            </div>
+            <div class="card-body config-body">
+              <div class="config-row">
+                <span class="config-label">Config file</span>
+                <span class="config-value" id="config-path">–</span>
+              </div>
+              <div class="config-row">
+                <span class="config-label">FnO universe</span>
+                <span class="config-value" id="config-universe">–</span>
+              </div>
+              <div class="config-row">
+                <span class="config-label">Paper capital</span>
+                <span class="config-value" id="config-capital">–</span>
+              </div>
+              <div class="config-row">
+                <span class="config-label">Risk / trade</span>
+                <span class="config-value" id="config-risk-per-trade">–</span>
+              </div>
+              <div class="config-row">
+                <span class="config-label">Max daily loss</span>
+                <span class="config-value" id="config-max-daily-loss">–</span>
+              </div>
+              <div class="config-row">
+                <span class="config-label">Max exposure</span>
+                <span class="config-value" id="config-max-exposure">–</span>
+              </div>
+              <div class="config-row">
+                <span class="config-label">Risk profile</span>
+                <span class="config-value">
+                  <span id="config-risk-profile" class="risk-profile-badge">–</span>
+                </span>
+              </div>
+              <div class="config-row">
+                <span class="config-label">Meta-engine</span>
+                <span class="config-value" id="config-meta-enabled">–</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="card equity-card">
+            <div class="card-header">
+              <h2>Equity Curve (Today)</h2>
+              <span class="badge badge-muted" id="equity-points-count">0 pts</span>
+            </div>
+            <div class="card-body">
+              <div class="equity-chart-wrapper">
+                <svg id="equity-chart" viewBox="0 0 100 40" preserveAspectRatio="none"></svg>
+              </div>
+              <div class="equity-legend">
+                <span class="legend-dot legend-equity"></span> Equity
+                <span class="legend-dot legend-capital"></span> Capital
+                <span class="legend-dot legend-realized"></span> Realized P&amp;L
+              </div>
+            </div>
+          </section>
+
+          <section class="card signals-card">
+            <div class="card-header">
+              <h2>Recent Signals</h2>
+              <span class="badge badge-muted" id="signals-count">0</span>
+            </div>
+            <div class="card-body">
+              <div class="table-wrapper">
+                <table class="signals-table">
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Symbol</th>
+                      <th>TF</th>
+                      <th>Signal</th>
+                      <th>Price</th>
+                      <th>Strategy</th>
+                    </tr>
+                  </thead>
+                  <tbody id="signals-body">
+                    <tr>
+                      <td colspan="6" class="text-muted small">
+                        No signals yet.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <section class="card today-card">
+            <div class="card-header">
+              <h2>Today at a glance</h2>
+              <span id="today-date-label" class="pill pill-muted">Today</span>
+            </div>
+            <div class="card-body today-body">
+              <div class="today-main-pnl">
+                <span class="today-pnl-label">Realized P&amp;L (INR)</span>
+                <span class="today-pnl-value flat" id="today-realized-pnl">₹0</span>
+              </div>
+              <div class="today-grid">
+                <div class="today-metric">
+                  <span class="today-metric-label">Trades</span>
+                  <span class="today-metric-value" id="today-num-trades">0</span>
+                </div>
+                <div class="today-metric">
+                  <span class="today-metric-label">Win rate</span>
+                  <span class="today-metric-value" id="today-win-rate">0%</span>
+                </div>
+                <div class="today-metric">
+                  <span class="today-metric-label">Wins</span>
+                  <span class="today-metric-value" id="today-win-trades">0</span>
+                </div>
+                <div class="today-metric">
+                  <span class="today-metric-label">Losses</span>
+                  <span class="today-metric-value" id="today-loss-trades">0</span>
+                </div>
+                <div class="today-metric">
+                  <span class="today-metric-label">Largest win</span>
+                  <span class="today-metric-value" id="today-largest-win">₹0</span>
+                </div>
+                <div class="today-metric">
+                  <span class="today-metric-label">Largest loss</span>
+                  <span class="today-metric-value" id="today-largest-loss">₹0</span>
+                </div>
+                <div class="today-metric">
+                  <span class="today-metric-label">Avg R / trade</span>
+                  <span class="today-metric-value" id="today-avg-r">0.0</span>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div class="grid grid-3 mt-lg">
+          <!-- P&L Card -->
+          <div class="card">
+            <div class="card-header">
+              <h2>Today P&L</h2>
+            </div>
+            <div class="card-body pnl-card" id="pnl-summary">
+              <div class="pnl-line">
+                <span>Realized</span>
+                <span id="pnl-realized">₹0</span>
+              </div>
+              <div class="pnl-line">
+                <span>Unrealized</span>
+                <span id="pnl-unrealized">₹0</span>
+              </div>
+              <div class="pnl-line">
+                <span>Equity</span>
+                <span id="pnl-equity">₹0</span>
               </div>
             </div>
           </div>
-          <div class="log-body">
-            <div class="log-viewer" id="log-viewer">
-              <div class="muted">Loading live log stream...</div>
+
+          <!-- Engine status -->
+          <div class="card">
+            <div class="card-header">
+              <h2>Engine Status</h2>
+            </div>
+            <div class="card-body" id="engine-status">
+              <ul class="status-list">
+                <li>
+                  <span>Paper Engine</span>
+                  <span class="status-dot ok" id="status-paper"></span>
+                </li>
+                <li>
+                  <span>Live Engine</span>
+                  <span class="status-dot warn" id="status-live"></span>
+                </li>
+                <li>
+                  <span>Scanner</span>
+                  <span class="status-dot ok" id="status-scanner"></span>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <!-- Quick stats -->
+          <div class="card">
+            <div class="card-header">
+              <h2>Quick Stats</h2>
+            </div>
+            <div class="card-body" id="quick-stats">
+              <div class="stat-row">
+                <span>Trades Today</span>
+                <span id="stat-trades-today">0</span>
+              </div>
+              <div class="stat-row">
+                <span>Win / Loss</span>
+                <span id="stat-win-loss">0 / 0</span>
+              </div>
+              <div class="stat-row">
+                <span>Kill-switch Symbols</span>
+                <span id="stat-banned-symbols">0</span>
+              </div>
             </div>
           </div>
         </div>
-      </article>
-    </section>
 
-    <!-- Row 5: Strategy Performance -->
-    <section class="row bottom">
-      <article class="card" id="card-strategies">
-        <div class="card-header">
-          <div class="card-title">Strategy Performance</div>
-        </div>
-        <div class="card-main" id="strategies-body">
-          <div class="muted">Loading...</div>
-        </div>
-      </article>
-    </section>
+                </tbody>
+              </table>
+            </div>
+          </div>
 
-    <!-- Row 6: Backtest Results -->
-    <section class="row bottom">
-      <article class="card" id="card-backtests">
-        <div class="card-header">
-          <div class="card-title">Backtest Results</div>
+          <!-- Recent signals -->
+          <div class="card">
+            <div class="card-header">
+              <h2>Recent Signals</h2>
+            </div>
+            <div class="card-body table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Symbol</th>
+                    <th>TF</th>
+                    <th>Signal</th>
+                    <th>Price</th>
+                    <th>Reason</th>
+                  </tr>
+                </thead>
+                <tbody id="table-recent-signals">
+                  <!-- filled by JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
-        <div class="card-main backtest-card-main">
-          <div class="backtest-controls">
-            <label>
-              <span>Strategy</span>
-              <select id="backtest-strategy">
-                <option value="">Select strategy</option>
+
+        <section class="card positions-card mt-lg">
+          <div class="card-header">
+            <h2>Positions &amp; Orders</h2>
+          </div>
+          <div class="card-body split-vertical">
+            <div class="subcard">
+              <div class="subcard-header">
+                <h3>Open Positions</h3>
+                <span class="badge badge-muted" id="positions-count">0</span>
+              </div>
+              <div class="table-wrapper">
+                <table class="mini-table" id="positions-table">
+                  <thead>
+                    <tr>
+                      <th>Symbol</th>
+                      <th>Side</th>
+                      <th>Qty</th>
+                      <th>Avg</th>
+                      <th>Unreal P&amp;L</th>
+                    </tr>
+                  </thead>
+                  <tbody id="positions-body">
+                    <tr><td colspan="5" class="text-muted small">No open positions.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="subcard">
+              <div class="subcard-header">
+                <h3>Recent Orders</h3>
+                <span class="badge badge-muted" id="orders-count">0</span>
+              </div>
+              <div class="table-wrapper">
+                <table class="mini-table" id="orders-table">
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Symbol</th>
+                      <th>Side</th>
+                      <th>Qty</th>
+                      <th>Price</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="orders-body">
+                    <tr><td colspan="6" class="text-muted small">No orders yet.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card health-card mt-lg">
+          <div class="card-header">
+            <h2>System Health</h2>
+            <span id="health-market-pill" class="pill pill-closed">Market Closed</span>
+          </div>
+          <div class="card-body health-body">
+            <div class="health-summary">
+              <div class="health-item">
+                <span class="label">Last log</span>
+                <span class="value" id="health-last-log">—</span>
+              </div>
+              <div class="health-item">
+                <span class="label">Last error</span>
+                <span class="value" id="health-last-error">No recent errors</span>
+              </div>
+              <div class="health-item">
+                <span class="label">Errors (recent)</span>
+                <span class="value" id="health-error-count">0</span>
+              </div>
+              <div class="health-item">
+                <span class="label">Warnings (recent)</span>
+                <span class="value" id="health-warning-count">0</span>
+              </div>
+            </div>
+            <div class="logs-panel">
+              <div class="logs-header">
+                <h3>Recent Logs</h3>
+                <span class="badge badge-muted" id="logs-count">0</span>
+              </div>
+              <pre id="logs-body" class="logs-body">Loading logs...</pre>
+            </div>
+          </div>
+        </section>
+
+        <section class="card strategy-card mt-lg">
+          <div class="card-header">
+            <h2>Strategy Snapshot</h2>
+            <span class="badge badge-muted" id="strategy-count">0</span>
+          </div>
+          <div class="card-body">
+            <div class="table-wrapper">
+              <table class="table compact" id="strategy-table">
+                <thead>
+                  <tr>
+                    <th>Logical</th>
+                    <th>Symbol</th>
+                    <th>TF</th>
+                    <th>Last Signal</th>
+                    <th>Last Price</th>
+                    <th>B / S / X / H</th>
+                  </tr>
+                </thead>
+                <tbody id="strategy-tbody">
+                  <tr>
+                    <td colspan="6" class="text-muted small">Loading strategy stats...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <!-- SIGNALS TAB -->
+      <section class="tab-page" id="tab-signals">
+        <div class="card">
+          <div class="card-header">
+            <h2>Signals & Strategies</h2>
+          </div>
+          <div class="card-body">
+            <div class="signals-filters">
+              <select id="filter-symbol">
+                <option value="">All Symbols</option>
+                <option value="NIFTY">NIFTY</option>
+                <option value="BANKNIFTY">BANKNIFTY</option>
+                <option value="FINNIFTY">FINNIFTY</option>
               </select>
-            </label>
-            <label>
-              <span>Run</span>
-              <select id="backtest-run" disabled>
-                <option value="">Select run</option>
+              <select id="filter-side">
+                <option value="">All Sides</option>
+                <option value="BUY">BUY</option>
+                <option value="SELL">SELL</option>
               </select>
-            </label>
-            <button type="button" id="backtest-download" class="btn-link" disabled>Download JSON</button>
-          </div>
-          <div class="backtest-summary" id="backtest-summary">
-            <div class="muted">Select a backtest run to see summary metrics.</div>
-          </div>
-          <div class="backtest-equity">
-            <canvas id="backtest-equity"></canvas>
-          </div>
-          <div class="backtest-trades" id="backtest-trades">
-            <div class="muted">No trades loaded.</div>
+              <select id="filter-tf">
+                <option value="">All TF</option>
+                <option value="1m">1m</option>
+                <option value="3m">3m</option>
+                <option value="5m">5m</option>
+                <option value="15m">15m</option>
+              </select>
+            </div>
+
+            <div class="table-wrapper mt-sm">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Symbol</th>
+                    <th>TF</th>
+                    <th>Signal</th>
+                    <th>Price</th>
+                    <th>Profile</th>
+                    <th>Conf.</th>
+                    <th>Reason</th>
+                  </tr>
+                </thead>
+                <tbody id="table-all-signals">
+                  <!-- filled by JS -->
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
-      </article>
-    </section>
-    <script src="/static/dashboard.js" defer></script>
+      </section>
 
+      <!-- ORDERS TAB -->
+      <section class="tab-page" id="tab-orders">
+        <div class="grid grid-2">
+          <!-- Open positions (detailed) -->
+          <div class="card">
+            <div class="card-header">
+              <h2>Open Positions (Detailed)</h2>
+            </div>
+            <div class="card-body table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Symbol</th>
+                    <th>Side</th>
+                    <th>Qty</th>
+                    <th>Avg Price</th>
+                    <th>LTP</th>
+                    <th>P&L</th>
+                  </tr>
+                </thead>
+                <tbody id="table-positions-detailed">
+                  <!-- filled by JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Recent orders -->
+          <div class="card">
+            <div class="card-header">
+              <h2>Recent Orders</h2>
+            </div>
+            <div class="card-body table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Symbol</th>
+                    <th>Side</th>
+                    <th>Qty</th>
+                    <th>Price</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="table-recent-orders">
+                  <!-- filled by JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- BACKTESTS TAB -->
+      <section class="tab-page" id="tab-backtests">
+        <div class="backtests-layout">
+          <!-- Left panel: Run list -->
+          <div class="backtests-list-panel">
+            <div class="card">
+              <div class="card-header">
+                <h2>Backtest Runs</h2>
+                <span class="badge badge-muted" id="backtests-count">0</span>
+              </div>
+              <div class="card-body">
+                <div id="backtests-list" class="backtests-list">
+                  <div class="backtests-empty-state">
+                    <p>No backtests found.</p>
+                    <p class="text-muted small">Run <code>scripts/run_backtest.py</code> to generate one.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right panel: Run details -->
+          <div class="backtests-detail-panel">
+            <div id="backtests-detail-empty" class="card">
+              <div class="card-body backtests-detail-empty-state">
+                <p class="text-muted">Select a backtest run to view details</p>
+              </div>
+            </div>
+
+            <div id="backtests-detail-content" class="backtests-detail-content" style="display: none;">
+              <!-- Run header -->
+              <div class="card">
+                <div class="card-header">
+                  <h2 id="backtest-detail-title">Backtest Details</h2>
+                  <span class="badge" id="backtest-detail-badge">Loading...</span>
+                </div>
+                <div class="card-body">
+                  <div class="backtest-detail-grid">
+                    <div class="backtest-detail-item">
+                      <span class="label">Strategy</span>
+                      <span class="value" id="backtest-strategy">—</span>
+                    </div>
+                    <div class="backtest-detail-item">
+                      <span class="label">Symbol</span>
+                      <span class="value" id="backtest-symbol">—</span>
+                    </div>
+                    <div class="backtest-detail-item">
+                      <span class="label">Timeframe</span>
+                      <span class="value" id="backtest-timeframe">—</span>
+                    </div>
+                    <div class="backtest-detail-item">
+                      <span class="label">Date Range</span>
+                      <span class="value" id="backtest-date-range">—</span>
+                    </div>
+                    <div class="backtest-detail-item">
+                      <span class="label">Starting Capital</span>
+                      <span class="value" id="backtest-capital">—</span>
+                    </div>
+                    <div class="backtest-detail-item">
+                      <span class="label">Run ID</span>
+                      <span class="value" id="backtest-run-id">—</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Metrics -->
+              <div class="card mt-sm">
+                <div class="card-header">
+                  <h2>Performance Metrics</h2>
+                </div>
+                <div class="card-body">
+                  <div class="backtest-metrics-grid">
+                    <div class="metric-item">
+                      <span class="metric-label">Net P&L</span>
+                      <span class="metric-value" id="backtest-net-pnl">₹0</span>
+                    </div>
+                    <div class="metric-item">
+                      <span class="metric-label">Total Trades</span>
+                      <span class="metric-value" id="backtest-total-trades">0</span>
+                    </div>
+                    <div class="metric-item">
+                      <span class="metric-label">Win Rate</span>
+                      <span class="metric-value" id="backtest-win-rate">0%</span>
+                    </div>
+                    <div class="metric-item">
+                      <span class="metric-label">Wins / Losses</span>
+                      <span class="metric-value" id="backtest-wins-losses">0 / 0</span>
+                    </div>
+                    <div class="metric-item">
+                      <span class="metric-label">Max Drawdown</span>
+                      <span class="metric-value" id="backtest-max-dd">0%</span>
+                    </div>
+                    <div class="metric-item">
+                      <span class="metric-label">Profit Factor</span>
+                      <span class="metric-value" id="backtest-profit-factor">—</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Equity Curve Chart -->
+              <div class="card mt-sm">
+                <div class="card-header">
+                  <h2>Equity Curve</h2>
+                  <span class="badge badge-muted" id="equity-curve-points">0 pts</span>
+                </div>
+                <div class="card-body">
+                  <div class="equity-chart-container">
+                    <svg id="backtest-equity-chart" viewBox="0 0 800 300" preserveAspectRatio="xMidYMid meet">
+                      <text x="400" y="150" text-anchor="middle" fill="#94a3b8" font-size="14">
+                        Loading equity curve...
+                      </text>
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- LOGS TAB -->
+      <section class="tab-page" id="tab-logs">
+        <div class="card">
+          <div class="card-header">
+            <h2>Engine Logs</h2>
+          </div>
+          <div class="card-body">
+            <pre id="logs-stream" class="logs-body">Loading logs...</pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- CONFIG TAB -->
+      <section class="tab-page" id="tab-config">
+        <div class="card">
+          <div class="card-header">
+            <h2>Current Config (dev.yaml)</h2>
+          </div>
+          <div class="card-body">
+            <pre id="config-viewer">{{ config_yaml | default("", true) }}</pre>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="/static/dashboard.js"></script>
 </body>
 </html>
+
