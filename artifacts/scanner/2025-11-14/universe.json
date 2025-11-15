@@ -1,0 +1,32 @@
+{
+  "date": "2025-11-14",
+  "asof": "2025-11-14T16:12:27.690729Z",
+  "fno": [
+    "NIFTY",
+    "BANKNIFTY"
+  ],
+  "meta": {
+    "NIFTY": {
+      "tradingsymbol": "NIFTY25NOVFUT",
+      "instrument_token": 9485826,
+      "lot_size": 75,
+      "expiry": "2025-11-25",
+      "tick_size": 0.1,
+      "exchange": "NFO",
+      "segment": "NFO-FUT",
+      "name": "NIFTY",
+      "atr": null
+    },
+    "BANKNIFTY": {
+      "tradingsymbol": "BANKNIFTY25NOVFUT",
+      "instrument_token": 9485058,
+      "lot_size": 35,
+      "expiry": "2025-11-25",
+      "tick_size": 0.2,
+      "exchange": "NFO",
+      "segment": "NFO-FUT",
+      "name": "BANKNIFTY",
+      "atr": null
+    }
+  }
+}

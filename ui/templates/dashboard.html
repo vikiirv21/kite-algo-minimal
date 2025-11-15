@@ -1,0 +1,233 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Arthayukti · HFT Console</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="/static/dashboard.css" />
+
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="brand-mark"><span>A</span></div>
+      <div class="brand-text">
+        <h1>Arthayukti · HFT Console</h1>
+        <p class="sub">Paper session · NFO / EQ · Zerodha Kite</p>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="pill" id="pill-market">
+        <div class="pill-dot" id="pill-market-dot"></div>
+        <div class="pill-label" id="pill-market-label">MARKET</div>
+        <div class="pill-value" id="pill-market-value">—</div>
+      </div>
+      <div class="pill" id="pill-engine">
+        <div class="pill-dot" id="pill-engine-dot"></div>
+        <div class="pill-label">ENGINE</div>
+        <div class="pill-value" id="pill-engine-value">—</div>
+      </div>
+      <div class="pill" id="pill-auth">
+        <div class="pill-dot" id="pill-auth-dot"></div>
+        <div class="pill-label">AUTH</div>
+        <div class="pill-value" id="pill-auth-value">—</div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Row 1: Top KPIs -->
+    <section class="row top">
+      <article class="card border-strong" id="kpi-equity">
+        <div class="card-header">
+          <div class="card-title">Equity</div>
+        </div>
+        <div class="card-main" id="kpi-equity-body">
+          <div class="muted">Loading…</div>
+        </div>
+      </article>
+      <article class="card border-strong" id="kpi-daypnl">
+        <div class="card-header">
+          <div class="card-title">Day P&amp;L</div>
+        </div>
+        <div class="card-main" id="kpi-daypnl-body">
+          <div class="muted">Loading…</div>
+        </div>
+      </article>
+      <article class="card border-strong" id="kpi-trades">
+        <div class="card-header">
+          <div class="card-title">Trades · Today</div>
+        </div>
+        <div class="card-main" id="kpi-trades-body">
+          <div class="muted">Loading…</div>
+        </div>
+      </article>
+      <article class="card border-strong" id="kpi-risk">
+        <div class="card-header">
+          <div class="card-title">Risk &amp; Limits</div>
+        </div>
+        <div class="card-main" id="kpi-risk-body">
+          <div class="muted">Loading…</div>
+        </div>
+      </article>
+    </section>
+
+    <!-- Row 2: Equity curve + engine/trade/config -->
+    <section class="row mid">
+      <!-- Left: Equity curve -->
+      <article class="card" id="card-equity">
+        <div class="card-header">
+          <div class="card-title">Equity Curve · 1 Day</div>
+        </div>
+        <div class="card-main">
+          <div class="chart-shell">
+            <div class="chart-wrapper">
+              <canvas id="equity-canvas"></canvas>
+            </div>
+            <div class="chart-meta">
+              <span id="equity-summary-left"></span>
+              <span id="equity-summary-right"></span>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- Right: Trade Flow + Engine + Config/Auth -->
+      <div class="row" style="grid-template-columns: minmax(0, 1fr); gap: 10px;">
+        <article class="card" id="card-tradeflow">
+          <div class="card-header">
+            <div class="card-title">Trade Pipe · Today</div>
+          </div>
+          <div class="card-main" id="tradeflow-body">
+            <div class="muted">Loading…</div>
+          </div>
+        </article>
+
+        <article class="card" id="card-engine">
+          <div class="card-header">
+            <div class="card-title">Engine &amp; Session</div>
+          </div>
+          <div class="card-main" id="engine-body">
+            <div class="muted">Loading…</div>
+          </div>
+        </article>
+
+        <article class="card" id="card-config">
+          <div class="card-header">
+            <div class="card-title">Config &amp; Auth</div>
+          </div>
+          <div class="card-main" id="config-body">
+            <div class="muted">Loading…</div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- Row 3: Signals & Orders -->
+    <section class="row mid2">
+      <article class="card" id="card-signals">
+        <div class="card-header">
+          <div class="card-title">Signals · Recent</div>
+        </div>
+        <div class="card-main" id="signals-body">
+          <div class="muted">Loading…</div>
+        </div>
+      </article>
+
+      <article class="card" id="card-orders">
+        <div class="card-header">
+          <div class="card-title">Orders · Recent</div>
+        </div>
+        <div class="card-main" id="orders-body">
+          <div class="muted">Loading…</div>
+        </div>
+      </article>
+    </section>
+
+    <!-- Row 4: Log Console -->
+    <section class="row logs-row">
+      <article class="card card-log-console" id="card-logs">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Engine Log Stream</div>
+            <div class="card-sub">Live events from /api/logs/* endpoints</div>
+          </div>
+        </div>
+        <div class="log-console">
+          <div class="log-console-header">
+            <div class="log-tabs" role="tablist">
+              <button class="log-tab active" type="button" data-log-tab="engine">Engine</button>
+              <button class="log-tab" type="button" data-log-tab="trades">Trades</button>
+              <button class="log-tab" type="button" data-log-tab="signals">Signals</button>
+              <button class="log-tab" type="button" data-log-tab="system">System</button>
+            </div>
+            <div class="log-controls">
+              <label class="follow-toggle">
+                <input type="checkbox" id="log-follow" checked />
+                <span>Follow Tail</span>
+              </label>
+              <div class="log-clock">
+                <span class="log-clock-label">Server •</span>
+                <span id="logs-clock">--:--:--</span>
+              </div>
+            </div>
+          </div>
+          <div class="log-body">
+            <div class="log-viewer" id="log-viewer">
+              <div class="muted">Loading live log stream...</div>
+            </div>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <!-- Row 5: Strategy Performance -->
+    <section class="row bottom">
+      <article class="card" id="card-strategies">
+        <div class="card-header">
+          <div class="card-title">Strategy Performance</div>
+        </div>
+        <div class="card-main" id="strategies-body">
+          <div class="muted">Loading...</div>
+        </div>
+      </article>
+    </section>
+
+    <!-- Row 6: Backtest Results -->
+    <section class="row bottom">
+      <article class="card" id="card-backtests">
+        <div class="card-header">
+          <div class="card-title">Backtest Results</div>
+        </div>
+        <div class="card-main backtest-card-main">
+          <div class="backtest-controls">
+            <label>
+              <span>Strategy</span>
+              <select id="backtest-strategy">
+                <option value="">Select strategy</option>
+              </select>
+            </label>
+            <label>
+              <span>Run</span>
+              <select id="backtest-run" disabled>
+                <option value="">Select run</option>
+              </select>
+            </label>
+            <button type="button" id="backtest-download" class="btn-link" disabled>Download JSON</button>
+          </div>
+          <div class="backtest-summary" id="backtest-summary">
+            <div class="muted">Select a backtest run to see summary metrics.</div>
+          </div>
+          <div class="backtest-equity">
+            <canvas id="backtest-equity"></canvas>
+          </div>
+          <div class="backtest-trades" id="backtest-trades">
+            <div class="muted">No trades loaded.</div>
+          </div>
+        </div>
+      </article>
+    </section>
+    <script src="/static/dashboard.js" defer></script>
+
+</body>
+</html>

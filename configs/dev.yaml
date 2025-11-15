@@ -1,0 +1,115 @@
+ENABLE_LIVE_QUOTES_IN_APP: true
+
+trading:
+  mode: "paper"            # "paper" or "live"
+
+  # Logical FnO universe. Code resolves these into current NFO FUT contracts.
+  fno_universe:
+    - "NIFTY"
+    - "BANKNIFTY"
+    - "FINNIFTY"
+
+  # Logical underlyings for index options trading (options engine).
+  options_underlyings:
+    - "NIFTY"
+    - "BANKNIFTY"
+    - "FINNIFTY"
+
+  equity_universe: []      # Managed via config/universe_equity.csv
+
+  default_product: "MIS"
+  default_quantity: 1       # units per order (strategy can override)
+
+  # Risk and capital model for PAPER mode
+  paper_capital: 500000         # starting capital used for paper equity calculation
+  max_daily_loss: 3000          # stop trading when realized PnL <= -max_daily_loss
+  per_symbol_max_loss: 1500     # stop trading a specific symbol when realized PnL(symbol) <= -per_symbol_max_loss
+  max_loss_pct_per_trade: 0.01  # per-trade max loss (1% = 0.01) on entry price
+  max_notional_multiplier: 1.0  # max total notional as multiple of paper_capital
+
+  max_open_positions: 5
+
+data:
+  source: "broker"          # for now, always "broker" (Kite). Later: "nse", "cached".
+  timeframe: "5minute"      # base timeframe for intraday decisions
+  history_lookback: 50      # number of candles for indicators
+
+logging:
+  level: "INFO"
+  directory: "logs"
+  file_prefix: "kite_algo"
+
+kite:
+  preflight_check: true
+
+meta:
+  enabled: true
+  symbols_focus:
+    - "BANKNIFTY"
+    - "NIFTY"
+    - "FINNIFTY"
+  allow_equity_satellites: true
+  max_active_symbols: 5
+  cost_per_trade_pct: 0.0005
+  fallback_intraday_when_no_decision: true
+  decision_cache_ttl_sec: 120
+
+risk:
+  enable_cost_model: false
+  enable_trade_quality_filter: false
+  default_raw_edge_bps: 20.0
+  cost:
+    brokerage_per_order: 20.0
+    turnover_pct: 0.0003
+    stt_pct: 0.00025
+    gst_pct: 0.18
+    stamp_duty_pct: 0.00003
+    other_pct: 0.0
+  quality:
+    min_edge_after_costs_bps: 10.0
+    max_trades_per_symbol_per_day: 5
+    cooldown_after_loss_trades: 2
+  atr:
+    enabled: true
+    lookback: 14
+    sl_r_multiple: 1.0
+    tp_r_multiple: 2.0
+    hard_sl_pct_cap: 0.03
+    hard_tp_pct_cap: 0.06
+    min_atr_value: 0.5
+    per_product:
+      OPT:
+        sl_r_multiple: 1.2
+        tp_r_multiple: 2.2
+      FUT:
+        sl_r_multiple: 1.0
+        tp_r_multiple: 2.0
+  time_filter:
+    enabled: true
+    allow_sessions:
+      - { start: "09:20", end: "11:30" }
+      - { start: "13:15", end: "15:10" }
+    block_expiry_scalps_after: "15:00"
+    min_time: "09:20"
+    max_time: "15:20"
+
+risk_engine:
+  enabled: false
+  max_loss_per_trade_pct: 0.01    # 1% default hard guard
+  soft_stop_pct: -0.7            # percent PnL, partial exit trigger
+  hard_stop_pct: -1.2            # percent PnL, force exit
+  take_profit_r: 2.0
+  trail_start_r: 1.0
+  trail_step_r: 0.5
+  time_stop_bars: 25
+  partial_exit_fraction: 0.5
+  enable_partial_exits: true
+  enable_trailing: true
+  enable_time_stop: true
+
+learning_engine:
+  enabled: false
+  lookback_days: 5
+  tuning_path: "artifacts/learning/strategy_tuning.json"
+  min_risk_multiplier: 0.25
+  max_risk_multiplier: 2.0

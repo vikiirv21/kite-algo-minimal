@@ -1,0 +1,15 @@
+{
+  "timestamp": "2025-11-14T13:14:00.182995+00:00",
+  "broker": {
+    "orders": [],
+    "positions": []
+  },
+  "meta": {
+    "mode": "paper",
+    "total_realized_pnl": 0.0,
+    "total_unrealized_pnl": 0.0,
+    "total_notional": 0.0,
+    "equity": 500000.0,
+    "paper_capital": 500000.0
+  }
+}
