@@ -154,12 +154,13 @@ def test_order_model():
     assert order.symbol == "NIFTY24DECFUT"
     assert order.side == "BUY"
     assert order.qty == 50
-    assert order.status == OrderStatus.PENDING
+    assert order.status == OrderStatus.NEW
     assert order.filled_qty == 0
+    assert order.remaining_qty == 50  # Should be initialized to qty
     print("✅ Order model created successfully")
     
     # Test dict conversion
-    order_dict = order.dict()
+    order_dict = order.model_dump()
     assert order_dict["order_id"] == "TEST-001"
     assert order_dict["symbol"] == "NIFTY24DECFUT"
     print("✅ Order dict conversion works")
@@ -399,7 +400,7 @@ def test_paper_execution_engine_partial_fills():
         print(f"Status: {result.status}")
         print(f"Ordered: {result.qty}, Filled: {result.filled_qty}")
         
-        assert result.status == OrderStatus.PARTIAL
+        assert result.status == OrderStatus.PARTIALLY_FILLED
         assert result.filled_qty < result.qty
         print("✅ Partial fill simulation works")
     
@@ -501,7 +502,7 @@ def test_live_execution_engine_basic():
         print(f"Order ID: {result.order_id}")
         print(f"Status: {result.status}")
         
-        assert result.status == OrderStatus.PLACED
+        assert result.status == OrderStatus.SUBMITTED
         assert result.order_id is not None
         assert len(broker.placed_orders) == 1
         assert len(journal_store.orders) == 1
@@ -606,7 +607,7 @@ def test_live_execution_engine_retry():
         print(f"Status: {result.status}")
         print(f"Message: {result.message}")
         
-        assert result.status == OrderStatus.REJECTED
+        assert result.status == OrderStatus.ERROR
         assert "Broker error" in result.message
         print("✅ Retry logic executed (failed as expected)")
     
