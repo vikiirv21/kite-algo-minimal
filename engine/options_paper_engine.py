@@ -100,7 +100,15 @@ class OptionsPaperEngine:
     ) -> None:
         self.cfg = cfg
         cfg_mode = self.cfg.trading.get("mode", TradingMode.PAPER.value)
-        self.mode = trading_mode or TradingMode(cfg_mode)
+        
+        # Normalize mode to handle both enum instances and strings (case-insensitive)
+        mode_raw = trading_mode or cfg_mode
+        if isinstance(mode_raw, TradingMode):
+            self.mode = mode_raw
+        else:
+            # Normalize string to lowercase to match enum values
+            mode_str = str(mode_raw).strip().lower()
+            self.mode = TradingMode(mode_str)
 
         self.paper_broker = PaperBroker()
         self.kite: KiteConnect | None = kite
