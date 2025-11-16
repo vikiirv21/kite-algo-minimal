@@ -32,15 +32,15 @@
     "largest_loss": 0.0,
     "avg_r": 0.0
   },
-  "ts": "2025-11-14T18:07:27.179634Z",
-  "mode": "PAPER",
+  "ts": "2025-11-16T19:48:32.615005Z",
+  "mode": "paper",
   "equity": {
     "realized_pnl": 0.0,
     "unrealized_pnl": 0.0,
     "day_pnl": 0.0
   },
   "summary": {
-    "date": "2025-11-14",
+    "date": "2025-11-16",
     "realized_pnl": 0.0,
     "num_trades": 0,
     "win_trades": 0,
@@ -52,10 +52,10 @@
     "avg_r": 0.0,
     "note": ""
   },
-  "last_heartbeat_ts": "2025-11-14T18:07:25.319967+00:00",
+  "last_heartbeat_ts": "2025-11-16T19:48:32.614990+00:00",
   "universe": {
-    "date": "2025-11-14",
-    "asof": "2025-11-14T16:12:27.690729Z",
+    "date": "2025-11-17",
+    "asof": "2025-11-16T19:33:02.594846Z",
     "fno": [
       "NIFTY",
       "BANKNIFTY"
