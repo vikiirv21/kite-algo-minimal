@@ -41,7 +41,7 @@ class TradeGuardian:
     - PnL-based circuit breakers
     """
     
-    def __init__(self, config: Dict[str, Any], state_store: Any, logger_instance: logging.Logger):
+    def __init__(self, config: Dict[str, Any], state_store: Any, logger_instance: logging.Logger, regime_engine: Optional[Any] = None):
         """
         Initialize TradeGuardian.
         
@@ -49,9 +49,11 @@ class TradeGuardian:
             config: Full application config dict
             state_store: StateStore instance for PnL checks
             logger_instance: Logger instance
+            regime_engine: Optional RegimeEngine for regime-based adjustments
         """
         self.logger = logger_instance
         self.state_store = state_store
+        self.regime_engine = regime_engine
         
         # Load guardian config or disable if missing
         guardian_config = config.get("guardian", {})
@@ -83,6 +85,8 @@ class TradeGuardian:
             self.max_daily_drawdown_pct,
             self.halt_on_pnl_drop_pct,
         )
+        if self.regime_engine:
+            self.logger.info("TradeGuardian: RegimeEngine integration enabled")
     
     def validate_pre_trade(
         self,
@@ -206,6 +210,29 @@ class TradeGuardian:
                 self.logger.debug(
                     "TradeGuardian: Could not check PnL-based circuit breakers: %s", exc
                 )
+            
+            # Check 6: Regime-based adjustments (if RegimeEngine available)
+            if self.regime_engine:
+                try:
+                    symbol = getattr(intent, "symbol", None)
+                    if symbol:
+                        regime = self.regime_engine.snapshot(symbol)
+                        
+                        # In high volatility, tighten slippage tolerance
+                        if regime.volatility == "high":
+                            # Already checked slippage above, but can add additional logging
+                            self.logger.debug(
+                                "[TradeGuardian] High volatility regime for %s, extra caution advised",
+                                symbol
+                            )
+                        
+                        # In extreme volatility, we could optionally reject trades
+                        # For now, we just log and allow with extra monitoring
+                        
+                except Exception as exc:
+                    self.logger.debug(
+                        "TradeGuardian: Could not check regime-based rules: %s", exc
+                    )
             
             # All checks passed
             return GuardianDecision(allow=True)

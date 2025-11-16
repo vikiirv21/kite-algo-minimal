@@ -96,6 +96,7 @@ class PortfolioEngine:
         journal_store: Optional[Any] = None,
         logger_instance: Optional[logging.Logger] = None,
         mde: Optional[Any] = None,
+        regime_engine: Optional[Any] = None,
     ):
         """
         Initialize PortfolioEngine.
@@ -106,12 +107,14 @@ class PortfolioEngine:
             journal_store: JournalStateStore (optional, for trade history)
             logger_instance: Logger instance
             mde: MarketDataEngineV2 (optional, for ATR or current price)
+            regime_engine: RegimeEngine (optional, for regime-based adjustments)
         """
         self.config = portfolio_config
         self.state_store = state_store
         self.journal_store = journal_store
         self.logger = logger_instance or logger
         self.mde = mde
+        self.regime_engine = regime_engine
         
         self.logger.info(
             "PortfolioEngine initialized: mode=%s, max_exposure_pct=%.2f, max_risk_per_trade_pct=%.4f",
@@ -119,6 +122,8 @@ class PortfolioEngine:
             self.config.max_exposure_pct,
             self.config.max_risk_per_trade_pct,
         )
+        if self.regime_engine:
+            self.logger.info("PortfolioEngine: RegimeEngine integration enabled")
     
     def get_equity(self) -> float:
         """
@@ -328,6 +333,14 @@ class PortfolioEngine:
             )
             qty = self._compute_fixed_qty(intent, strategy_code, existing_qty)
         
+        # Apply regime-based adjustments if RegimeEngine is available
+        if self.regime_engine:
+            try:
+                regime = self.regime_engine.snapshot(symbol)
+                qty = self._apply_regime_adjustments(qty, regime, symbol)
+            except Exception as e:
+                self.logger.debug("Failed to apply regime adjustments for %s: %s", symbol, e)
+        
         # Apply exposure limits
         qty = self._apply_exposure_limits(symbol, strategy_code, qty, last_price, equity, strategy_budget)
         
@@ -434,6 +447,72 @@ class PortfolioEngine:
         )
         
         return qty
+    
+    def _apply_regime_adjustments(
+        self,
+        qty: int,
+        regime: Any,
+        symbol: str,
+    ) -> int:
+        """
+        Apply regime-based adjustments to position size.
+        
+        Adjustments:
+        - High volatility: reduce size by 30-50%
+        - Low volatility: can increase size slightly (10-20%)
+        - Adjust based on market structure
+        
+        Args:
+            qty: Base position size
+            regime: RegimeSnapshot from RegimeEngine
+            symbol: Trading symbol
+            
+        Returns:
+            Adjusted quantity
+        """
+        if qty <= 0:
+            return 0
+        
+        original_qty = qty
+        adjustment_factor = 1.0
+        reasons = []
+        
+        # Volatility-based adjustment
+        if regime.volatility == "high":
+            # Reduce size in high volatility
+            adjustment_factor *= 0.6  # 40% reduction
+            reasons.append("high_vol")
+        elif regime.volatility == "low":
+            # Can increase size slightly in low volatility
+            adjustment_factor *= 1.15  # 15% increase
+            reasons.append("low_vol")
+        
+        # Structure-based adjustment
+        if regime.structure == "breakout":
+            # Slightly larger size on confirmed breakouts
+            adjustment_factor *= 1.1  # 10% increase
+            reasons.append("breakout")
+        elif regime.structure == "range":
+            # Reduce size in ranging markets
+            adjustment_factor *= 0.85  # 15% reduction
+            reasons.append("range")
+        
+        # Apply adjustment
+        adjusted_qty = max(1, int(qty * adjustment_factor))
+        
+        if adjusted_qty != original_qty:
+            self.logger.info(
+                "Regime adjustment: symbol=%s, %d -> %d (factor=%.2f, reasons=%s, volatility=%s, structure=%s)",
+                symbol,
+                original_qty,
+                adjusted_qty,
+                adjustment_factor,
+                ",".join(reasons),
+                regime.volatility,
+                regime.structure,
+            )
+        
+        return adjusted_qty
     
     def _apply_exposure_limits(
         self,
