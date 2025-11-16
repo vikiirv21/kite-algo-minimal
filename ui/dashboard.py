@@ -2061,6 +2061,167 @@ async def api_market_data_window(
         ) from exc
 
 
+@router.get("/api/market_data/latest_tick")
+async def api_market_data_latest_tick(
+    symbol: str = Query(..., description="Trading symbol (e.g., NIFTY24DECFUT)")
+) -> JSONResponse:
+    """
+    Get the latest tick for a symbol from Market Data Engine v2.
+    
+    If MDE v2 is not available, returns 503.
+    
+    Returns:
+        {
+            "symbol": "NIFTY24DECFUT",
+            "ltp": 23850.0,
+            "bid": 23845.0,
+            "ask": 23855.0,
+            "volume": 12345,
+            "ts": "2024-11-15T10:30:00+00:00"
+        }
+    """
+    try:
+        # Try to get MDE v2 instance from active engines
+        # This assumes we store a reference globally or in app state
+        # For now, return a helpful message
+        mde_v2 = getattr(app, "market_data_engine_v2", None)
+        
+        if not mde_v2:
+            raise HTTPException(
+                status_code=503,
+                detail="Market Data Engine v2 not available. Enable with data.use_mde_v2=true in config."
+            )
+            
+        tick = mde_v2.get_latest_tick(symbol.upper())
+        
+        if not tick:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No tick data available for symbol: {symbol}"
+            )
+            
+        return JSONResponse(tick)
+        
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to fetch latest tick: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch latest tick: {str(exc)}"
+        ) from exc
+
+
+@router.get("/api/market_data/candles")
+async def api_market_data_candles_v2(
+    symbol: str = Query(..., description="Trading symbol (e.g., NIFTY24DECFUT)"),
+    timeframe: str = Query("5m", description="Timeframe (e.g., 1m, 5m, 15m)"),
+    limit: int = Query(100, ge=1, le=500, description="Number of candles to return (max 500)")
+) -> JSONResponse:
+    """
+    Get candles from Market Data Engine v2.
+    
+    If MDE v2 is not available, returns 503.
+    
+    Returns:
+        {
+            "symbol": "NIFTY24DECFUT",
+            "timeframe": "5m",
+            "count": 100,
+            "candles": [
+                {
+                    "symbol": "NIFTY24DECFUT",
+                    "timeframe": "5m",
+                    "open_time": "2024-11-15T10:30:00+00:00",
+                    "close_time": "2024-11-15T10:35:00+00:00",
+                    "open": 23850.0,
+                    "high": 23865.0,
+                    "low": 23845.0,
+                    "close": 23860.0,
+                    "volume": 1234.5,
+                    "tick_count": 25,
+                    "is_closed": true,
+                    "anomaly": false
+                },
+                ...
+            ]
+        }
+    """
+    try:
+        mde_v2 = getattr(app, "market_data_engine_v2", None)
+        
+        if not mde_v2:
+            raise HTTPException(
+                status_code=503,
+                detail="Market Data Engine v2 not available. Enable with data.use_mde_v2=true in config."
+            )
+            
+        candles = mde_v2.get_candles(symbol.upper(), timeframe, limit)
+        
+        return JSONResponse({
+            "symbol": symbol.upper(),
+            "timeframe": timeframe,
+            "count": len(candles),
+            "candles": candles
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to fetch candles from MDE v2: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch candles: {str(exc)}"
+        ) from exc
+
+
+@router.get("/api/market_data/v2/stats")
+async def api_market_data_v2_stats() -> JSONResponse:
+    """
+    Get Market Data Engine v2 statistics.
+    
+    Returns:
+        {
+            "is_running": true,
+            "feed_mode": "kite",
+            "symbols_count": 3,
+            "timeframes": ["1m", "5m"],
+            "stats": {
+                "ticks_received": 12345,
+                "ticks_ignored": 10,
+                "candles_created": 500,
+                "candles_closed": 495,
+                "anomalies_detected": 2
+            }
+        }
+    """
+    try:
+        mde_v2 = getattr(app, "market_data_engine_v2", None)
+        
+        if not mde_v2:
+            raise HTTPException(
+                status_code=503,
+                detail="Market Data Engine v2 not available."
+            )
+            
+        return JSONResponse({
+            "is_running": mde_v2.is_running,
+            "feed_mode": mde_v2.feed_mode,
+            "symbols_count": len(mde_v2.symbols),
+            "timeframes": mde_v2.timeframes,
+            "stats": mde_v2.get_stats(),
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to fetch MDE v2 stats: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch MDE v2 stats: {str(exc)}"
+        ) from exc
+
+
 @router.get("/api/backtests/list")
 async def api_backtests_list() -> JSONResponse:
     runs = _list_backtest_runs()

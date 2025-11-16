@@ -555,6 +555,33 @@ class PaperEngine:
         cache_dir = self.artifacts_dir / "market_data"
         self.market_data_engine = MarketDataEngine(self.kite, universe_snapshot, cache_dir=cache_dir)
         
+        # Initialize Market Data Engine v2 (optional, based on config)
+        data_config = self.cfg.raw.get("data", {})
+        use_mde_v2 = data_config.get("use_mde_v2", False)
+        self.market_data_engine_v2 = None
+        
+        if use_mde_v2:
+            try:
+                from core.market_data_engine_v2 import MarketDataEngineV2
+                logger.info("Initializing Market Data Engine v2")
+                self.market_data_engine_v2 = MarketDataEngineV2(
+                    config=self.cfg.raw,
+                    broker=self.kite,
+                    logger_instance=logger,
+                )
+                # Subscribe to universe symbols
+                if self.universe:
+                    self.market_data_engine_v2.subscribe_symbols(self.universe)
+                # Set timeframes from config
+                timeframes = data_config.get("timeframes", ["1m", "5m"])
+                self.market_data_engine_v2.set_timeframes(timeframes)
+                # Start the engine
+                self.market_data_engine_v2.start()
+                logger.info("Market Data Engine v2 started successfully")
+            except Exception as exc:
+                logger.warning("Failed to initialize MDE v2: %s", exc, exc_info=True)
+                self.market_data_engine_v2 = None
+        
         # Initialize Strategy Engine (v1 or v2 based on config)
         strategy_engine_config = self.cfg.raw.get("strategy_engine", {})
         strategy_engine_version = strategy_engine_config.get("version", 1)
@@ -571,9 +598,17 @@ class PaperEngine:
                 v2_config,
                 self.market_data_engine,
                 risk_engine=None,  # Will be set later
-                logger_instance=logger
+                logger_instance=logger,
+                market_data_engine_v2=self.market_data_engine_v2
             )
             self.strategy_engine_v2.set_paper_engine(self)
+            
+            # Wire MDE v2 candle close events to strategy engine
+            if self.market_data_engine_v2:
+                self.market_data_engine_v2.on_candle_close_handlers.append(
+                    self.strategy_engine_v2.on_candle_close
+                )
+                logger.info("Wired MDE v2 candle_close events to StrategyEngineV2")
             
             # Register v2 strategies
             for strategy_code in strategy_engine_config.get("strategies_v2", []):
@@ -754,12 +789,30 @@ class PaperEngine:
             ltp = _ltp(symbol)
             if ltp is not None:
                 ticks[symbol] = {"close": ltp}
+                
+                # Feed ticks to MDE v2 if available
+                if self.market_data_engine_v2:
+                    tick_data = {
+                        "symbol": symbol,
+                        "ltp": ltp,
+                        "bid": ltp,  # Simplified - could get from feed if available
+                        "ask": ltp,  # Simplified
+                        "volume": 0,  # Not available from LTP feed
+                        "ts_local": datetime.now(timezone.utc),
+                    }
+                    try:
+                        self.market_data_engine_v2.on_tick(tick_data)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug("MDE v2 tick processing failed for %s: %s", symbol, exc)
 
         # Run strategy engine (v1 or v2 based on initialization)
         if self.strategy_engine_v2:
             # Use Strategy Engine v2
-            symbols = list(self.universe)
-            self.strategy_engine_v2.run(symbols)
+            # Note: When MDE v2 is active, strategies are triggered by candle_close events
+            # Otherwise, use the manual run() method
+            if not self.market_data_engine_v2:
+                symbols = list(self.universe)
+                self.strategy_engine_v2.run(symbols)
         elif self.strategy_runner:
             # Use Strategy Engine v1 (legacy)
             self.strategy_runner.run(ticks)
