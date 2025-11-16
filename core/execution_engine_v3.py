@@ -106,7 +106,10 @@ class EventType(str, Enum):
     ORDER_FILLED = "order_filled"
     ORDER_REJECTED = "order_rejected"
     ORDER_CANCELLED = "order_cancelled"
+    ORDER_UPDATED = "order_updated"
     POSITION_UPDATED = "position_updated"
+    POSITION_SYNCED = "position_synced"
+    RECONCILIATION_DISCREPANCY = "reconciliation_discrepancy"
 
 
 @dataclass
