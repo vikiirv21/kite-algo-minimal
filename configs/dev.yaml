@@ -160,6 +160,16 @@ guardian:
   max_daily_drawdown_pct: 3.0         # Block trades if drawdown exceeds N%
   halt_on_pnl_drop_pct: 5.0           # Halt trading if PnL drops below -N%
 
+regime_engine:
+  # Market Regime Engine v2 - Computes TREND, VOLATILITY, and STRUCTURE signals
+  enabled: true                   # Enable regime detection (set to false to disable)
+  bar_period: "1m"                # Timeframe for regime analysis (1m, 5m, etc.)
+  slope_period: 20                # Period for EMA slope calculation (trend detection)
+  atr_period: 14                  # Period for ATR calculation (volatility detection)
+  volatility_high_pct: 1.0        # ATR% threshold for high volatility (1.0 = 1%)
+  volatility_low_pct: 0.35        # ATR% threshold for low volatility (0.35 = 0.35%)
+  compression_pct: 0.25           # BB width% threshold for compression/range detection
+
 portfolio:
   # Portfolio & Position Sizing Engine v1 Configuration
   max_leverage: 2.0               # Maximum leverage (2x = can use 2x equity as exposure)
