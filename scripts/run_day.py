@@ -151,8 +151,9 @@ def _utcnow_iso() -> str:
 
 def _mode_from_config(cfg: AppConfig) -> str:
     trading = getattr(cfg, "trading", {}) or {}
-    mode = trading.get("mode") or getattr(cfg, "mode", "PAPER")
-    return str(mode or "PAPER").upper()
+    mode = trading.get("mode") or getattr(cfg, "mode", "paper")
+    # Normalize to lowercase to match TradingMode enum values
+    return str(mode or "paper").strip().lower()
 
 
 def _load_or_init_runtime_state(cfg: AppConfig) -> tuple[Dict[str, Any], bool]:
@@ -337,7 +338,8 @@ def _publish_runtime_state(registry: Dict[str, Dict[str, Any]], state: Dict[str,
         "avg_r": pnl.get("avg_r", 0.0),
         "note": "",
     }
-    if state.get("mode", "PAPER").upper() != "LIVE":
+    # Normalize mode comparison to lowercase
+    if state.get("mode", "paper").lower() != "live":
         positions = _collect_positions_from_registry(registry)
         if positions:
             state["positions"] = positions
@@ -471,7 +473,7 @@ def start_engines_from_config(
 
     # Check if LIVE mode is enabled
     mode = _mode_from_config(cfg_obj)
-    is_live_mode = mode == "LIVE"
+    is_live_mode = mode == "live"
     
     if is_live_mode:
         logger.warning("⚠️ LIVE TRADING MODE DETECTED - REAL ORDERS WILL BE PLACED ⚠️")
@@ -598,7 +600,8 @@ def main() -> None:
     
     # Override mode if specified via CLI
     if args.mode:
-        desired_mode = args.mode.upper()
+        # Normalize to lowercase to match TradingMode enum values
+        desired_mode = args.mode.strip().lower()
         logger.info("Mode override from CLI: %s", desired_mode)
         # Update config trading section
         if not hasattr(cfg, 'trading'):
@@ -609,7 +612,7 @@ def main() -> None:
     
     runtime_state["mode"] = desired_mode
     
-    if desired_mode == "LIVE":
+    if desired_mode == "live":
         logger.warning("=" * 80)
         logger.warning("⚠️  LIVE TRADING MODE ACTIVE ⚠️")
         logger.warning("⚠️  REAL ORDERS WILL BE PLACED VIA KITE ⚠️")
@@ -630,9 +633,9 @@ def main() -> None:
         logger.info("Login/preflight completed; not starting engines (--engines none).")
         return
 
-    if desired_mode == "LIVE":
+    if desired_mode == "live":
         _reconcile_live_state(kite, runtime_state)
-    elif desired_mode == "PAPER" and not state_from_checkpoint:
+    elif desired_mode == "paper" and not state_from_checkpoint:
         _seed_paper_state_from_journal(runtime_state)
 
     universe_snapshot = None
