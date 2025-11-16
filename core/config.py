@@ -54,6 +54,10 @@ class AppConfig:
     def learning_engine(self) -> Dict[str, Any]:
         return self.raw.get("learning_engine", {})
 
+    @property
+    def strategy_orchestrator(self) -> Dict[str, Any]:
+        return self.raw.get("strategy_orchestrator", {})
+
 
 def load_config(path: str) -> AppConfig:
     if not os.path.exists(path):
