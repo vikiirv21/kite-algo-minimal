@@ -657,12 +657,18 @@ class PaperEngine:
                 "strategies": strategy_engine_config.get("strategies_v2", []),
                 "timeframe": self.default_timeframe,
             }
+            # Copy the full config for orchestrator access
+            full_config = dict(self.cfg.raw) if hasattr(self.cfg, 'raw') else {}
+            full_config.update(v2_config)
+            
             self.strategy_engine_v2 = StrategyEngineV2(
-                v2_config,
+                full_config,
                 self.market_data_engine,
                 risk_engine=None,  # Will be set later
                 logger_instance=logger,
-                market_data_engine_v2=self.market_data_engine_v2
+                market_data_engine_v2=self.market_data_engine_v2,
+                state_store=self.state_store,
+                analytics=None  # Analytics can be added later if needed
             )
             self.strategy_engine_v2.set_paper_engine(self)
             
