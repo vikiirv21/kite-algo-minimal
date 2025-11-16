@@ -178,3 +178,28 @@ portfolio:
       fixed_qty: 1                # Optional: override default_fixed_qty for this strategy
     expiry_scalper:
       capital_pct: 0.4            # 40% of equity for this strategy
+
+# Strategy Orchestrator v3 Configuration (DISABLED by default)
+strategy_orchestrator:
+  enabled: false                      # Set to true to enable orchestrator
+  health_scoring_window: 20           # Number of recent trades to consider for health score
+  loss_streak_disable: 3              # Disable strategy after N consecutive losses
+  disable_duration_seconds: 900       # Cooldown duration (15 minutes)
+  enforce_regimes: true               # Enable regime compatibility checks
+  enforce_capital_budgets: true       # Enable capital budget checks
+  min_health_score: 0.0               # Minimum health score to allow strategy (0.0 = no threshold)
+
+# Strategy metadata (optional per-strategy configuration)
+strategies:
+  ema20_50_intraday:
+    mode: intraday
+    capital_pct: 0.3
+    # Optional: regime requirements
+    # requires_regime: ["trend"]
+    # avoid_regime: ["low_vol"]
+    # Optional: session times (IST format HH:MM)
+    # session_times:
+    #   start: "09:25"
+    #   end: "14:55"
+    # Optional: allowed days
+    # allowed_days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
