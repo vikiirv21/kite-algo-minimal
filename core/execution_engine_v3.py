@@ -32,13 +32,27 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 class OrderStatus(str, Enum):
-    """Order status enumeration."""
-    PENDING = "PENDING"
-    PLACED = "PLACED"
-    FILLED = "FILLED"
-    PARTIAL = "PARTIAL"
-    REJECTED = "REJECTED"
-    CANCELLED = "CANCELLED"
+    """
+    Unified order status enumeration for execution lifecycle.
+    
+    Status Flow:
+    - new: Order created but not yet submitted
+    - submitted: Order submitted to broker/paper engine  
+    - open: Order accepted and waiting for fill
+    - partially_filled: Order partially executed
+    - filled: Order completely executed
+    - cancelled: Order cancelled before complete fill
+    - rejected: Order rejected by broker/validation
+    - error: Order failed due to technical error
+    """
+    NEW = "new"
+    SUBMITTED = "submitted"
+    OPEN = "open"
+    PARTIALLY_FILLED = "partially_filled"
+    FILLED = "filled"
+    CANCELLED = "cancelled"
+    REJECTED = "rejected"
+    ERROR = "error"
 
 
 class Order(BaseModel):
@@ -46,7 +60,7 @@ class Order(BaseModel):
     Unified order model for both PAPER and LIVE modes.
     
     This model is used across the execution engine to represent orders
-    in a normalized format.
+    in a normalized format with full lifecycle tracking.
     """
     order_id: str = Field(..., description="Unique order identifier")
     symbol: str = Field(..., description="Trading symbol")
@@ -54,7 +68,7 @@ class Order(BaseModel):
     qty: int = Field(..., description="Order quantity", gt=0)
     order_type: str = Field(..., description="MARKET or LIMIT")
     price: Optional[float] = Field(None, description="Limit price (for LIMIT orders)")
-    status: str = Field(default=OrderStatus.PENDING, description="Order status")
+    status: str = Field(default=OrderStatus.NEW, description="Order status")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     strategy: str = Field(..., description="Strategy identifier")
@@ -62,8 +76,21 @@ class Order(BaseModel):
     
     # Execution details (filled when order is executed)
     filled_qty: int = Field(default=0, description="Quantity filled")
-    avg_price: Optional[float] = Field(None, description="Average fill price")
+    remaining_qty: Optional[int] = Field(None, description="Quantity remaining to be filled")
+    avg_fill_price: Optional[float] = Field(None, description="Average fill price")
     message: Optional[str] = Field(None, description="Status message or error")
+    events: List[Dict[str, Any]] = Field(default_factory=list, description="Detailed fill history")
+    
+    # Legacy field alias for backward compatibility
+    @property
+    def avg_price(self) -> Optional[float]:
+        """Alias for backward compatibility."""
+        return self.avg_fill_price
+    
+    def model_post_init(self, __context: Any) -> None:
+        """Initialize derived fields after model creation."""
+        if self.remaining_qty is None:
+            self.remaining_qty = self.qty
     
     class Config:
         use_enum_values = True
@@ -332,8 +359,14 @@ class PaperExecutionEngine(ExecutionEngine):
             
             if ltp is None or ltp <= 0:
                 order.status = OrderStatus.REJECTED
+                order.remaining_qty = order.qty
                 order.message = f"No market data available for {order.symbol}"
                 order.updated_at = datetime.now(timezone.utc)
+                order.events.append({
+                    "timestamp": order.updated_at.isoformat(),
+                    "status": order.status,
+                    "message": order.message
+                })
                 await self.event_bus.publish(EventType.ORDER_REJECTED, {
                     "order_id": order.order_id,
                     "symbol": order.symbol,
@@ -345,8 +378,14 @@ class PaperExecutionEngine(ExecutionEngine):
             if order.order_type == "LIMIT":
                 if not self._is_limit_marketable(order.price, ltp, order.side):
                     order.status = OrderStatus.REJECTED
+                    order.remaining_qty = order.qty
                     order.message = f"LIMIT price {order.price} not marketable (LTP={ltp})"
                     order.updated_at = datetime.now(timezone.utc)
+                    order.events.append({
+                        "timestamp": order.updated_at.isoformat(),
+                        "status": order.status,
+                        "message": order.message
+                    })
                     await self.event_bus.publish(EventType.ORDER_REJECTED, {
                         "order_id": order.order_id,
                         "symbol": order.symbol,
@@ -367,11 +406,19 @@ class PaperExecutionEngine(ExecutionEngine):
                         filled_qty = 1
             
             # Update order
-            order.status = OrderStatus.FILLED if filled_qty == order.qty else OrderStatus.PARTIAL
+            order.status = OrderStatus.FILLED if filled_qty == order.qty else OrderStatus.PARTIALLY_FILLED
             order.filled_qty = filled_qty
-            order.avg_price = fill_price
+            order.remaining_qty = order.qty - filled_qty
+            order.avg_fill_price = fill_price
             order.message = "Paper order filled successfully"
             order.updated_at = datetime.now(timezone.utc)
+            order.events.append({
+                "timestamp": order.updated_at.isoformat(),
+                "status": order.status,
+                "filled_qty": filled_qty,
+                "fill_price": fill_price,
+                "message": order.message
+            })
             
             # Update state store with position
             self._update_position(order)
@@ -385,7 +432,8 @@ class PaperExecutionEngine(ExecutionEngine):
                     "side": order.side,
                     "qty": filled_qty,
                     "price": fill_price,
-                    "status": order.status
+                    "status": order.status,
+                    "remaining_qty": order.remaining_qty
                 }
             )
             
@@ -396,9 +444,15 @@ class PaperExecutionEngine(ExecutionEngine):
             
         except Exception as exc:
             self.logger.error(f"Paper order execution failed: {exc}", exc_info=True)
-            order.status = OrderStatus.REJECTED
+            order.status = OrderStatus.ERROR
+            order.remaining_qty = order.qty
             order.message = f"Execution error: {exc}"
             order.updated_at = datetime.now(timezone.utc)
+            order.events.append({
+                "timestamp": order.updated_at.isoformat(),
+                "status": order.status,
+                "message": order.message
+            })
             await self.event_bus.publish(EventType.ORDER_REJECTED, {
                 "order_id": order.order_id,
                 "symbol": order.symbol,
@@ -426,8 +480,14 @@ class PaperExecutionEngine(ExecutionEngine):
             return order
         
         order.status = OrderStatus.CANCELLED
+        order.remaining_qty = order.qty - order.filled_qty
         order.message = "Order cancelled"
         order.updated_at = datetime.now(timezone.utc)
+        order.events.append({
+            "timestamp": order.updated_at.isoformat(),
+            "status": order.status,
+            "message": order.message
+        })
         
         await self.event_bus.publish(EventType.ORDER_CANCELLED, {
             "order_id": order.order_id,
@@ -570,12 +630,12 @@ class PaperExecutionEngine(ExecutionEngine):
                     positions.remove(position)
                 else:
                     position["qty"] = new_qty
-                    position["avg_price"] = order.avg_price
+                    position["avg_price"] = order.avg_fill_price
             else:
                 positions.append({
                     "symbol": order.symbol,
                     "qty": qty_change,
-                    "avg_price": order.avg_price,
+                    "avg_price": order.avg_fill_price,
                     "entry_time": order.created_at.isoformat(),
                 })
             
@@ -586,7 +646,7 @@ class PaperExecutionEngine(ExecutionEngine):
             asyncio.create_task(self.event_bus.publish(EventType.POSITION_UPDATED, {
                 "symbol": order.symbol,
                 "qty": qty_change,
-                "price": order.avg_price
+                "price": order.avg_fill_price
             }))
             
         except Exception as exc:
@@ -695,8 +755,14 @@ class LiveExecutionEngine(ExecutionEngine):
             guardian_decision = self.guardian.validate_pre_trade(intent, None)
             if not guardian_decision.allow:
                 order.status = OrderStatus.REJECTED
+                order.remaining_qty = order.qty
                 order.message = f"Guardian blocked: {guardian_decision.reason}"
                 order.updated_at = datetime.now(timezone.utc)
+                order.events.append({
+                    "timestamp": order.updated_at.isoformat(),
+                    "status": order.status,
+                    "message": order.message
+                })
                 
                 await self.event_bus.publish(EventType.ORDER_REJECTED, {
                     "order_id": order.order_id,
@@ -729,9 +795,16 @@ class LiveExecutionEngine(ExecutionEngine):
                 
                 # Update order with broker response
                 order.order_id = result.get("order_id", order.order_id)
-                order.status = self._normalize_status(result.get("status", "PLACED"))
+                order.status = self._normalize_status(result.get("status", "SUBMITTED"))
+                order.remaining_qty = order.qty - order.filled_qty
                 order.message = result.get("message", "Order placed")
                 order.updated_at = datetime.now(timezone.utc)
+                order.events.append({
+                    "timestamp": order.updated_at.isoformat(),
+                    "status": order.status,
+                    "message": order.message,
+                    "broker_response": result
+                })
                 
                 # Store order
                 self.orders[order.order_id] = order
@@ -761,9 +834,15 @@ class LiveExecutionEngine(ExecutionEngine):
                     await asyncio.sleep(self.retry_delay * (attempt + 1))
                 else:
                     # Final failure
-                    order.status = OrderStatus.REJECTED
+                    order.status = OrderStatus.ERROR
+                    order.remaining_qty = order.qty
                     order.message = f"Broker error after {attempt + 1} attempts: {exc}"
                     order.updated_at = datetime.now(timezone.utc)
+                    order.events.append({
+                        "timestamp": order.updated_at.isoformat(),
+                        "status": order.status,
+                        "message": order.message
+                    })
                     
                     await self.event_bus.publish(EventType.ORDER_REJECTED, {
                         "order_id": order.order_id,
@@ -858,16 +937,19 @@ class LiveExecutionEngine(ExecutionEngine):
             Normalized status
         """
         status_map = {
-            "SUBMITTED": OrderStatus.PLACED,
-            "OPEN": OrderStatus.PLACED,
+            "PENDING": OrderStatus.NEW,
+            "NEW": OrderStatus.NEW,
+            "SUBMITTED": OrderStatus.SUBMITTED,
+            "OPEN": OrderStatus.OPEN,
             "COMPLETE": OrderStatus.FILLED,
             "FILLED": OrderStatus.FILLED,
             "REJECTED": OrderStatus.REJECTED,
             "CANCELLED": OrderStatus.CANCELLED,
-            "PARTIAL": OrderStatus.PARTIAL,
+            "PARTIAL": OrderStatus.PARTIALLY_FILLED,
+            "PARTIALLY_FILLED": OrderStatus.PARTIALLY_FILLED,
         }
         
-        return status_map.get(broker_status.upper(), OrderStatus.PENDING)
+        return status_map.get(broker_status.upper(), OrderStatus.NEW)
     
     def _update_order_from_broker(self, order: Order, broker_order: Dict[str, Any]):
         """
@@ -885,9 +967,17 @@ class LiveExecutionEngine(ExecutionEngine):
             order.updated_at = datetime.now(timezone.utc)
             
             # Update fill details if filled
-            if new_status in [OrderStatus.FILLED, OrderStatus.PARTIAL]:
+            if new_status in [OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED]:
                 order.filled_qty = broker_order.get("filled_quantity", order.filled_qty)
-                order.avg_price = broker_order.get("average_price", order.avg_price)
+                order.remaining_qty = order.qty - order.filled_qty
+                order.avg_fill_price = broker_order.get("average_price", order.avg_fill_price)
+                order.events.append({
+                    "timestamp": order.updated_at.isoformat(),
+                    "status": new_status,
+                    "filled_qty": order.filled_qty,
+                    "avg_fill_price": order.avg_fill_price,
+                    "broker_update": broker_order
+                })
                 
                 # Publish fill event
                 asyncio.create_task(self.event_bus.publish(EventType.ORDER_FILLED, {
@@ -895,7 +985,7 @@ class LiveExecutionEngine(ExecutionEngine):
                     "symbol": order.symbol,
                     "side": order.side,
                     "qty": order.filled_qty,
-                    "price": order.avg_price
+                    "price": order.avg_fill_price
                 }))
                 
                 # Update position
@@ -905,7 +995,7 @@ class LiveExecutionEngine(ExecutionEngine):
                 self._append_to_journal(order)
                 
                 self.logger.info(
-                    f"✅ LIVE FILL: {order.side} {order.filled_qty} x {order.symbol} @ {order.avg_price}"
+                    f"✅ LIVE FILL: {order.side} {order.filled_qty} x {order.symbol} @ {order.avg_fill_price}"
                 )
     
     def _update_position(self, order: Order):
@@ -940,12 +1030,12 @@ class LiveExecutionEngine(ExecutionEngine):
                     positions.remove(position)
                 else:
                     position["qty"] = new_qty
-                    position["avg_price"] = order.avg_price
+                    position["avg_price"] = order.avg_fill_price
             else:
                 positions.append({
                     "symbol": order.symbol,
                     "qty": qty_change,
-                    "avg_price": order.avg_price,
+                    "avg_price": order.avg_fill_price,
                     "entry_time": order.created_at.isoformat(),
                 })
             
@@ -956,7 +1046,7 @@ class LiveExecutionEngine(ExecutionEngine):
             asyncio.create_task(self.event_bus.publish(EventType.POSITION_UPDATED, {
                 "symbol": order.symbol,
                 "qty": qty_change,
-                "price": order.avg_price
+                "price": order.avg_fill_price
             }))
             
         except Exception as exc:
@@ -980,7 +1070,7 @@ class LiveExecutionEngine(ExecutionEngine):
                 "filled_qty": order.filled_qty,
                 "order_type": order.order_type,
                 "status": order.status,
-                "avg_price": order.avg_price,
+                "avg_price": order.avg_fill_price,
                 "message": order.message,
                 "mode": "live",
             }
