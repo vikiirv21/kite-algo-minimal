@@ -44,8 +44,10 @@ def summarize_config(cfg: AppConfig) -> dict[str, Any]:
     mode_raw = trading.get("mode", "paper")
     try:
         from core.modes import TradingMode
-
-        mode = TradingMode(mode_raw).value
+        
+        # Normalize to lowercase to match enum values
+        mode_str = str(mode_raw).strip().lower()
+        mode = TradingMode(mode_str).value
     except Exception:
         mode = str(mode_raw).lower()
 
