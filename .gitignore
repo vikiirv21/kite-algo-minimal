@@ -10,3 +10,5 @@ logs/
 artifacts/journal/
 artifacts/analytics/
 artifacts/reports/
+artifacts/backtests/
+artifacts/market_data/
