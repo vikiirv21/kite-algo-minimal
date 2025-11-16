@@ -131,3 +131,17 @@ learning_engine:
   tuning_path: "artifacts/learning/strategy_tuning.json"
   min_risk_multiplier: 0.25
   max_risk_multiplier: 2.0
+
+execution:
+  # ExecutionEngine v2 configuration
+  use_execution_engine_v2: false  # Set to true to enable ExecutionEngine v2
+  dry_run: false  # When true, simulates live orders without actual placement
+  slippage_bps: 5.0  # Slippage in basis points for paper fills (5 bps = 0.05%)
+  use_bid_ask_spread: false  # Use bid-ask spread for more realistic paper fills
+  
+  circuit_breakers:
+    max_daily_loss_rupees: 5000.0  # Stop trading when daily loss exceeds this
+    max_daily_drawdown_pct: 0.02  # Stop trading when drawdown exceeds 2%
+    max_trades_per_day: 100  # Maximum trades per day
+    max_trades_per_strategy_per_day: 50  # Maximum trades per strategy per day
+    max_loss_streak: 5  # Stop trading after N consecutive losses
