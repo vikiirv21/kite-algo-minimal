@@ -199,7 +199,12 @@ def main():
     args = parse_args()
     
     # Setup logging
-    setup_logging(level=args.log_level)
+    logging_cfg = {
+        "level": args.log_level,
+        "directory": "logs",
+        "file_prefix": "backtest_v3",
+    }
+    setup_logging(logging_cfg)
     
     logger.info("=" * 80)
     logger.info("Backtest Engine v3 - Offline Backtesting")
