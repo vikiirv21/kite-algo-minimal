@@ -1503,3 +1503,285 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+
+// ============================================
+// Enhanced functionality for new UI components
+// ============================================
+
+// Refresh logs with enhanced error handling
+async function refreshLogs() {
+  try {
+    const kind = document.querySelector('.logs-tab.active')?.dataset.logKind || '';
+    const res = await fetchWithRetry(`/api/logs?limit=200&kind=${kind}`);
+    if (!res.ok) {
+      console.warn('Failed to refresh logs:', res.status);
+      return;
+    }
+    const data = await res.json();
+    const logsBody = document.getElementById('logs-stream');
+    if (!logsBody) return;
+
+    if (!data.logs || data.logs.length === 0) {
+      logsBody.textContent = 'No logs available.';
+      return;
+    }
+
+    const lines = data.logs.map(entry => {
+      const ts = entry.timestamp || entry.ts || '';
+      const level = (entry.level || 'INFO').toUpperCase();
+      const logger = entry.logger || entry.source || '';
+      const message = entry.message || '';
+      return `${ts} [${level}] ${logger} - ${message}`;
+    });
+
+    logsBody.textContent = lines.join('\n');
+
+    // Trigger color coding from ui-polish.js
+    if (window.uiPolish && window.uiPolish.applyLogLevelColors) {
+      window.uiPolish.applyLogLevelColors();
+    }
+  } catch (err) {
+    console.error('Failed to refresh logs:', err);
+  }
+}
+
+// Setup logs tab switching
+function setupLogsTabs() {
+  const logsTabs = document.querySelectorAll('.logs-tab');
+  logsTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      logsTabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      refreshLogs();
+    });
+  });
+}
+
+// Refresh engine controls
+async function refreshEngineControls() {
+  try {
+    const res = await fetchWithRetry('/api/engines/status');
+    if (!res.ok) return;
+    const data = await res.json();
+    const status = Array.isArray(data.engines) ? data.engines[0] : null;
+
+    if (!status) return;
+
+    const indicator = document.getElementById('engine-indicator');
+    const statusText = document.getElementById('engine-status-text');
+    const heartbeat = document.getElementById('engine-heartbeat');
+    const mode = document.getElementById('engine-mode');
+
+    if (indicator) {
+      indicator.className = status.running ? 'status-indicator status-ok' : 'status-indicator status-error';
+    }
+    if (statusText) {
+      statusText.textContent = status.running ? 'Running' : 'Stopped';
+    }
+    if (heartbeat && status.checkpoint_age_seconds != null) {
+      heartbeat.textContent = formatAge(status.checkpoint_age_seconds);
+    }
+    if (mode) {
+      mode.textContent = (status.mode || 'paper').toUpperCase();
+    }
+  } catch (err) {
+    console.error('Failed to refresh engine controls:', err);
+  }
+}
+
+// Refresh trade flow
+async function refreshTradeFlow() {
+  try {
+    const res = await fetchWithRetry('/api/trade_flow');
+    if (!res.ok) return;
+    const data = await res.json();
+    const flow = data.trade_flow || {};
+
+    setText('flow-signals-seen', flow.signals_seen || 0);
+    setText('flow-evaluated', flow.signals_evaluated || 0);
+    setText('flow-allowed', flow.trades_allowed || 0);
+    setText('flow-vetoed', flow.trades_vetoed || 0);
+    setText('flow-orders-placed', flow.orders_placed || 0);
+    setText('flow-orders-filled', flow.orders_filled || 0);
+
+    // Update bar widths for funnel visualization
+    const maxVal = Math.max(
+      flow.signals_seen || 1,
+      flow.signals_evaluated || 0,
+      flow.trades_allowed || 0,
+      flow.orders_placed || 0,
+      flow.orders_filled || 0
+    );
+
+    if (maxVal > 0) {
+      setBarWidth('flow-signals-bar', 100);
+      setBarWidth('flow-evaluated-bar', ((flow.signals_evaluated || 0) / maxVal) * 100);
+      setBarWidth('flow-allowed-bar', ((flow.trades_allowed || 0) / maxVal) * 100);
+      setBarWidth('flow-vetoed-bar', ((flow.trades_vetoed || 0) / maxVal) * 100);
+      setBarWidth('flow-orders-bar', ((flow.orders_placed || 0) / maxVal) * 100);
+      setBarWidth('flow-filled-bar', ((flow.orders_filled || 0) / maxVal) * 100);
+    }
+  } catch (err) {
+    console.error('Failed to refresh trade flow:', err);
+  }
+}
+
+function setBarWidth(id, percent) {
+  const el = document.getElementById(id);
+  if (el) {
+    el.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+  }
+}
+
+// Refresh analytics
+async function refreshAnalytics() {
+  try {
+    const res = await fetchWithRetry('/api/analytics/summary');
+    if (!res.ok) return;
+    const data = await res.json();
+    const daily = data.daily || {};
+
+    setText('analytics-total-pnl', formatInr(daily.realized_pnl || 0));
+    setText('analytics-win-rate', `${(daily.win_rate || 0).toFixed(1)}%`);
+    setText('analytics-profit-factor', (daily.profit_factor || 0).toFixed(2));
+    setText('analytics-sharpe', (daily.sharpe_ratio || 0).toFixed(2));
+    setText('analytics-max-dd', `${(daily.max_drawdown || 0).toFixed(1)}%`);
+    setText('analytics-avg-trade', formatInr(daily.avg_trade || 0));
+
+    // Update distribution
+    const dist = daily.pnl_distribution || {};
+    const totalTrades = (dist.wins || 0) + (dist.losses || 0) + (dist.breakeven || 0);
+    
+    if (totalTrades > 0) {
+      const winPct = ((dist.wins || 0) / totalTrades) * 100;
+      const lossPct = ((dist.losses || 0) / totalTrades) * 100;
+      const breakPct = ((dist.breakeven || 0) / totalTrades) * 100;
+
+      setBarWidth('dist-wins', winPct);
+      setBarWidth('dist-losses', lossPct);
+      setBarWidth('dist-breakeven', breakPct);
+    }
+
+    setText('dist-wins-count', dist.wins || 0);
+    setText('dist-losses-count', dist.losses || 0);
+    setText('dist-breakeven-count', dist.breakeven || 0);
+  } catch (err) {
+    console.error('Failed to refresh analytics:', err);
+  }
+}
+
+// Refresh trades table
+async function refreshTradesTable() {
+  try {
+    const res = await fetchWithRetry('/api/orders?limit=50');
+    if (!res.ok) return;
+    const orders = await res.json();
+
+    const tbody = document.getElementById('trades-table-body');
+    if (!tbody) return;
+
+    if (!orders || orders.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="10" class="text-muted small text-center">No trades yet today.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = orders.map(order => {
+      const side = (order.side || '').toUpperCase();
+      const sideClass = side === 'BUY' ? 'side-buy' : side === 'SELL' ? 'side-sell' : '';
+      const pnl = parseFloat(order.pnl || order.realized_pnl || 0);
+      const pnlClass = pnl > 0 ? 'text-profit' : pnl < 0 ? 'text-loss' : '';
+
+      return `
+        <tr>
+          <td>${formatTimestamp(order.timestamp || order.ts)}</td>
+          <td>${escapeHtml(order.symbol || '')}</td>
+          <td class="${sideClass}">${side}</td>
+          <td>${formatInr(order.entry_price || order.avg_price || 0)}</td>
+          <td>${formatInr(order.exit_price || order.price || 0)}</td>
+          <td>${order.quantity || order.qty || 0}</td>
+          <td class="${pnlClass}">${formatInr(pnl)}</td>
+          <td>${(order.r_multiple || order.r || 0).toFixed(2)}</td>
+          <td>${escapeHtml(order.strategy || '')}</td>
+          <td><span class="badge badge-muted">${escapeHtml(order.status || '')}</span></td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Failed to refresh trades table:', err);
+  }
+}
+
+function formatTimestamp(ts) {
+  if (!ts) return '—';
+  try {
+    const date = new Date(ts);
+    const hh = date.getHours().toString().padStart(2, '0');
+    const mm = date.getMinutes().toString().padStart(2, '0');
+    const ss = date.getSeconds().toString().padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
+  } catch {
+    return ts.substring(0, 8);
+  }
+}
+
+// Main refresh orchestrator
+async function refreshAll() {
+  await Promise.all([
+    refreshMeta(),
+    refreshServerTime(),
+    refreshEngines(),
+    fetchPortfolioSummary(),
+    refreshEngineControls(),
+    refreshTradeFlow(),
+  ]);
+}
+
+// Setup periodic refresh
+function startPeriodicRefresh() {
+  refreshAll();
+  setInterval(refreshAll, 5000); // Refresh every 5 seconds
+
+  // Refresh logs less frequently
+  if (document.querySelector('.tab[data-tab="logs"]')?.classList.contains('active')) {
+    refreshLogs();
+  }
+  setInterval(() => {
+    if (document.querySelector('.tab[data-tab="logs"]')?.classList.contains('active')) {
+      refreshLogs();
+    }
+  }, 10000);
+
+  // Refresh analytics and trades on their tabs
+  setInterval(() => {
+    if (document.querySelector('.tab[data-tab="analytics"]')?.classList.contains('active')) {
+      refreshAnalytics();
+    }
+    if (document.querySelector('.tab[data-tab="trades"]')?.classList.contains('active')) {
+      refreshTradesTable();
+    }
+    if (document.querySelector('.tab[data-tab="monitor"]')?.classList.contains('active')) {
+      refreshTradeFlow();
+    }
+  }, 8000);
+}
+
+// Initialize enhanced UI
+document.addEventListener('DOMContentLoaded', () => {
+  setupLogsTabs();
+  startPeriodicRefresh();
+  
+  // Add event listener for manual refresh button in logs
+  const logsRefreshBtn = document.getElementById('logs-refresh');
+  if (logsRefreshBtn) {
+    logsRefreshBtn.addEventListener('click', refreshLogs);
+  }
+
+  console.log('Enhanced dashboard UI initialized');
+});
+
+// Export for external access
+window.refreshLogs = refreshLogs;
+window.refreshEngineControls = refreshEngineControls;
+window.refreshTradeFlow = refreshTradeFlow;
+window.refreshAnalytics = refreshAnalytics;
+window.refreshTradesTable = refreshTradesTable;

@@ -2,7 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Arthayukti HFT Dashboard</title>
+  <!-- TailwindCSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- DaisyUI CDN -->
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.4.20/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <!-- Custom Dashboard CSS -->
   <link rel="stylesheet" href="/static/dashboard.css" />
 </head>
 <body>
@@ -41,12 +47,62 @@
 
     <!-- Tabs -->
     <nav class="tabs">
-      <button class="tab active" data-tab="overview">Overview</button>
-      <button class="tab" data-tab="signals">Signals & Strategies</button>
-      <button class="tab" data-tab="orders">Orders & Positions</button>
-      <button class="tab" data-tab="backtests">Backtests</button>
-      <button class="tab" data-tab="logs">Logs</button>
-      <button class="tab" data-tab="config">Config & Safety</button>
+      <button class="tab active" data-tab="overview">
+        <svg class="tab-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+        </svg>
+        <span>Dashboard</span>
+      </button>
+      <button class="tab" data-tab="engine">
+        <svg class="tab-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+        </svg>
+        <span>Engine</span>
+      </button>
+      <button class="tab" data-tab="trades">
+        <svg class="tab-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+        </svg>
+        <span>Trades</span>
+      </button>
+      <button class="tab" data-tab="signals">
+        <svg class="tab-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+        </svg>
+        <span>Signals</span>
+      </button>
+      <button class="tab" data-tab="orders">
+        <svg class="tab-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+        </svg>
+        <span>Orders</span>
+      </button>
+      <button class="tab" data-tab="logs">
+        <svg class="tab-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+        <span>Logs</span>
+      </button>
+      <button class="tab" data-tab="analytics">
+        <svg class="tab-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+        </svg>
+        <span>Analytics</span>
+      </button>
+      <button class="tab" data-tab="monitor">
+        <svg class="tab-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+        </svg>
+        <span>Monitor</span>
+      </button>
+      <button class="tab" data-tab="config">
+        <svg class="tab-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+        <span>Config</span>
+      </button>
     </nav>
 
     <!-- Main content -->
@@ -355,6 +411,122 @@
         </section>
       </section>
 
+      <!-- ENGINE TAB -->
+      <section class="tab-page" id="tab-engine">
+        <div class="grid grid-2">
+          <div class="card">
+            <div class="card-header">
+              <h2>Engine Status & Controls</h2>
+              <span id="engine-health-badge" class="badge badge-muted">Checking...</span>
+            </div>
+            <div class="card-body">
+              <div class="engine-controls-grid">
+                <div class="control-group">
+                  <h3 class="control-label">Trading Engine</h3>
+                  <div class="control-status">
+                    <span class="status-indicator" id="engine-indicator"></span>
+                    <span id="engine-status-text">Loading...</span>
+                  </div>
+                  <div class="control-meta" id="engine-control-meta">
+                    <span class="meta-item">Last heartbeat: <strong id="engine-heartbeat">—</strong></span>
+                    <span class="meta-item">Mode: <strong id="engine-mode">—</strong></span>
+                  </div>
+                </div>
+                <div class="control-group">
+                  <h3 class="control-label">Market Data Feed</h3>
+                  <div class="control-status">
+                    <span class="status-indicator" id="mde-indicator"></span>
+                    <span id="mde-status-text">Checking...</span>
+                  </div>
+                  <div class="control-meta" id="mde-control-meta">
+                    <span class="meta-item">Symbols tracked: <strong id="mde-symbols-count">—</strong></span>
+                    <span class="meta-item">Ticks received: <strong id="mde-ticks-count">—</strong></span>
+                  </div>
+                </div>
+                <div class="control-group">
+                  <h3 class="control-label">Risk Manager</h3>
+                  <div class="control-status">
+                    <span class="status-indicator status-ok"></span>
+                    <span>Active</span>
+                  </div>
+                  <div class="control-meta">
+                    <span class="meta-item">Daily risk used: <strong id="risk-used-pct">—</strong></span>
+                    <span class="meta-item">Exposure: <strong id="risk-exposure-pct">—</strong></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2>Session & Regime</h2>
+            </div>
+            <div class="card-body">
+              <div class="session-info">
+                <div class="session-row">
+                  <span class="session-label">Market Phase</span>
+                  <span class="session-value" id="session-phase">—</span>
+                </div>
+                <div class="session-row">
+                  <span class="session-label">Trading Regime</span>
+                  <span class="session-value" id="session-regime">—</span>
+                </div>
+                <div class="session-row">
+                  <span class="session-label">Volatility State</span>
+                  <span class="session-value" id="session-volatility">—</span>
+                </div>
+                <div class="session-row">
+                  <span class="session-label">Trend Direction</span>
+                  <span class="session-value" id="session-trend">—</span>
+                </div>
+                <div class="session-row">
+                  <span class="session-label">Next Session</span>
+                  <span class="session-value" id="session-next">09:15 IST</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TRADES TAB -->
+      <section class="tab-page" id="tab-trades">
+        <div class="card">
+          <div class="card-header">
+            <h2>Trade History & P&L</h2>
+            <span class="badge badge-muted" id="trades-count">0 trades</span>
+          </div>
+          <div class="card-body">
+            <div class="table-wrapper">
+              <table class="trades-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Symbol</th>
+                    <th>Side</th>
+                    <th>Entry</th>
+                    <th>Exit</th>
+                    <th>Qty</th>
+                    <th>P&L</th>
+                    <th>R</th>
+                    <th>Strategy</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="trades-table-body">
+                  <tr>
+                    <td colspan="10" class="text-muted small text-center">
+                      No trades yet today.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- SIGNALS TAB -->
       <section class="tab-page" id="tab-signals">
         <div class="card">
@@ -591,14 +763,255 @@
               <button class="logs-tab" data-log-kind="engine">Engine</button>
               <button class="logs-tab" data-log-kind="trades">Trades</button>
               <button class="logs-tab" data-log-kind="signals">Signals</button>
+              <button class="logs-tab" data-log-kind="risk">Risk</button>
+              <button class="logs-tab" data-log-kind="orders">Orders</button>
+              <button class="logs-tab" data-log-kind="alerts">Alerts</button>
               <button class="logs-tab" data-log-kind="system">System</button>
+            </div>
+            <div class="logs-controls">
+              <label class="logs-control">
+                <input type="checkbox" id="logs-autoscroll" checked />
+                <span>Autoscroll</span>
+              </label>
+              <button class="btn-sm btn-secondary" id="logs-clear">Clear Display</button>
+              <button class="btn-sm btn-primary" id="logs-refresh">Refresh</button>
             </div>
           </div>
           <div class="card-body">
-            <pre id="logs-stream" class="logs-body">Loading logs...</pre>
+            <div class="logs-viewer" id="logs-viewer">
+              <pre id="logs-stream" class="logs-body">Loading logs...</pre>
+            </div>
           </div>
         </div>
       </section>
+
+      <!-- ANALYTICS TAB -->
+      <section class="tab-page" id="tab-analytics">
+        <div class="grid grid-3">
+          <div class="card col-span-2">
+            <div class="card-header">
+              <h2>Performance Analytics</h2>
+              <select id="analytics-timeframe" class="select-sm">
+                <option value="today">Today</option>
+                <option value="week">This Week</option>
+                <option value="month">This Month</option>
+              </select>
+            </div>
+            <div class="card-body">
+              <div class="analytics-metrics-grid">
+                <div class="analytics-metric">
+                  <span class="metric-label">Total P&L</span>
+                  <span class="metric-value" id="analytics-total-pnl">₹0</span>
+                </div>
+                <div class="analytics-metric">
+                  <span class="metric-label">Win Rate</span>
+                  <span class="metric-value" id="analytics-win-rate">0%</span>
+                </div>
+                <div class="analytics-metric">
+                  <span class="metric-label">Profit Factor</span>
+                  <span class="metric-value" id="analytics-profit-factor">—</span>
+                </div>
+                <div class="analytics-metric">
+                  <span class="metric-label">Sharpe Ratio</span>
+                  <span class="metric-value" id="analytics-sharpe">—</span>
+                </div>
+                <div class="analytics-metric">
+                  <span class="metric-label">Max Drawdown</span>
+                  <span class="metric-value" id="analytics-max-dd">0%</span>
+                </div>
+                <div class="analytics-metric">
+                  <span class="metric-label">Avg Trade</span>
+                  <span class="metric-value" id="analytics-avg-trade">₹0</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2>Trade Distribution</h2>
+            </div>
+            <div class="card-body">
+              <div class="distribution-chart" id="trade-distribution">
+                <div class="dist-item">
+                  <span class="dist-label">Winning Trades</span>
+                  <div class="dist-bar">
+                    <div class="dist-fill dist-fill-success" id="dist-wins" style="width: 0%"></div>
+                  </div>
+                  <span class="dist-value" id="dist-wins-count">0</span>
+                </div>
+                <div class="dist-item">
+                  <span class="dist-label">Losing Trades</span>
+                  <div class="dist-bar">
+                    <div class="dist-fill dist-fill-danger" id="dist-losses" style="width: 0%"></div>
+                  </div>
+                  <span class="dist-value" id="dist-losses-count">0</span>
+                </div>
+                <div class="dist-item">
+                  <span class="dist-label">Breakeven</span>
+                  <div class="dist-bar">
+                    <div class="dist-fill dist-fill-neutral" id="dist-breakeven" style="width: 0%"></div>
+                  </div>
+                  <span class="dist-value" id="dist-breakeven-count">0</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card col-span-3">
+            <div class="card-header">
+              <h2>Strategy Performance Breakdown</h2>
+            </div>
+            <div class="card-body">
+              <div class="table-wrapper">
+                <table class="table-compact">
+                  <thead>
+                    <tr>
+                      <th>Strategy</th>
+                      <th>Trades</th>
+                      <th>Win Rate</th>
+                      <th>P&L</th>
+                      <th>Avg Win</th>
+                      <th>Avg Loss</th>
+                      <th>Best Trade</th>
+                      <th>Worst Trade</th>
+                    </tr>
+                  </thead>
+                  <tbody id="analytics-strategy-breakdown">
+                    <tr>
+                      <td colspan="8" class="text-muted small text-center">
+                        No strategy data available
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- MONITOR TAB -->
+      <section class="tab-page" id="tab-monitor">
+        <div class="grid grid-2">
+          <div class="card">
+            <div class="card-header">
+              <h2>Real-Time Market Monitor</h2>
+              <span class="badge badge-muted" id="monitor-symbols-count">0 symbols</span>
+            </div>
+            <div class="card-body">
+              <div class="table-wrapper">
+                <table class="monitor-table">
+                  <thead>
+                    <tr>
+                      <th>Symbol</th>
+                      <th>LTP</th>
+                      <th>Change</th>
+                      <th>Change %</th>
+                      <th>Volume</th>
+                      <th>OI</th>
+                      <th>Signal</th>
+                    </tr>
+                  </thead>
+                  <tbody id="monitor-table-body">
+                    <tr>
+                      <td colspan="7" class="text-muted small text-center">
+                        Waiting for market data...
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2>Trade Flow Monitor</h2>
+            </div>
+            <div class="card-body">
+              <div class="flow-funnel">
+                <div class="flow-stage">
+                  <span class="flow-label">Signals Seen</span>
+                  <span class="flow-value" id="flow-signals-seen">0</span>
+                  <div class="flow-bar">
+                    <div class="flow-fill" id="flow-signals-bar" style="width: 100%"></div>
+                  </div>
+                </div>
+                <div class="flow-stage">
+                  <span class="flow-label">Evaluated</span>
+                  <span class="flow-value" id="flow-evaluated">0</span>
+                  <div class="flow-bar">
+                    <div class="flow-fill" id="flow-evaluated-bar" style="width: 80%"></div>
+                  </div>
+                </div>
+                <div class="flow-stage">
+                  <span class="flow-label">Allowed</span>
+                  <span class="flow-value" id="flow-allowed">0</span>
+                  <div class="flow-bar">
+                    <div class="flow-fill" id="flow-allowed-bar" style="width: 60%"></div>
+                  </div>
+                </div>
+                <div class="flow-stage">
+                  <span class="flow-label">Vetoed</span>
+                  <span class="flow-value" id="flow-vetoed">0</span>
+                  <div class="flow-bar">
+                    <div class="flow-fill flow-fill-danger" id="flow-vetoed-bar" style="width: 20%"></div>
+                  </div>
+                </div>
+                <div class="flow-stage">
+                  <span class="flow-label">Orders Placed</span>
+                  <span class="flow-value" id="flow-orders-placed">0</span>
+                  <div class="flow-bar">
+                    <div class="flow-fill" id="flow-orders-bar" style="width: 40%"></div>
+                  </div>
+                </div>
+                <div class="flow-stage">
+                  <span class="flow-label">Orders Filled</span>
+                  <span class="flow-value" id="flow-orders-filled">0</span>
+                  <div class="flow-bar">
+                    <div class="flow-fill flow-fill-success" id="flow-filled-bar" style="width: 35%"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card col-span-2">
+            <div class="card-header">
+              <h2>System Resources</h2>
+            </div>
+            <div class="card-body">
+              <div class="resources-grid">
+                <div class="resource-item">
+                  <span class="resource-label">CPU Usage</span>
+                  <div class="resource-bar">
+                    <div class="resource-fill" id="cpu-usage" style="width: 0%"></div>
+                  </div>
+                  <span class="resource-value" id="cpu-usage-text">0%</span>
+                </div>
+                <div class="resource-item">
+                  <span class="resource-label">Memory Usage</span>
+                  <div class="resource-bar">
+                    <div class="resource-fill" id="memory-usage" style="width: 0%"></div>
+                  </div>
+                  <span class="resource-value" id="memory-usage-text">0%</span>
+                </div>
+                <div class="resource-item">
+                  <span class="resource-label">API Rate Limit</span>
+                  <div class="resource-bar">
+                    <div class="resource-fill" id="api-rate-limit" style="width: 0%"></div>
+                  </div>
+                  <span class="resource-value" id="api-rate-limit-text">0 / 3000</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- BACKTESTS TAB -->
+      <!-- (Content moved to earlier in the file) -->
 
       <!-- CONFIG TAB -->
       <section class="tab-page" id="tab-config">
@@ -616,6 +1029,7 @@
   </div>
 
   <script src="/static/dashboard.js"></script>
+  <script src="/static/ui-polish.js"></script>
 </body>
 </html>
 
