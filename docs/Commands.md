@@ -15,7 +15,32 @@ python scripts/login_kite.py
 
 ## Trading Modes
 
-### Paper Trading
+### Session Orchestrator (Recommended)
+
+The Session Orchestrator manages the complete daily trading lifecycle including pre-market checks, engine startup, monitoring, and end-of-day analytics.
+
+```bash
+# Run full session with paper trading
+python -m scripts.run_session --mode paper --config configs/dev.yaml
+
+# Pre-market checks only (dry run)
+python -m scripts.run_session --mode paper --config configs/dev.yaml --dry-run
+
+# Run without end-of-day analytics and backtests
+python -m scripts.run_session --mode paper --config configs/dev.yaml --no-analytics --no-backtest
+
+# Run with live trading (⚠️ REAL MONEY!)
+python -m scripts.run_session --mode live --config configs/dev.yaml
+```
+
+The Session Orchestrator:
+- Performs pre-market checks (time, secrets, config, authentication)
+- Starts all engines via `run_day`
+- Monitors engine execution
+- Runs end-of-day analytics
+- Generates daily reports in `artifacts/reports/daily/`
+
+### Paper Trading (Direct)
 
 ```bash
 # Run paper trading for equities
@@ -26,6 +51,9 @@ python scripts/run_paper_fno.py
 
 # Run paper trading for options
 python scripts/run_paper_options.py
+
+# Run all engines with unified script
+python -m scripts.run_day --mode paper --engines all --config configs/dev.yaml
 ```
 
 ### Live Trading
