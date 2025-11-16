@@ -15,9 +15,67 @@ python scripts/login_kite.py
 
 ## Trading Modes
 
-### Session Orchestrator (Recommended)
+### Canonical Commands (Recommended)
 
-The Session Orchestrator manages the complete daily trading lifecycle including pre-market checks, engine startup, monitoring, and end-of-day analytics.
+The **run_trader** script is the primary entrypoint for starting PAPER and LIVE trading engines. It provides a simple, unified interface with sensible defaults.
+
+#### PAPER Trading (Sandbox/Dev Mode)
+
+```bash
+# Simple, recommended usage (uses configs/dev.yaml, reuses tokens)
+python -m scripts.run_trader paper
+
+# With explicit config
+python -m scripts.run_trader paper --config configs/dev.yaml
+
+# Force Kite re-login and refresh tokens
+python -m scripts.run_trader paper --login
+
+# Run specific engines only
+python -m scripts.run_trader paper --engines fno
+python -m scripts.run_trader paper --engines options
+```
+
+#### LIVE Trading
+
+⚠️ **WARNING: Real money at risk! LIVE mode requires explicit config.**
+
+```bash
+# Run LIVE trading (requires explicit config for safety)
+python -m scripts.run_trader live --config configs/dev.yaml
+
+# Force Kite re-login before starting
+python -m scripts.run_trader live --login --config configs/dev.yaml
+
+# Run specific engines only
+python -m scripts.run_trader live --engines fno --config configs/dev.yaml
+```
+
+#### Token Reuse vs. Forced Login
+
+By default, `run_trader` reuses existing Kite tokens from `secrets/kite_tokens.env` for fast startup:
+- **No `--login` flag**: Reuses existing tokens (validates they're still valid)
+- **With `--login` flag**: Forces interactive browser login and refreshes tokens
+
+When to use `--login`:
+- First time setup
+- When tokens have expired (you'll see an error message)
+- After extended downtime
+- When you want to ensure fresh authentication
+
+#### Command Hierarchy
+
+The system has three layers of commands:
+
+1. **`run_session`** (highest level): Full day orchestration with pre-market checks, monitoring, and analytics
+2. **`run_trader`** (recommended): Canonical entrypoint for starting engines (PAPER or LIVE)
+3. **`run_day`** (low-level): Direct engine wiring and management (advanced usage)
+
+Most users should use `run_trader` or `run_session`. The `run_day` script is still available for advanced scenarios.
+
+### Session Orchestrator (Full Day Lifecycle)
+
+The Session Orchestrator manages the complete daily trading lifecycle including pre-market checks, engine startup, monitoring, and end-of-day analytics. It uses `run_trader` internally.
 
 ```bash
 # Run full session with paper trading
@@ -35,14 +93,37 @@ python -m scripts.run_session --mode live --config configs/dev.yaml
 
 The Session Orchestrator:
 - Performs pre-market checks (time, secrets, config, authentication)
-- Starts all engines via `run_day`
+- Starts all engines via `run_trader` or `run_day`
 - Monitors engine execution
 - Runs end-of-day analytics
 - Generates daily reports in `artifacts/reports/daily/`
 
-### Paper Trading (Direct)
+### Advanced: Direct Engine Control (run_day)
+
+For advanced users who need fine-grained control, `run_day` is still available as a low-level interface:
 
 ```bash
+# Run all engines in paper mode
+python -m scripts.run_day --mode paper --engines all --config configs/dev.yaml
+
+# Run with forced login
+python -m scripts.run_day --login --mode paper --engines all --config configs/dev.yaml
+
+# Run live mode
+python -m scripts.run_day --mode live --engines all --config configs/dev.yaml
+
+# Login only, don't start engines
+python -m scripts.run_day --login --engines none
+```
+
+**Note**: Most users should use `run_trader` instead of `run_day` directly. The `run_day` script is considered a low-level tool and is invoked internally by `run_trader`.
+
+### Legacy: Individual Engine Scripts
+
+```bash
+# These scripts are legacy and may be deprecated in the future
+# Use run_trader instead for a unified experience
+
 # Run paper trading for equities
 python scripts/run_paper_equity.py
 
@@ -51,22 +132,8 @@ python scripts/run_paper_fno.py
 
 # Run paper trading for options
 python scripts/run_paper_options.py
-
-# Run all engines with unified script
-python -m scripts.run_day --mode paper --engines all --config configs/dev.yaml
 ```
 
-### Live Trading
-
-⚠️ **WARNING: Real money at risk!**
-
-```bash
-# Run live trading
-python scripts/run_live.py
-
-# Or use specific engine
-python -m engine.live_engine
-```
 
 ### Backtesting
 
@@ -227,20 +294,35 @@ ls -lah artifacts/backtests/
 
 ## Common Workflows
 
-### Morning Routine (Live Trading)
+### Morning Routine (Paper Trading)
 
 ```bash
-# 1. Login to Kite
-python scripts/login_kite.py
+# 1. (Optional) Refresh Kite login if tokens expired
+python -m scripts.run_trader paper --login --engines none
+
+# 2. Start paper trading with dashboard (recommended)
+python -m scripts.run_trader paper
+
+# Or use full session orchestrator
+python -m scripts.run_session --mode paper --config configs/dev.yaml
+```
+
+### Morning Routine (Live Trading)
+
+⚠️ **WARNING: Real money at risk!**
+
+```bash
+# 1. Login to Kite (if needed)
+python -m scripts.run_trader live --login --engines none --config configs/dev.yaml
 
 # 2. Refresh market cache
 python scripts/refresh_market_cache.py
 
-# 3. Start dashboard
+# 3. Start dashboard (optional, in separate terminal)
 python scripts/run_dashboard.py &
 
-# 4. Start live engine (after market open)
-python scripts/run_live.py
+# 4. Start live engine (after market open, verify config!)
+python -m scripts.run_trader live --config configs/dev.yaml
 ```
 
 ### Evening Routine
