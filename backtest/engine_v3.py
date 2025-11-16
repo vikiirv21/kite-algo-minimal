@@ -207,8 +207,18 @@ class BacktestEngineV3:
         
         # Initialize risk engine
         risk_cfg_dict = bt_config.risk_config or config.get("risk", {})
-        risk_cfg_dict["capital"] = bt_config.initial_equity
-        self.risk_config = RiskConfig(**{k: v for k, v in risk_cfg_dict.items() if hasattr(RiskConfig, k)})
+        self.risk_config = RiskConfig(
+            capital=bt_config.initial_equity,
+            max_daily_loss_pct=risk_cfg_dict.get("max_daily_loss_pct", 0.02),
+            max_daily_notional_pct=risk_cfg_dict.get("max_daily_notional_pct", 1.50),
+            max_daily_trades=risk_cfg_dict.get("max_daily_trades", 40),
+            per_trade_risk_pct=risk_cfg_dict.get("per_trade_risk_pct", 0.0025),
+            rr_multiple=risk_cfg_dict.get("rr_multiple", 2.0),
+            max_consecutive_losses_symbol=risk_cfg_dict.get("max_consecutive_losses_symbol", 3),
+            max_consecutive_losses_strategy=risk_cfg_dict.get("max_consecutive_losses_strategy", 4),
+            cooldown_bars_after_loss=risk_cfg_dict.get("cooldown_bars_after_loss", 10),
+            max_symbol_loss_pct=risk_cfg_dict.get("max_symbol_loss_pct", 0.01),
+        )
         self.risk_engine = RiskEngine(self.risk_config, state=None)
         
         # Initialize trade guardian (optional)
