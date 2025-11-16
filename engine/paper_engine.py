@@ -574,11 +574,21 @@ class PaperEngine:
                 from core.market_data_engine_v2 import MarketDataEngineV2
                 logger.info("Initializing Market Data Engine v2")
                 self.market_data_engine_v2 = MarketDataEngineV2(
-                    config=data_config,
+                    config=self.cfg.raw,
+                    broker=self.kite,
                     logger_instance=logger,
                 )
+                # Subscribe to universe symbols
+                if self.universe:
+                    self.market_data_engine_v2.subscribe_symbols(self.universe)
+                # Set timeframes from config
+                timeframes = data_config.get("timeframes", ["1m", "5m"])
+                self.market_data_engine_v2.set_timeframes(timeframes)
+                # Start the engine
+                self.market_data_engine_v2.start()
+                logger.info("Market Data Engine v2 started successfully")
             except Exception as exc:
-                logger.warning("Failed to initialize MDE v2: %s", exc)
+                logger.warning("Failed to initialize MDE v2: %s", exc, exc_info=True)
                 self.market_data_engine_v2 = None
         
         # Initialize ExecutionEngine v2 (optional)
@@ -602,22 +612,6 @@ class PaperEngine:
                 except Exception as exc:
                     logger.warning("Failed to initialize ExecutionEngine v2: %s", exc)
                     self.execution_engine_v2 = None
-                    config=self.cfg.raw,
-                    broker=self.kite,
-                    logger_instance=logger,
-                )
-                # Subscribe to universe symbols
-                if self.universe:
-                    self.market_data_engine_v2.subscribe_symbols(self.universe)
-                # Set timeframes from config
-                timeframes = data_config.get("timeframes", ["1m", "5m"])
-                self.market_data_engine_v2.set_timeframes(timeframes)
-                # Start the engine
-                self.market_data_engine_v2.start()
-                logger.info("Market Data Engine v2 started successfully")
-            except Exception as exc:
-                logger.warning("Failed to initialize MDE v2: %s", exc, exc_info=True)
-                self.market_data_engine_v2 = None
         
         # Initialize Strategy Engine (v1 or v2 based on config)
         strategy_engine_config = self.cfg.raw.get("strategy_engine", {})
