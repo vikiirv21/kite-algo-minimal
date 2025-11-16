@@ -1,0 +1,75 @@
+# Backtest Configuration for Development/Testing
+# This config extends configs/dev.yaml with backtest-specific settings
+
+backtest:
+  # Symbols to backtest
+  symbols:
+    - "NIFTY"
+    - "BANKNIFTY"
+  
+  # Strategies to enable
+  strategies:
+    - "ema20_50_intraday_v2"
+  
+  # Date range (will be overridden by CLI args if provided)
+  start_date: "2025-01-01"
+  end_date: "2025-01-05"
+  
+  # Data source
+  data_source: "csv"  # csv, hdf, or kite_historical
+  
+  # Timeframe
+  timeframe: "5m"  # 1m, 5m, 15m, 1h, or 1d
+  
+  # Initial capital
+  initial_equity: 100000.0
+  
+  # Position sizing mode
+  position_sizing_mode: "fixed_qty"  # fixed_qty or fixed_risk_atr
+  
+  # Enable trade guardian
+  enable_guardian: false
+
+# Portfolio configuration for backtest (optional override)
+portfolio:
+  max_leverage: 2.0
+  max_exposure_pct: 0.8
+  max_risk_per_trade_pct: 0.01
+  max_risk_per_strategy_pct: 0.2
+  position_sizing_mode: "fixed_qty"
+  lot_size_fallback: 25
+  default_fixed_qty: 1
+  atr_stop_multiplier: 2.0
+  strategy_budgets:
+    ema20_50_intraday_v2:
+      capital_pct: 0.5
+      fixed_qty: 1
+
+# Risk configuration for backtest (optional override)
+risk:
+  max_daily_loss_pct: 0.02
+  max_daily_notional_pct: 1.50
+  max_daily_trades: 40
+  per_trade_risk_pct: 0.0025
+  rr_multiple: 2.0
+  max_consecutive_losses_symbol: 3
+  max_consecutive_losses_strategy: 4
+  cooldown_bars_after_loss: 10
+  max_symbol_loss_pct: 0.01
+
+# Regime configuration for backtest (optional override)
+regime:
+  short_window: 21
+  long_window: 55
+  atr_window: 21
+  atr_threshold: 0.75
+
+# Trade guardian configuration (optional override)
+guardian:
+  enabled: false
+  max_order_per_second: 5
+  max_lot_size: 50
+  reject_if_price_stale_secs: 3
+  reject_if_slippage_pct: 2.0
+  max_daily_drawdown_pct: 3.0
+  halt_on_pnl_drop_pct: 5.0
