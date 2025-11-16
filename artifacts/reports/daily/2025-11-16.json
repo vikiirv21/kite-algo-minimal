@@ -2,7 +2,7 @@
   "date": "2025-11-16",
   "mode": "PAPER",
   "config": "configs/dev.yaml",
-  "generated_at": "2025-11-16T17:55:45.443370",
+  "generated_at": "2025-11-16T18:01:18.704234",
   "summary": {
     "realized_pnl": 500.0,
     "num_trades": 10,

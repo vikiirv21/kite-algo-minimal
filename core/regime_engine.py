@@ -82,6 +82,10 @@ class RegimeEngine:
         regime_config = config.get("regime_engine", {})
         self.enabled = regime_config.get("enabled", True)
         
+        # Initialize cache regardless of enabled state
+        self._cache: Dict[str, tuple[RegimeSnapshot, float]] = {}
+        self._cache_ttl = 1.0  # 1 second cache TTL
+        
         if not self.enabled:
             self.logger.info("RegimeEngine: DISABLED (enabled=false in config)")
             return
@@ -93,10 +97,6 @@ class RegimeEngine:
         self.volatility_high_pct = regime_config.get("volatility_high_pct", 1.0)
         self.volatility_low_pct = regime_config.get("volatility_low_pct", 0.35)
         self.compression_pct = regime_config.get("compression_pct", 0.25)
-        
-        # Cache for performance (symbol -> (snapshot, timestamp))
-        self._cache: Dict[str, tuple[RegimeSnapshot, float]] = {}
-        self._cache_ttl = 1.0  # 1 second cache TTL
         
         self.logger.info(
             "RegimeEngine: ENABLED - bar_period=%s, slope_period=%d, atr_period=%d, "
