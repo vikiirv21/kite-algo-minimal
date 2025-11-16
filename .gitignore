@@ -7,3 +7,5 @@ logs/
 .ipynb_checkpoints/
 .vscode/
 .idea/
+artifacts/journal/
+artifacts/analytics/
