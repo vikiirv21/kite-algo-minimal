@@ -135,6 +135,14 @@ class LiveEngine:
                     logger.warning("Failed to initialize ExecutionEngine v2: %s", exc)
                     self.execution_engine_v2 = None
         
+        # Initialize Trade Guardian v1 (optional, for legacy path when ExecutionEngine v2 not used)
+        self.guardian = None
+        try:
+            from core.trade_guardian import TradeGuardian
+            self.guardian = TradeGuardian(self.cfg.raw, self.state_store, logger)
+        except Exception as exc:
+            logger.warning("Failed to initialize TradeGuardian: %s", exc)
+        
         # Initialize PortfolioEngine v1 (optional)
         self.portfolio_engine = None
         portfolio_config_raw = self.cfg.raw.get("portfolio")
@@ -420,9 +428,52 @@ class LiveEngine:
                     return
                 except Exception as exc:
                     logger.warning("ExecutionEngine v2 failed, falling back to legacy: %s", exc)
+                    # Guardian check for legacy fallback path
+                    if self.guardian:
+                        from engine.execution_engine import OrderIntent
+                        exec_intent = OrderIntent(
+                            symbol=intent.get("symbol", ""),
+                            strategy_code=intent.get("strategy", "unknown"),
+                            side=intent.get("side", "BUY"),
+                            qty=intent.get("qty", 0),
+                            order_type=intent.get("order_type", "MARKET"),
+                            product=intent.get("product", "MIS"),
+                            price=intent.get("price"),
+                        )
+                        guardian_decision = self.guardian.validate_pre_trade(exec_intent, None)
+                        if not guardian_decision.allow:
+                            logger.warning(
+                                "[guardian-block] %s - skipping order", guardian_decision.reason
+                            )
+                            return
                     # Fall through to legacy path
             
-            # Legacy execution path
+            # Legacy execution path - check guardian before placing order
+            if self.guardian:
+                from engine.execution_engine import OrderIntent
+                exec_intent = OrderIntent(
+                    symbol=intent.get("symbol", ""),
+                    strategy_code=intent.get("strategy", "unknown"),
+                    side=intent.get("side", "BUY"),
+                    qty=intent.get("qty", 0),
+                    order_type=intent.get("order_type", "MARKET"),
+                    product=intent.get("product", "MIS"),
+                    price=intent.get("price"),
+                )
+                guardian_decision = self.guardian.validate_pre_trade(exec_intent, None)
+                if not guardian_decision.allow:
+                    logger.warning(
+                        "[guardian-block] %s - skipping order", guardian_decision.reason
+                    )
+                    log_event(
+                        "GUARDIAN_BLOCK",
+                        f"Trade guardian blocked order: {guardian_decision.reason}",
+                        symbol=intent.get("symbol"),
+                        extra=intent,
+                        level=logging.WARNING,
+                    )
+                    return
+            
             result = self.broker.place_order(intent)
             
             order_id = result.get("order_id")

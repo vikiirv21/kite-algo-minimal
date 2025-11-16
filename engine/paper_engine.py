@@ -614,6 +614,14 @@ class PaperEngine:
                     logger.warning("Failed to initialize ExecutionEngine v2: %s", exc)
                     self.execution_engine_v2 = None
         
+        # Initialize Trade Guardian v1 (optional, for legacy path when ExecutionEngine v2 not used)
+        self.guardian = None
+        try:
+            from core.trade_guardian import TradeGuardian
+            self.guardian = TradeGuardian(self.cfg.raw, self.checkpoint_store, logger)
+        except Exception as exc:
+            logger.warning("Failed to initialize TradeGuardian: %s", exc)
+        
         # Initialize PortfolioEngine v1 (optional, based on config)
         self.portfolio_engine = None
         portfolio_config_raw = self.cfg.raw.get("portfolio")
@@ -1232,9 +1240,40 @@ class PaperEngine:
                 logger.info("Order executed via ExecutionEngine v2: %s", order)
             except Exception as exc:
                 logger.warning("ExecutionEngine v2 failed, falling back to legacy: %s", exc)
+                # Guardian check for legacy fallback path
+                if self.guardian:
+                    from core.strategy_engine_v2 import OrderIntent as StrategyOrderIntent
+                    legacy_intent = StrategyOrderIntent(
+                        symbol=symbol,
+                        action=side,
+                        qty=qty,
+                        reason=extra_payload.get("reason", ""),
+                        strategy_code=strategy_label,
+                    )
+                    guardian_decision = self.guardian.validate_pre_trade(legacy_intent, None)
+                    if not guardian_decision.allow:
+                        logger.warning(
+                            "[guardian-block] %s - skipping order", guardian_decision.reason
+                        )
+                        return
                 order = self.router.place_order(symbol, side, qty, price)
         else:
-            # Legacy execution path
+            # Legacy execution path - check guardian before placing order
+            if self.guardian:
+                from core.strategy_engine_v2 import OrderIntent as StrategyOrderIntent
+                legacy_intent = StrategyOrderIntent(
+                    symbol=symbol,
+                    action=side,
+                    qty=qty,
+                    reason=extra_payload.get("reason", ""),
+                    strategy_code=strategy_label,
+                )
+                guardian_decision = self.guardian.validate_pre_trade(legacy_intent, None)
+                if not guardian_decision.allow:
+                    logger.warning(
+                        "[guardian-block] %s - skipping order", guardian_decision.reason
+                    )
+                    return
             order = self.router.place_order(symbol, side, qty, price)
         if self.trade_throttler:
             self.trade_throttler.register_fill(
