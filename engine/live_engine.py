@@ -33,6 +33,7 @@ from core.risk_engine import RiskAction, RiskDecision, RiskEngine
 from core.state_store import JournalStateStore, StateStore
 from core.strategy_engine_v2 import StrategyEngineV2
 from core.event_logging import log_event
+from core.portfolio_engine import PortfolioEngine, PortfolioConfig
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +134,29 @@ class LiveEngine:
                 except Exception as exc:
                     logger.warning("Failed to initialize ExecutionEngine v2: %s", exc)
                     self.execution_engine_v2 = None
+        
+        # Initialize PortfolioEngine v1 (optional)
+        self.portfolio_engine = None
+        portfolio_config_raw = self.cfg.raw.get("portfolio")
+        if portfolio_config_raw:
+            try:
+                logger.info("Initializing PortfolioEngine v1 for live mode")
+                portfolio_config = PortfolioConfig.from_dict(portfolio_config_raw)
+                self.portfolio_engine = PortfolioEngine(
+                    portfolio_config=portfolio_config,
+                    state_store=self.state_store,
+                    journal_store=self.journal,
+                    logger_instance=logger,
+                    mde=None,  # Live mode can use MDE if available
+                )
+                logger.info(
+                    "PortfolioEngine v1 initialized for LIVE: mode=%s, max_exposure_pct=%.2f",
+                    portfolio_config.position_sizing_mode,
+                    portfolio_config.max_exposure_pct,
+                )
+            except Exception as exc:
+                logger.warning("Failed to initialize PortfolioEngine v1: %s", exc, exc_info=True)
+                self.portfolio_engine = None
         
         logger.info("✅ LiveEngine initialized (mode=LIVE)")
         logger.warning("⚠️ LIVE TRADING MODE ACTIVE - REAL ORDERS WILL BE PLACED ⚠️")
