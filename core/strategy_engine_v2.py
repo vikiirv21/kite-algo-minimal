@@ -19,6 +19,14 @@ from strategies.base import Decision
 
 logger = logging.getLogger(__name__)
 
+# Import StrategyOrchestrator (optional - graceful fallback)
+try:
+    from core.strategy_orchestrator import StrategyOrchestrator
+    ORCHESTRATOR_AVAILABLE = True
+except ImportError:
+    ORCHESTRATOR_AVAILABLE = False
+    StrategyOrchestrator = None
+
 
 class OrderIntent:
     """Represents a trading intent from a strategy before risk checks."""
@@ -202,7 +210,9 @@ class StrategyEngineV2:
         market_data_engine: MarketDataEngine,
         risk_engine: Optional[Any] = None,
         logger_instance: Optional[logging.Logger] = None,
-        market_data_engine_v2: Optional[Any] = None
+        market_data_engine_v2: Optional[Any] = None,
+        state_store: Optional[Any] = None,
+        analytics: Optional[Any] = None
     ):
         self.config = config
         self.market_data = market_data_engine
@@ -220,6 +230,19 @@ class StrategyEngineV2:
         
         # Paper engine reference (for execution)
         self.paper_engine = None
+        
+        # Strategy Orchestrator v3 (optional)
+        self.orchestrator = None
+        if ORCHESTRATOR_AVAILABLE and state_store:
+            try:
+                self.orchestrator = StrategyOrchestrator(
+                    config=config,
+                    state_store=state_store,
+                    analytics=analytics,
+                    logger_instance=self.logger
+                )
+            except Exception as e:
+                self.logger.warning("Failed to initialize StrategyOrchestrator: %s", e)
         
         self.logger.info("StrategyEngineV2 initialized with %d strategies", len(self.enabled_strategies))
     
@@ -320,16 +343,34 @@ class StrategyEngineV2:
         self,
         strategy_code: str,
         symbol: str,
-        timeframe: str
+        timeframe: str,
+        market_regime: Optional[Dict[str, Any]] = None
     ) -> List[OrderIntent]:
         """
         Run a single strategy for a symbol.
+        
+        Args:
+            strategy_code: Strategy identifier
+            symbol: Trading symbol
+            timeframe: Timeframe (e.g., '5m')
+            market_regime: Optional market regime snapshot
         
         Returns:
             List of order intents
         """
         if strategy_code not in self.strategies:
             return []
+        
+        # Check with orchestrator if strategy should run
+        if self.orchestrator:
+            decision = self.orchestrator.should_run_strategy(strategy_code, market_regime)
+            if not decision.allow:
+                self.logger.info(
+                    "[strategy-skip] %s: %s",
+                    strategy_code,
+                    decision.reason
+                )
+                return []
         
         strategy = self.strategies[strategy_code]
         
@@ -384,6 +425,36 @@ class StrategyEngineV2:
             self.logger.exception("Strategy %s failed for %s: %s", strategy_code, symbol, e)
             return []
     
+    def _get_market_regime(self) -> Dict[str, Any]:
+        """
+        Get current market regime snapshot.
+        
+        Returns a stub regime if RegimeDetector is not available.
+        In production, this would integrate with a real regime detection system.
+        """
+        # Try to get regime from shared regime detector if available
+        try:
+            from core.regime_detector import shared_regime_detector, Regime
+            
+            # Get regime for primary symbol (e.g., NIFTY)
+            primary_symbol = self.config.get("primary_symbol", "NIFTY")
+            regime = shared_regime_detector.get_regime(primary_symbol)
+            
+            # Convert to dict format
+            return {
+                "trend": regime == Regime.TREND_UP or regime == Regime.TREND_DOWN,
+                "volatile": False,  # Could be enhanced with ATR threshold
+                "low_vol": regime == Regime.CHOP,
+            }
+        except Exception as e:
+            self.logger.debug("RegimeDetector not available or failed: %s", e)
+            # Return stub regime
+            return {
+                "trend": False,
+                "volatile": False,
+                "low_vol": False,
+            }
+    
     def run(self, symbols: List[str], timeframe: Optional[str] = None) -> None:
         """
         Run all enabled strategies for given symbols.
@@ -397,10 +468,13 @@ class StrategyEngineV2:
         
         tf = timeframe or self.config.get("timeframe", "5m")
         
+        # Get market regime once for all strategies
+        market_regime = self._get_market_regime() if self.orchestrator else None
+        
         for strategy_code in self.strategies.keys():
             for symbol in symbols:
                 # Run strategy and get intents
-                intents = self.run_strategy(strategy_code, symbol, tf)
+                intents = self.run_strategy(strategy_code, symbol, tf, market_regime)
                 
                 # Process each intent
                 for intent in intents:
