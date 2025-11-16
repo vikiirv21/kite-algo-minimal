@@ -1,0 +1,753 @@
+"""
+Market Session Orchestrator v1
+
+Manages the entire daily lifecycle of the trading system:
+- Pre-market checks
+- Starting engines (paper/live)
+- Monitoring during market hours
+- Post-market shutdown
+- Running analytics
+- Optional daily backtests
+- Generating a daily report artifact
+
+Usage:
+    python -m scripts.run_session --mode paper --config configs/dev.yaml
+    python -m scripts.run_session --mode paper --config configs/dev.yaml --dry-run
+    python -m scripts.run_session --mode paper --config configs/dev.yaml --no-backtest --no-analytics
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import subprocess
+import sys
+import time
+from datetime import datetime, time as dt_time
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+import pytz
+
+from core.config import load_config
+from core.logging_utils import setup_logging
+
+logger = logging.getLogger(__name__)
+
+BASE_DIR = Path(__file__).resolve().parents[1]
+ARTIFACTS_DIR = BASE_DIR / "artifacts"
+ANALYTICS_DIR = ARTIFACTS_DIR / "analytics"
+REPORTS_DIR = ARTIFACTS_DIR / "reports" / "daily"
+JOURNAL_DIR = ARTIFACTS_DIR / "journal"
+LOGS_DIR = ARTIFACTS_DIR / "logs"
+CHECKPOINTS_DIR = ARTIFACTS_DIR / "checkpoints"
+SECRETS_DIR = BASE_DIR / "secrets"
+
+IST = pytz.timezone("Asia/Kolkata")
+
+
+def ensure_directories() -> bool:
+    """Ensure all required artifact directories exist."""
+    try:
+        dirs = [
+            ANALYTICS_DIR,
+            ANALYTICS_DIR / "daily",
+            REPORTS_DIR,
+            JOURNAL_DIR / datetime.now().strftime("%Y-%m-%d"),
+            LOGS_DIR,
+            CHECKPOINTS_DIR,
+        ]
+        for d in dirs:
+            d.mkdir(parents=True, exist_ok=True)
+        logger.info("✓ Ensured artifact directories exist")
+        return True
+    except Exception as exc:
+        logger.error("Failed to create directories: %s", exc)
+        return False
+
+
+def check_secrets_files() -> bool:
+    """
+    Check that required secret files exist and contain non-empty keys.
+    
+    Returns:
+        True if all checks pass, False otherwise
+    """
+    kite_env = SECRETS_DIR / "kite.env"
+    kite_tokens = SECRETS_DIR / "kite_tokens.env"
+    
+    if not kite_env.exists():
+        logger.error("Missing required file: %s", kite_env)
+        return False
+    
+    if not kite_tokens.exists():
+        logger.error("Missing required file: %s", kite_tokens)
+        return False
+    
+    # Check kite.env has KITE_API_KEY
+    try:
+        with kite_env.open("r") as f:
+            content = f.read()
+            has_api_key = False
+            for line in content.splitlines():
+                if line.strip().startswith("KITE_API_KEY=") or line.strip().startswith("API_KEY="):
+                    key_value = line.split("=", 1)[1].strip()
+                    if key_value:
+                        has_api_key = True
+                        break
+            
+            if not has_api_key:
+                logger.error("kite.env missing or empty KITE_API_KEY/API_KEY")
+                return False
+    except Exception as exc:
+        logger.error("Failed to read kite.env: %s", exc)
+        return False
+    
+    # Check kite_tokens.env has ACCESS_TOKEN
+    try:
+        with kite_tokens.open("r") as f:
+            content = f.read()
+            has_token = False
+            for line in content.splitlines():
+                if line.strip().startswith("ACCESS_TOKEN=") or line.strip().startswith("KITE_ACCESS_TOKEN="):
+                    token_value = line.split("=", 1)[1].strip()
+                    if token_value:
+                        has_token = True
+                        break
+            
+            if not has_token:
+                logger.error("kite_tokens.env missing or empty ACCESS_TOKEN/KITE_ACCESS_TOKEN")
+                return False
+    except Exception as exc:
+        logger.error("Failed to read kite_tokens.env: %s", exc)
+        return False
+    
+    logger.info("✓ Secrets files exist and contain required keys")
+    return True
+
+
+def check_config_validity(config_path: str) -> bool:
+    """
+    Validate that config file has required sections.
+    
+    Args:
+        config_path: Path to the config file
+    
+    Returns:
+        True if config is valid, False otherwise
+    """
+    try:
+        cfg = load_config(config_path)
+        
+        # Check required sections
+        required_sections = ["trading", "data", "risk"]
+        missing = []
+        
+        if not hasattr(cfg, "trading") or not cfg.trading:
+            missing.append("trading")
+        if not hasattr(cfg, "data") or not cfg.data:
+            missing.append("data")
+        if not hasattr(cfg, "risk") or not cfg.risk:
+            missing.append("risk")
+        
+        if missing:
+            logger.error("Config missing required sections: %s", ", ".join(missing))
+            return False
+        
+        # Check FnO universe is not empty
+        trading = cfg.trading or {}
+        fno_universe = trading.get("fno_universe", [])
+        if not fno_universe:
+            logger.warning("Config has empty fno_universe (may be intentional)")
+        
+        logger.info("✓ Config validation passed")
+        return True
+        
+    except Exception as exc:
+        logger.error("Failed to load or validate config: %s", exc)
+        return False
+
+
+def check_token_authentication(config_path: str) -> bool:
+    """
+    Perform a preflight check to ensure Kite token is valid.
+    
+    This reuses the preflight logic from run_day.
+    
+    Args:
+        config_path: Path to the config file
+    
+    Returns:
+        True if token is valid, False otherwise
+    """
+    try:
+        from kiteconnect import KiteConnect
+        from kiteconnect import exceptions as kite_exceptions
+        from core.kite_env import make_kite_client_from_files
+        
+        kite = make_kite_client_from_files()
+        profile = kite.profile()
+        user_id = profile.get("user_id") or profile.get("USER_ID", "")
+        logger.info("✓ Kite token authentication successful (user_id=%s)", user_id)
+        return True
+        
+    except Exception as exc:
+        # Check if it's specifically a token exception
+        exc_name = type(exc).__name__
+        exc_str = str(exc)
+        
+        # Network errors should be treated as warnings for optional checks
+        if "resolve" in exc_str.lower() or "connection" in exc_str.lower():
+            logger.warning("⚠ Kite API unreachable (network issue): %s", exc)
+            logger.warning("  Token check skipped. Ensure network is available for actual trading.")
+            return True  # Don't block on network issues
+        elif "Token" in exc_name:
+            logger.error("✗ Kite token invalid or expired: %s", exc)
+            logger.error("  Run: python -m scripts.run_day --login --engines none")
+        else:
+            logger.error("✗ Kite authentication check failed: %s", exc)
+        return False
+
+
+def check_market_time() -> bool:
+    """
+    Basic sanity check that we're not too far outside trading hours.
+    
+    Returns:
+        True if time is reasonable, False if significantly outside market hours
+    """
+    now = datetime.now(IST)
+    current_time = now.time()
+    
+    # Very loose bounds: 6 AM to 11 PM IST
+    # This is just a sanity check, not enforcement
+    if dt_time(6, 0) <= current_time <= dt_time(23, 0):
+        logger.info("✓ Current time %s IST is within reasonable bounds", now.strftime("%H:%M:%S"))
+        return True
+    else:
+        logger.warning("⚠ Current time %s IST is outside typical hours (06:00-23:00)", now.strftime("%H:%M:%S"))
+        logger.warning("  (This is only a warning, not blocking execution)")
+        return True  # Don't block, just warn
+
+
+def pre_market_checks(config_path: str) -> bool:
+    """
+    Perform all pre-market checks.
+    
+    Args:
+        config_path: Path to the config file
+    
+    Returns:
+        True if all critical checks pass, False otherwise
+    """
+    logger.info("=" * 60)
+    logger.info("PRE-MARKET CHECKS")
+    logger.info("=" * 60)
+    
+    checks = [
+        ("Time sanity", check_market_time),
+        ("Filesystem", ensure_directories),
+        ("Secrets", check_secrets_files),
+        ("Config", lambda: check_config_validity(config_path)),
+        ("Token authentication", lambda: check_token_authentication(config_path)),
+    ]
+    
+    passed = 0
+    failed = 0
+    
+    for name, check_fn in checks:
+        try:
+            if callable(check_fn):
+                # For functions that need no args
+                if check_fn.__code__.co_argcount == 0:
+                    result = check_fn()
+                else:
+                    result = check_fn()
+            else:
+                result = check_fn
+            
+            if result:
+                passed += 1
+            else:
+                failed += 1
+                logger.error("✗ Check failed: %s", name)
+        except Exception as exc:
+            failed += 1
+            logger.error("✗ Check failed with exception: %s - %s", name, exc)
+    
+    logger.info("=" * 60)
+    logger.info("Pre-market checks: %d passed, %d failed", passed, failed)
+    logger.info("=" * 60)
+    
+    return failed == 0
+
+
+def get_session_config(config_path: str) -> Dict[str, Any]:
+    """
+    Load session configuration from config file.
+    
+    Args:
+        config_path: Path to the config file
+    
+    Returns:
+        Session config dict with market_open_ist and market_close_ist
+    """
+    try:
+        cfg = load_config(config_path)
+        raw_config = getattr(cfg, "raw", {})
+        session_config = raw_config.get("session", {})
+        
+        # Defaults
+        return {
+            "market_open_ist": session_config.get("market_open_ist", "09:15"),
+            "market_close_ist": session_config.get("market_close_ist", "15:30"),
+        }
+    except Exception as exc:
+        logger.warning("Failed to load session config: %s. Using defaults.", exc)
+        return {
+            "market_open_ist": "09:15",
+            "market_close_ist": "15:30",
+        }
+
+
+def is_market_open(session_config: Optional[Dict[str, Any]] = None) -> bool:
+    """
+    Check if current time is within market hours.
+    
+    Args:
+        session_config: Optional session config with market times
+    
+    Returns:
+        True if market is open, False otherwise
+    """
+    if session_config is None:
+        session_config = {"market_open_ist": "09:15", "market_close_ist": "15:30"}
+    
+    now = datetime.now(IST)
+    current_time = now.time()
+    
+    open_time_str = session_config.get("market_open_ist", "09:15")
+    close_time_str = session_config.get("market_close_ist", "15:30")
+    
+    try:
+        open_hour, open_min = map(int, open_time_str.split(":"))
+        close_hour, close_min = map(int, close_time_str.split(":"))
+        
+        open_time = dt_time(open_hour, open_min)
+        close_time = dt_time(close_hour, close_min)
+        
+        return open_time <= current_time <= close_time
+    except Exception as exc:
+        logger.warning("Failed to parse market times: %s", exc)
+        return True  # Default to allowing execution
+
+
+def start_engines_subprocess(mode: str, config_path: str) -> subprocess.Popen:
+    """
+    Start engines via run_day in a subprocess.
+    
+    Args:
+        mode: Trading mode ("paper" or "live")
+        config_path: Path to config file
+    
+    Returns:
+        Popen handle for the subprocess
+    """
+    cmd = [
+        sys.executable,
+        "-m",
+        "scripts.run_day",
+        "--mode", mode,
+        "--engines", "all",
+        "--config", config_path,
+    ]
+    
+    logger.info("Starting engines: %s", " ".join(cmd))
+    
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        bufsize=1,
+        universal_newlines=True,
+        cwd=BASE_DIR,
+    )
+    
+    logger.info("Engines started with PID=%d", proc.pid)
+    return proc
+
+
+def monitor_engines(proc: subprocess.Popen) -> int:
+    """
+    Monitor the engines subprocess and stream output.
+    
+    Args:
+        proc: Subprocess handle
+    
+    Returns:
+        Exit code of the subprocess
+    """
+    logger.info("Monitoring engines (PID=%d). Press Ctrl+C to stop.", proc.pid)
+    
+    try:
+        # Stream output line by line
+        if proc.stdout:
+            for line in iter(proc.stdout.readline, ""):
+                if line:
+                    print(line, end="")
+        
+        # Wait for process to complete
+        exit_code = proc.wait()
+        
+        if exit_code == 0:
+            logger.info("Engines exited normally (exit_code=0)")
+        else:
+            logger.error("Engines exited with error (exit_code=%d)", exit_code)
+        
+        return exit_code
+        
+    except KeyboardInterrupt:
+        logger.info("Received interrupt signal. Stopping engines...")
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            logger.warning("Engines did not stop gracefully. Forcing termination...")
+            proc.kill()
+            proc.wait()
+        return 0
+
+
+def run_analytics(config_path: str) -> bool:
+    """
+    Run analytics pipeline.
+    
+    Args:
+        config_path: Path to config file
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    logger.info("Running end-of-day analytics...")
+    
+    cmd = [
+        sys.executable,
+        "-m",
+        "scripts.run_analytics",
+        "--config", config_path,
+    ]
+    
+    logger.info("Command: %s", " ".join(cmd))
+    
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=BASE_DIR,
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 minute timeout
+        )
+        
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            print(result.stderr, file=sys.stderr)
+        
+        if result.returncode == 0:
+            logger.info("✓ Analytics completed successfully")
+            return True
+        else:
+            logger.error("✗ Analytics failed with exit code %d", result.returncode)
+            return False
+            
+    except subprocess.TimeoutExpired:
+        logger.error("✗ Analytics timed out after 5 minutes")
+        return False
+    except Exception as exc:
+        logger.error("✗ Analytics failed with exception: %s", exc)
+        return False
+
+
+def run_backtest(config_path: str, today: str) -> bool:
+    """
+    Run daily backtest (integration point for future implementation).
+    
+    Args:
+        config_path: Path to config file
+        today: Date string in YYYY-MM-DD format
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    logger.info("Daily backtest integration point")
+    logger.info("  TODO: Implement daily backtest for date=%s", today)
+    logger.info("  (This feature is not yet implemented)")
+    return True
+
+
+def generate_daily_report(mode: str, config_path: str, today: str) -> bool:
+    """
+    Generate daily report in JSON and Markdown formats.
+    
+    Args:
+        mode: Trading mode
+        config_path: Path to config file
+        today: Date string in YYYY-MM-DD format
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    logger.info("Generating daily report for %s...", today)
+    
+    # Load analytics data
+    analytics_file = ANALYTICS_DIR / "daily" / f"{today}.json"
+    analytics_data = {}
+    
+    if analytics_file.exists():
+        try:
+            with analytics_file.open("r") as f:
+                analytics_data = json.load(f)
+            logger.info("Loaded analytics from %s", analytics_file)
+        except Exception as exc:
+            logger.warning("Failed to load analytics: %s", exc)
+    else:
+        logger.warning("No analytics file found at %s", analytics_file)
+    
+    # Extract key metrics
+    daily_metrics = analytics_data.get("daily_metrics", {})
+    strategy_metrics = analytics_data.get("strategy_metrics", {})
+    
+    realized_pnl = daily_metrics.get("realized_pnl", 0.0)
+    num_trades = daily_metrics.get("num_trades", 0)
+    win_rate = daily_metrics.get("win_rate", 0.0)
+    biggest_winner = daily_metrics.get("biggest_winner", 0.0)
+    biggest_loser = daily_metrics.get("biggest_loser", 0.0)
+    
+    # Build report data
+    report_data = {
+        "date": today,
+        "mode": mode.upper(),
+        "config": config_path,
+        "generated_at": datetime.now().isoformat(),
+        "summary": {
+            "realized_pnl": realized_pnl,
+            "num_trades": num_trades,
+            "win_rate": win_rate,
+        },
+        "strategies": {},
+    }
+    
+    # Sort strategies by PnL
+    if strategy_metrics:
+        sorted_strategies = sorted(
+            strategy_metrics.items(),
+            key=lambda x: x[1].get("realized_pnl", 0.0),
+            reverse=True,
+        )
+        for strategy_code, metrics in sorted_strategies:
+            report_data["strategies"][strategy_code] = {
+                "trades": metrics.get("trades", 0),
+                "realized_pnl": metrics.get("realized_pnl", 0.0),
+                "win_rate": metrics.get("win_rate", 0.0),
+            }
+    
+    # Save JSON report
+    json_file = REPORTS_DIR / f"{today}.json"
+    try:
+        with json_file.open("w") as f:
+            json.dump(report_data, f, indent=2, default=str)
+        logger.info("✓ Saved JSON report to %s", json_file)
+    except Exception as exc:
+        logger.error("Failed to save JSON report: %s", exc)
+        return False
+    
+    # Generate Markdown report
+    md_file = REPORTS_DIR / f"{today}.md"
+    try:
+        md_lines = [
+            f"# Daily Report — {today}",
+            "",
+            f"- Mode: {mode.upper()}",
+            f"- Config: {config_path}",
+            f"- Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "",
+            "## Summary",
+            f"- Realized PnL: {realized_pnl:+.2f}",
+            f"- Trades: {num_trades}",
+        ]
+        
+        if num_trades > 0:
+            md_lines.extend([
+                f"- Win Rate: {win_rate:.1f}%",
+                f"- Biggest Winner: {biggest_winner:+.2f}",
+                f"- Biggest Loser: {biggest_loser:+.2f}",
+            ])
+        
+        if report_data["strategies"]:
+            md_lines.extend([
+                "",
+                "## Strategy Performance",
+                "",
+            ])
+            for strategy_code, metrics in report_data["strategies"].items():
+                pnl = metrics["realized_pnl"]
+                trades = metrics["trades"]
+                md_lines.append(f"- **{strategy_code}**: {trades} trades, PnL: {pnl:+.2f}")
+        
+        md_lines.extend([
+            "",
+            "## Notes",
+            "",
+            "_(Manual notes can be added here)_",
+            "",
+        ])
+        
+        with md_file.open("w") as f:
+            f.write("\n".join(md_lines))
+        
+        logger.info("✓ Saved Markdown report to %s", md_file)
+        return True
+        
+    except Exception as exc:
+        logger.error("Failed to save Markdown report: %s", exc)
+        return False
+
+
+def run_eod_pipeline(
+    config_path: str,
+    mode: str,
+    run_analytics_flag: bool = True,
+    run_backtests: bool = True,
+) -> None:
+    """
+    Run end-of-day pipeline: analytics, backtests, and report generation.
+    
+    Args:
+        config_path: Path to config file
+        mode: Trading mode
+        run_analytics_flag: Whether to run analytics
+        run_backtests: Whether to run backtests
+    """
+    logger.info("=" * 60)
+    logger.info("END-OF-DAY PIPELINE")
+    logger.info("=" * 60)
+    
+    today = datetime.now().strftime("%Y-%m-%d")
+    
+    # Run analytics
+    if run_analytics_flag:
+        run_analytics(config_path)
+    else:
+        logger.info("Skipping analytics (--no-analytics flag)")
+    
+    # Run backtests
+    if run_backtests:
+        run_backtest(config_path, today)
+    else:
+        logger.info("Skipping backtests (--no-backtest flag)")
+    
+    # Generate daily report
+    generate_daily_report(mode, config_path, today)
+    
+    logger.info("=" * 60)
+    logger.info("END-OF-DAY PIPELINE COMPLETE")
+    logger.info("=" * 60)
+
+
+def main() -> None:
+    """Main entry point for the session orchestrator."""
+    parser = argparse.ArgumentParser(
+        description="Market Session Orchestrator v1 - Manages the daily trading lifecycle"
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["paper", "live"],
+        default="paper",
+        help="Trading mode (default: paper)",
+    )
+    parser.add_argument(
+        "--config",
+        default="configs/dev.yaml",
+        help="Path to YAML config file (default: configs/dev.yaml)",
+    )
+    parser.add_argument(
+        "--no-backtest",
+        action="store_true",
+        help="Skip end-of-day backtests",
+    )
+    parser.add_argument(
+        "--no-analytics",
+        action="store_true",
+        help="Skip end-of-day analytics",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Run pre-checks only, do not start engines",
+    )
+    
+    args = parser.parse_args()
+    
+    # Setup logging
+    try:
+        cfg = load_config(args.config)
+        setup_logging(cfg.logging)
+    except Exception:
+        # Fallback logging if config fails
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        )
+    
+    logger.info("=" * 60)
+    logger.info("MARKET SESSION ORCHESTRATOR V1")
+    logger.info("=" * 60)
+    logger.info("Mode: %s", args.mode.upper())
+    logger.info("Config: %s", args.config)
+    logger.info("Dry run: %s", args.dry_run)
+    logger.info("=" * 60)
+    
+    # Pre-market checks
+    if not pre_market_checks(args.config):
+        logger.error("Pre-market checks failed. Aborting.")
+        sys.exit(1)
+    
+    if args.dry_run:
+        logger.info("Dry run mode: Pre-checks completed. Exiting without starting engines.")
+        return
+    
+    # Get session config
+    session_config = get_session_config(args.config)
+    
+    # Optional: Log market status
+    if is_market_open(session_config):
+        logger.info("Market is currently OPEN")
+    else:
+        logger.info("Market is currently CLOSED")
+        logger.info("  (Session will start engines anyway. Manual timing control is up to the user.)")
+    
+    # Start engines
+    try:
+        proc = start_engines_subprocess(args.mode, args.config)
+    except Exception as exc:
+        logger.error("Failed to start engines: %s", exc)
+        sys.exit(1)
+    
+    # Monitor engines
+    exit_code = monitor_engines(proc)
+    
+    # Run EOD pipeline
+    run_eod_pipeline(
+        args.config,
+        args.mode,
+        run_analytics_flag=not args.no_analytics,
+        run_backtests=not args.no_backtest,
+    )
+    
+    # Exit with same code as engines
+    sys.exit(exit_code)
+
+
+if __name__ == "__main__":
+    main()

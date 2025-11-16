@@ -1,5 +1,9 @@
 ENABLE_LIVE_QUOTES_IN_APP: true
 
+session:
+  market_open_ist: "09:15"
+  market_close_ist: "15:30"
+
 trading:
   mode: "paper"            # "paper" or "live"
 
