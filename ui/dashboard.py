@@ -211,6 +211,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add middleware for static file caching
+@app.middleware("http")
+async def add_cache_headers(request: Request, call_next):
+    response = await call_next(request)
+    # Cache static assets for 1 hour
+    if request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "public, max-age=3600"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 STATIC_DIR = BASE_DIR / "ui" / "static"
