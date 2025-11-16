@@ -133,6 +133,33 @@ async function refreshMeta() {
   }
 }
 
+async function refreshServerTime() {
+  try {
+    const res = await fetchWithRetry("/api/system/time");
+    if (!res.ok) {
+      console.warn("Failed to refresh server time:", res.status);
+      return;
+    }
+    const data = await res.json();
+    const serverTimeEl = document.getElementById("server-time");
+    if (serverTimeEl && data.utc) {
+      // Parse UTC time and convert to IST
+      const utcDate = new Date(data.utc);
+      // IST is UTC+5:30
+      const istDate = new Date(utcDate.getTime() + (5.5 * 60 * 60 * 1000));
+      const hh = istDate.getUTCHours().toString().padStart(2, "0");
+      const mm = istDate.getUTCMinutes().toString().padStart(2, "0");
+      const ss = istDate.getUTCSeconds().toString().padStart(2, "0");
+      const yyyy = istDate.getUTCFullYear();
+      const mo = (istDate.getUTCMonth() + 1).toString().padStart(2, "0");
+      const dd = istDate.getUTCDate().toString().padStart(2, "0");
+      serverTimeEl.textContent = `${yyyy}-${mo}-${dd} ${hh}:${mm}:${ss} IST`;
+    }
+  } catch (err) {
+    console.error("Failed to refresh server time:", err);
+  }
+}
+
 function formatAge(seconds) {
   if (seconds == null || Number.isNaN(seconds)) {
     return "unknown age";
@@ -149,6 +176,8 @@ function formatAge(seconds) {
 function renderEngineStatus(status) {
   const badge = document.getElementById("engine-status-badge");
   const meta = document.getElementById("engines-meta");
+  const pillBadge = document.getElementById("engine-status-pill");
+  
   if (!badge || !meta) {
     return;
   }
@@ -157,12 +186,22 @@ function renderEngineStatus(status) {
     badge.textContent = "UNKNOWN";
     badge.className = "engine-badge badge badge-muted";
     meta.textContent = "Engine status unavailable.";
+    if (pillBadge) {
+      pillBadge.textContent = "Engines: UNKNOWN";
+      pillBadge.className = "pill pill-muted";
+    }
     return;
   }
 
   const running = Boolean(status.running);
   badge.textContent = running ? "RUNNING" : "STOPPED";
   badge.className = `engine-badge badge ${running ? "badge-success" : "badge-danger"}`;
+
+  // Update top bar pill
+  if (pillBadge) {
+    pillBadge.textContent = running ? "Engines: RUNNING" : "Engines: STOPPED";
+    pillBadge.className = `pill ${running ? "pill-ok" : "pill-warn"}`;
+  }
 
   const ageSeconds = typeof status.checkpoint_age_seconds === "number" ? status.checkpoint_age_seconds : null;
   const checkpointTs = status.last_checkpoint_ts ? new Date(status.last_checkpoint_ts) : null;
@@ -499,7 +538,7 @@ async function fetchHealth() {
 
 async function fetchRecentLogs(kind = null) {
   try {
-    let url = "/api/logs/recent?limit=120";
+    let url = "/api/logs?limit=120";
     if (kind) {
       url += `&kind=${encodeURIComponent(kind)}`;
     }
@@ -1086,6 +1125,8 @@ document.addEventListener("DOMContentLoaded", () => {
   setupLogsTabs();
   refreshMeta();
   setInterval(refreshMeta, 5000);
+  refreshServerTime();
+  setInterval(refreshServerTime, 5000);
   refreshEngines();
   setInterval(refreshEngines, 5000);
   fetchPortfolioSummary();
