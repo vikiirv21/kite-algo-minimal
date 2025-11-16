@@ -1,0 +1,23 @@
+{
+  "date": "2025-11-16",
+  "mode": "PAPER",
+  "config": "configs/dev.yaml",
+  "generated_at": "2025-11-16T16:35:07.858226",
+  "summary": {
+    "realized_pnl": 1234.5,
+    "num_trades": 14,
+    "win_rate": 57.1
+  },
+  "strategies": {
+    "ema20_50_intraday": {
+      "trades": 8,
+      "realized_pnl": 840.0,
+      "win_rate": 62.5
+    },
+    "expiry_scalper": {
+      "trades": 6,
+      "realized_pnl": 394.5,
+      "win_rate": 50.0
+    }
+  }
+}

@@ -419,12 +419,13 @@ def monitor_engines(proc: subprocess.Popen) -> int:
         return 0
 
 
-def run_analytics(config_path: str) -> bool:
+def run_analytics(config_path: str, mode: str = "paper") -> bool:
     """
     Run analytics pipeline.
     
     Args:
-        config_path: Path to config file
+        config_path: Path to config file (for reference, not passed to script)
+        mode: Trading mode (paper or live)
     
     Returns:
         True if successful, False otherwise
@@ -435,7 +436,7 @@ def run_analytics(config_path: str) -> bool:
         sys.executable,
         "-m",
         "scripts.run_analytics",
-        "--config", config_path,
+        "--mode", mode,
     ]
     
     logger.info("Command: %s", " ".join(cmd))
@@ -637,7 +638,7 @@ def run_eod_pipeline(
     
     # Run analytics
     if run_analytics_flag:
-        run_analytics(config_path)
+        run_analytics(config_path, mode)
     else:
         logger.info("Skipping analytics (--no-analytics flag)")
     
