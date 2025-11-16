@@ -146,6 +146,16 @@ execution:
     max_trades_per_strategy_per_day: 50  # Maximum trades per strategy per day
     max_loss_streak: 5  # Stop trading after N consecutive losses
 
+guardian:
+  # Trade Guardian v1 - Pre-execution safety gate (DISABLED by default)
+  enabled: false                      # Set to true to enable guardian
+  max_order_per_second: 5             # Maximum orders per second (rate limiting)
+  max_lot_size: 50                    # Maximum quantity per order
+  reject_if_price_stale_secs: 3       # Reject if market data older than N seconds
+  reject_if_slippage_pct: 2.0         # Reject if slippage exceeds N%
+  max_daily_drawdown_pct: 3.0         # Block trades if drawdown exceeds N%
+  halt_on_pnl_drop_pct: 5.0           # Halt trading if PnL drops below -N%
+
 portfolio:
   # Portfolio & Position Sizing Engine v1 Configuration
   max_leverage: 2.0               # Maximum leverage (2x = can use 2x equity as exposure)

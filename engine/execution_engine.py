@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional
 from core.market_data_engine_v2 import MarketDataEngineV2
 from core.state_store import JournalStateStore, StateStore
 from core.trade_throttler import TradeThrottler
+from core.trade_guardian import TradeGuardian
 
 logger = logging.getLogger(__name__)
 
@@ -371,6 +372,9 @@ class ExecutionEngineV2:
         )
         self.max_loss_streak = cb_config.get("max_loss_streak", 5)
         
+        # Initialize Trade Guardian
+        self.guardian = TradeGuardian(config, state_store, logger_instance)
+        
     def execute_intent(self, intent: OrderIntent) -> ExecutionResult:
         """
         Main entrypoint: apply checks, route to paper/live execution.
@@ -381,6 +385,38 @@ class ExecutionEngineV2:
         Returns:
             ExecutionResult with execution details
         """
+        # Apply Trade Guardian pre-execution validation
+        market_snapshot = None
+        if self.mde:
+            # Try to get latest market snapshot for guardian
+            try:
+                candles = self.mde.get_candles(intent.symbol, timeframe="1m")
+                if candles and len(candles) > 0:
+                    latest = candles[-1]
+                    market_snapshot = {
+                        "last_price": latest.get("close"),
+                        "ltp": latest.get("close"),
+                        "timestamp": latest.get("timestamp"),
+                    }
+            except Exception:
+                pass  # Guardian will work without market snapshot
+        
+        guardian_decision = self.guardian.validate_pre_trade(intent, market_snapshot)
+        if not guardian_decision.allow:
+            self.logger.warning(
+                "🛡️ TradeGuardian BLOCKED order: %s %d x %s - %s",
+                intent.side, intent.qty, intent.symbol, guardian_decision.reason
+            )
+            return ExecutionResult(
+                order_id=None,
+                status="REJECTED",
+                symbol=intent.symbol,
+                side=intent.side,
+                qty=intent.qty,
+                message=f"Guardian blocked: {guardian_decision.reason}",
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+        
         # Apply circuit breakers
         if not self.apply_circuit_breakers(intent):
             self.logger.warning(
