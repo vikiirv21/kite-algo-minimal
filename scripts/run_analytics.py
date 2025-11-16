@@ -175,8 +175,8 @@ def main():
     args = parser.parse_args()
 
     # Setup logging
-    log_level = logging.DEBUG if args.verbose else logging.INFO
-    setup_logging(level=log_level)
+    log_level_name = "DEBUG" if args.verbose else "INFO"
+    setup_logging({"level": log_level_name, "directory": "logs", "file_prefix": "analytics"})
 
     # Run analytics
     try:
