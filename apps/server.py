@@ -449,6 +449,53 @@ def admin_resync() -> JSONResponse:
     return JSONResponse(payload)
 
 
+@app.get("/api/portfolio/limits")
+def get_portfolio_limits() -> JSONResponse:
+    """
+    Get current portfolio limits and usage.
+    
+    Returns equity, exposure limits, and per-strategy budgets.
+    This endpoint requires a running engine with PortfolioEngine initialized.
+    """
+    try:
+        # Try to get portfolio engine from registry
+        # For now, we'll return a placeholder response indicating the feature is available
+        # In a full implementation, we'd access the running engine's portfolio_engine instance
+        
+        from core.state_store import StateStore
+        from core.portfolio_engine import PortfolioEngine, PortfolioConfig
+        
+        # Load portfolio config from APP_CONFIG
+        portfolio_config_raw = APP_CONFIG.raw.get("portfolio")
+        if not portfolio_config_raw:
+            return JSONResponse({
+                "ok": False,
+                "error": "Portfolio engine not configured in config file"
+            }, status_code=404)
+        
+        # Create a temporary PortfolioEngine instance for API response
+        portfolio_config = PortfolioConfig.from_dict(portfolio_config_raw)
+        state_store = StateStore()
+        portfolio_engine = PortfolioEngine(
+            portfolio_config=portfolio_config,
+            state_store=state_store,
+            logger_instance=logger,
+        )
+        
+        limits = portfolio_engine.get_portfolio_limits()
+        return JSONResponse({
+            "ok": True,
+            **limits
+        })
+        
+    except Exception as exc:
+        logger.error("Failed to get portfolio limits: %s", exc, exc_info=True)
+        return JSONResponse({
+            "ok": False,
+            "error": str(exc)
+        }, status_code=500)
+
+
 def _install_signal_handlers() -> None:
     if os.name != "nt":
         return
