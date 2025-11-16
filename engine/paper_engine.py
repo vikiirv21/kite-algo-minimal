@@ -51,6 +51,7 @@ from core.market_session import is_market_open
 from core.pattern_filters import should_trade_trend
 from core.strategy_tags import Profile
 from core.universe import fno_underlyings
+from core.portfolio_engine import PortfolioEngine, PortfolioConfig
 
 from broker.execution_router import ExecutionRouter
 from broker.paper_broker import PaperBroker
@@ -613,6 +614,29 @@ class PaperEngine:
                     logger.warning("Failed to initialize ExecutionEngine v2: %s", exc)
                     self.execution_engine_v2 = None
         
+        # Initialize PortfolioEngine v1 (optional, based on config)
+        self.portfolio_engine = None
+        portfolio_config_raw = self.cfg.raw.get("portfolio")
+        if portfolio_config_raw:
+            try:
+                logger.info("Initializing PortfolioEngine v1")
+                portfolio_config = PortfolioConfig.from_dict(portfolio_config_raw)
+                self.portfolio_engine = PortfolioEngine(
+                    portfolio_config=portfolio_config,
+                    state_store=self.state_store,
+                    journal_store=self.journal,
+                    logger_instance=logger,
+                    mde=self.market_data_engine_v2,
+                )
+                logger.info(
+                    "PortfolioEngine v1 initialized: mode=%s, max_exposure_pct=%.2f",
+                    portfolio_config.position_sizing_mode,
+                    portfolio_config.max_exposure_pct,
+                )
+            except Exception as exc:
+                logger.warning("Failed to initialize PortfolioEngine v1: %s", exc, exc_info=True)
+                self.portfolio_engine = None
+        
         # Initialize Strategy Engine (v1 or v2 based on config)
         strategy_engine_config = self.cfg.raw.get("strategy_engine", {})
         strategy_engine_version = strategy_engine_config.get("version", 1)
@@ -912,23 +936,56 @@ class PaperEngine:
             return
 
         portfolio_state = self._load_portfolio_state()
-        qty = self.position_sizer.size_order(
-            portfolio_state,
-            symbol=symbol,
-            last_price=price,
-            side=signal,
-            lot_size=self.default_lot_size,
-        )
-
-        if qty == 0:
-            logger.info(
-                "Skipping %s order for %s: position sizer returned zero qty (price=%.2f, free_notional=%.2f).",
-                signal,
-                symbol,
-                price,
-                portfolio_state.free_notional,
+        
+        # Use PortfolioEngine if available, otherwise fall back to legacy position_sizer
+        if self.portfolio_engine is not None:
+            # PortfolioEngine v1: compute position size
+            # Create a mock intent object for the PortfolioEngine
+            from types import SimpleNamespace
+            intent = SimpleNamespace(
+                symbol=symbol,
+                strategy_code=strategy_code_value,
+                side=signal,
+                qty=None,  # Let PortfolioEngine determine qty
             )
-            return
+            
+            # Get ATR value if available (for ATR-based sizing)
+            atr_value = None
+            if indicators and "atr" in indicators:
+                atr_value = float(indicators.get("atr", 0.0))
+            
+            qty = self.portfolio_engine.compute_position_size(
+                intent=intent,
+                last_price=price,
+                atr_value=atr_value,
+            )
+            
+            if qty == 0:
+                logger.info(
+                    "PortfolioEngine blocked order for %s: computed qty=0 (price=%.2f)",
+                    symbol,
+                    price,
+                )
+                return
+        else:
+            # Legacy position sizer
+            qty = self.position_sizer.size_order(
+                portfolio_state,
+                symbol=symbol,
+                last_price=price,
+                side=signal,
+                lot_size=self.default_lot_size,
+            )
+
+            if qty == 0:
+                logger.info(
+                    "Skipping %s order for %s: position sizer returned zero qty (price=%.2f, free_notional=%.2f).",
+                    signal,
+                    symbol,
+                    price,
+                    portfolio_state.free_notional,
+                )
+                return
 
         qty = self._apply_learning_adjustments(symbol, strategy_label, qty)
         if qty == 0:

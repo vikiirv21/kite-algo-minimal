@@ -145,3 +145,22 @@ execution:
     max_trades_per_day: 100  # Maximum trades per day
     max_trades_per_strategy_per_day: 50  # Maximum trades per strategy per day
     max_loss_streak: 5  # Stop trading after N consecutive losses
+
+portfolio:
+  # Portfolio & Position Sizing Engine v1 Configuration
+  max_leverage: 2.0               # Maximum leverage (2x = can use 2x equity as exposure)
+  max_exposure_pct: 0.8           # Max 80% of equity in open positions
+  max_risk_per_trade_pct: 0.01    # Risk 1% of equity per trade
+  max_risk_per_strategy_pct: 0.2  # Max 20% of equity risk per strategy (fallback)
+  position_sizing_mode: "fixed_qty"  # "fixed_qty" or "fixed_risk_atr"
+  lot_size_fallback: 25           # Default lot size for FnO when not available
+  default_fixed_qty: 1            # Default quantity when mode is fixed_qty
+  atr_stop_multiplier: 2.0        # For ATR mode: stop distance = k * ATR
+  
+  # Per-strategy capital budgets
+  strategy_budgets:
+    ema20_50_intraday:
+      capital_pct: 0.3            # 30% of equity for this strategy
+      fixed_qty: 1                # Optional: override default_fixed_qty for this strategy
+    expiry_scalper:
+      capital_pct: 0.4            # 40% of equity for this strategy
