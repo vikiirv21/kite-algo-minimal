@@ -66,6 +66,7 @@ class LiveEngine:
         journal_store: Optional[JournalStateStore] = None,
         *,
         artifacts_dir: Optional[Path] = None,
+        execution_engine_v2: Any = None,
     ):
         """
         Initialize LiveEngine.
@@ -79,6 +80,7 @@ class LiveEngine:
             state_store: State checkpoint store
             journal_store: Journal store for orders/fills
             artifacts_dir: Artifacts directory override
+            execution_engine_v2: Optional ExecutionEngine v2 instance
         """
         self.cfg = cfg
         self.broker = broker
@@ -102,6 +104,35 @@ class LiveEngine:
         
         # Last known prices for each symbol
         self.last_prices: Dict[str, float] = {}
+        
+        # Initialize ExecutionEngine v2 (optional)
+        self.execution_engine_v2 = execution_engine_v2
+        if self.execution_engine_v2 is None:
+            exec_config = self.cfg.raw.get("execution", {})
+            use_exec_v2 = exec_config.get("use_execution_engine_v2", False)
+            if use_exec_v2:
+                try:
+                    from engine.execution_bridge import create_execution_engine_v2
+                    from core.trade_throttler import TradeThrottler, build_throttler_config
+                    
+                    logger.info("Initializing ExecutionEngine v2 for live mode")
+                    
+                    # Create throttler if not exists
+                    throttler_config = build_throttler_config(cfg.raw.get("trading", {}).get("trade_throttler"))
+                    throttler = TradeThrottler(config=throttler_config, capital=100000.0)
+                    
+                    self.execution_engine_v2 = create_execution_engine_v2(
+                        mode="live",
+                        broker=self.broker,
+                        state_store=self.state_store,
+                        journal_store=self.journal,
+                        trade_throttler=throttler,
+                        config=self.cfg.raw,
+                        mde=None,  # Live mode doesn't need MDE for fills
+                    )
+                except Exception as exc:
+                    logger.warning("Failed to initialize ExecutionEngine v2: %s", exc)
+                    self.execution_engine_v2 = None
         
         logger.info("✅ LiveEngine initialized (mode=LIVE)")
         logger.warning("⚠️ LIVE TRADING MODE ACTIVE - REAL ORDERS WILL BE PLACED ⚠️")
@@ -311,6 +342,63 @@ class LiveEngine:
             intent: Order intent dict
         """
         try:
+            # Use ExecutionEngine v2 if available
+            if self.execution_engine_v2 is not None:
+                try:
+                    from engine.execution_engine import OrderIntent
+                    # Convert to ExecutionEngine v2 OrderIntent
+                    exec_intent = OrderIntent(
+                        symbol=intent.get("symbol", ""),
+                        strategy_code=intent.get("strategy", "unknown"),
+                        side=intent.get("side", "BUY"),
+                        qty=intent.get("qty", 0),
+                        order_type=intent.get("order_type", "MARKET"),
+                        product=intent.get("product", "MIS"),
+                        validity=intent.get("validity", "DAY"),
+                        price=intent.get("price"),
+                        trigger_price=intent.get("trigger_price"),
+                        tag=intent.get("tag"),
+                        reason=intent.get("reason", ""),
+                    )
+                    
+                    # Execute via ExecutionEngine v2
+                    result = self.execution_engine_v2.execute_intent(exec_intent)
+                    
+                    order_id = result.order_id
+                    status = result.status
+                    message = result.message or ""
+                    
+                    if order_id:
+                        # Track pending order
+                        self.pending_orders[order_id] = {
+                            "intent": intent,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "status": status,
+                        }
+                        logger.info(
+                            "✅ Order placed via ExecutionEngine v2: ID=%s status=%s symbol=%s side=%s qty=%s",
+                            order_id, status, intent.get("symbol"), intent.get("side"), intent.get("qty")
+                        )
+                        
+                        # Journal handled by ExecutionEngine v2
+                    else:
+                        logger.error(
+                            "❌ Order placement failed via ExecutionEngine v2: %s (symbol=%s side=%s)",
+                            message, intent.get("symbol"), intent.get("side")
+                        )
+                        log_event(
+                            "ORDER_ERROR",
+                            f"Order placement failed: {message}",
+                            symbol=intent.get("symbol"),
+                            extra=intent,
+                            level=logging.ERROR,
+                        )
+                    return
+                except Exception as exc:
+                    logger.warning("ExecutionEngine v2 failed, falling back to legacy: %s", exc)
+                    # Fall through to legacy path
+            
+            # Legacy execution path
             result = self.broker.place_order(intent)
             
             order_id = result.get("order_id")
