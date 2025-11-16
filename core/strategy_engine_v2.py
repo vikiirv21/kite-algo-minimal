@@ -207,20 +207,23 @@ class StrategyEngineV2:
     def __init__(
         self,
         config: Dict[str, Any],
-        market_data_engine: MarketDataEngine,
-        risk_engine: Optional[Any] = None,
-        logger_instance: Optional[logging.Logger] = None,
-        market_data_engine_v2: Optional[Any] = None,
-        regime_engine: Optional[Any] = None
-        state_store: Optional[Any] = None,
-        analytics: Optional[Any] = None
+        mde: MarketDataEngine,
+        portfolio_engine: Optional[Any] = None,
+        analytics_engine: Optional[Any] = None,
+        regime_engine: Optional[Any] = None,
+        logger: Optional[logging.Logger] = None
     ):
         self.config = config
-        self.market_data = market_data_engine
-        self.market_data_v2 = market_data_engine_v2  # Optional MDE v2 instance
-        self.risk_engine = risk_engine
-        self.regime_engine = regime_engine  # Optional RegimeEngine instance
-        self.logger = logger_instance or logger
+        self.mde = mde
+        self.portfolio_engine = portfolio_engine
+        self.analytics_engine = analytics_engine
+        self.regime_engine = regime_engine
+        self.logger = logger or logging.getLogger(__name__)
+        
+        # Backward compatibility aliases
+        self.market_data = mde
+        self.market_data_v2 = None  # Optional MDE v2 instance
+        self.risk_engine = None
         
         # Strategy registry
         self.strategies: Dict[str, BaseStrategy] = {}
@@ -235,16 +238,7 @@ class StrategyEngineV2:
         
         # Strategy Orchestrator v3 (optional)
         self.orchestrator = None
-        if ORCHESTRATOR_AVAILABLE and state_store:
-            try:
-                self.orchestrator = StrategyOrchestrator(
-                    config=config,
-                    state_store=state_store,
-                    analytics=analytics,
-                    logger_instance=self.logger
-                )
-            except Exception as e:
-                self.logger.warning("Failed to initialize StrategyOrchestrator: %s", e)
+        # Orchestrator initialization disabled - state_store and analytics not in signature
         
         self.logger.info("StrategyEngineV2 initialized with %d strategies", len(self.enabled_strategies))
         if self.regime_engine:
