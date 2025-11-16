@@ -295,6 +295,7 @@ class PaperEngine:
         data_feed: Optional[BrokerFeed] = None,
         logical_universe_override: Optional[List[str]] = None,
         symbol_map_override: Optional[Dict[str, str]] = None,
+        execution_engine_v2: Any = None,
     ) -> None:
         self.cfg = cfg
         cfg_mode = self.cfg.trading.get("mode", TradingMode.PAPER.value)
@@ -589,6 +590,28 @@ class PaperEngine:
             except Exception as exc:
                 logger.warning("Failed to initialize MDE v2: %s", exc, exc_info=True)
                 self.market_data_engine_v2 = None
+        
+        # Initialize ExecutionEngine v2 (optional)
+        self.execution_engine_v2 = execution_engine_v2
+        if self.execution_engine_v2 is None:
+            exec_config = self.cfg.raw.get("execution", {})
+            use_exec_v2 = exec_config.get("use_execution_engine_v2", False)
+            if use_exec_v2:
+                try:
+                    from engine.execution_bridge import create_execution_engine_v2
+                    logger.info("Initializing ExecutionEngine v2 for paper mode")
+                    self.execution_engine_v2 = create_execution_engine_v2(
+                        mode="paper",
+                        broker=None,
+                        state_store=self.checkpoint_store,
+                        journal_store=self.journal_store,
+                        trade_throttler=self.trade_throttler,
+                        config=self.cfg.raw,
+                        mde=self.market_data_engine_v2,
+                    )
+                except Exception as exc:
+                    logger.warning("Failed to initialize ExecutionEngine v2: %s", exc)
+                    self.execution_engine_v2 = None
         
         # Initialize Strategy Engine (v1 or v2 based on config)
         strategy_engine_config = self.cfg.raw.get("strategy_engine", {})
@@ -1120,7 +1143,42 @@ class PaperEngine:
         )
         realized_before = self._realized_pnl(symbol)
         trade_monitor.increment("orders_submitted")
-        order = self.router.place_order(symbol, side, qty, price)
+        
+        # Use ExecutionEngine v2 if available
+        if self.execution_engine_v2 is not None:
+            try:
+                from engine.execution_bridge import convert_strategy_intent_to_execution_intent
+                # Convert to ExecutionEngine v2 OrderIntent
+                exec_intent = convert_strategy_intent_to_execution_intent(
+                    strategy_intent=None,  # Not available here
+                    symbol=symbol,
+                    strategy_code=strategy_label,
+                    qty=qty,
+                    order_type="MARKET",
+                    product="MIS",
+                    price=price,
+                )
+                exec_intent.reason = extra_payload.get("reason", "")
+                
+                # Execute via ExecutionEngine v2
+                result = self.execution_engine_v2.execute_intent(exec_intent)
+                
+                # Convert ExecutionResult to order format for compatibility
+                order = SimpleNamespace(
+                    order_id=result.order_id,
+                    status=result.status,
+                    symbol=result.symbol,
+                    side=result.side,
+                    qty=result.qty,
+                    price=result.avg_price,
+                )
+                logger.info("Order executed via ExecutionEngine v2: %s", order)
+            except Exception as exc:
+                logger.warning("ExecutionEngine v2 failed, falling back to legacy: %s", exc)
+                order = self.router.place_order(symbol, side, qty, price)
+        else:
+            # Legacy execution path
+            order = self.router.place_order(symbol, side, qty, price)
         if self.trade_throttler:
             self.trade_throttler.register_fill(
                 symbol=symbol,
