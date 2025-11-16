@@ -2568,6 +2568,130 @@ def api_resync() -> JSONResponse:
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Resync failed: {exc}") from exc
 
+# ============================================================================
+# Analytics API Endpoints (Strategy Analytics Engine v1)
+# ============================================================================
+
+@router.get("/api/analytics/summary")
+def api_analytics_summary() -> JSONResponse:
+    """
+    Return combined analytics summary:
+        {
+          'daily': {...},
+          'strategies': {...},
+          'symbols': {...},
+        }
+    """
+    try:
+        from analytics.strategy_analytics import StrategyAnalyticsEngine
+        
+        mode = get_mode()
+        journal_store = JournalStateStore(mode=mode)
+        state_store = store  # Use global StateStore instance
+        
+        # Load config
+        try:
+            cfg = load_app_config()
+            config_dict = cfg.__dict__ if hasattr(cfg, "__dict__") else {}
+        except Exception:
+            config_dict = {}
+        
+        # Create engine
+        engine = StrategyAnalyticsEngine(
+            journal_store=journal_store,
+            state_store=state_store,
+            logger=logger,
+            config=config_dict,
+        )
+        
+        # Load fills and generate payload
+        engine.load_fills(today_only=True)
+        payload = engine.generate_dashboard_payload()
+        
+        return JSONResponse(payload)
+    except Exception as exc:
+        logger.error("Analytics summary failed: %s", exc, exc_info=True)
+        # Return empty analytics on error
+        return JSONResponse({
+            "daily": {
+                "realized_pnl": 0.0,
+                "num_trades": 0,
+                "win_rate": 0.0,
+                "loss_rate": 0.0,
+                "avg_win": 0.0,
+                "avg_loss": 0.0,
+                "pnl_distribution": {"wins": 0, "losses": 0, "breakeven": 0},
+                "biggest_winner": 0.0,
+                "biggest_loser": 0.0,
+            },
+            "strategies": {},
+            "symbols": {},
+            "error": str(exc),
+        })
+
+@router.get("/api/analytics/equity_curve")
+def api_equity_curve(
+    strategy: str | None = Query(default=None, description="Optional strategy filter"),
+    symbol: str | None = Query(default=None, description="Optional symbol filter")
+) -> JSONResponse:
+    """
+    Return equity curve and drawdown data.
+    
+    Query params:
+        - strategy: Filter by strategy code (optional)
+        - symbol: Filter by symbol (optional)
+    
+    Returns:
+        {
+          'equity_curve': [{'timestamp': ..., 'equity': ...}, ...],
+          'drawdown': {'max_drawdown': ..., 'drawdown_series': [...]}
+        }
+    """
+    try:
+        from analytics.strategy_analytics import StrategyAnalyticsEngine
+        
+        mode = get_mode()
+        journal_store = JournalStateStore(mode=mode)
+        state_store = store
+        
+        # Load config
+        try:
+            cfg = load_app_config()
+            config_dict = cfg.__dict__ if hasattr(cfg, "__dict__") else {}
+        except Exception:
+            config_dict = {}
+        
+        # Create engine
+        engine = StrategyAnalyticsEngine(
+            journal_store=journal_store,
+            state_store=state_store,
+            logger=logger,
+            config=config_dict,
+        )
+        
+        # Load fills
+        engine.load_fills(today_only=True)
+        
+        # Compute equity curve
+        curve = engine.compute_equity_curve(strategy=strategy, symbol=symbol)
+        dd = engine.compute_drawdowns(curve)
+        
+        return JSONResponse({
+            "equity_curve": curve,
+            "drawdown": dd,
+            "filters": {
+                "strategy": strategy,
+                "symbol": symbol,
+            }
+        })
+    except Exception as exc:
+        logger.error("Equity curve failed: %s", exc, exc_info=True)
+        return JSONResponse({
+            "equity_curve": [],
+            "drawdown": {"max_drawdown": 0.0, "drawdown_series": []},
+            "error": str(exc),
+        })
+
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
