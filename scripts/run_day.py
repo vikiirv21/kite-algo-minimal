@@ -590,6 +590,11 @@ def main() -> None:
         action="store_true",
         help="Perform interactive Kite login before starting engines.",
     )
+    parser.add_argument(
+        "--run-analytics-eod",
+        action="store_true",
+        help="Run analytics engine at end of day (experimental, not enabled by default).",
+    )
 
     args = parser.parse_args()
 
@@ -716,6 +721,17 @@ def main() -> None:
         logger.info("Runbook interrupted by user. Engines will stop on their own loop conditions.")
     finally:
         _persist_checkpoint()
+        
+        # TODO: Optional analytics run at end of day
+        # Currently disabled by default. Use --run-analytics-eod to enable.
+        if args.run_analytics_eod:
+            logger.info("Running end-of-day analytics...")
+            try:
+                from scripts.run_analytics import run_analytics
+                mode = cfg.trading.get("mode", "paper") if hasattr(cfg, "trading") else "paper"
+                run_analytics(mode=mode, historical=False)
+            except Exception as exc:
+                logger.warning("Analytics failed: %s", exc)
 
 
 if __name__ == "__main__":
