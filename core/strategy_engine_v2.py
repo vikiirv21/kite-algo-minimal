@@ -19,6 +19,13 @@ from strategies.base import Decision
 
 logger = logging.getLogger(__name__)
 
+# Optional import of RegimeEngine
+try:
+    from core.regime_engine import RegimeEngine, RegimeSnapshot
+except ImportError:
+    RegimeEngine = None
+    RegimeSnapshot = None
+
 
 class OrderIntent:
     """Represents a trading intent from a strategy before risk checks."""
@@ -202,12 +209,14 @@ class StrategyEngineV2:
         market_data_engine: MarketDataEngine,
         risk_engine: Optional[Any] = None,
         logger_instance: Optional[logging.Logger] = None,
-        market_data_engine_v2: Optional[Any] = None
+        market_data_engine_v2: Optional[Any] = None,
+        regime_engine: Optional[Any] = None
     ):
         self.config = config
         self.market_data = market_data_engine
         self.market_data_v2 = market_data_engine_v2  # Optional MDE v2 instance
         self.risk_engine = risk_engine
+        self.regime_engine = regime_engine  # Optional RegimeEngine instance
         self.logger = logger_instance or logger
         
         # Strategy registry
@@ -222,6 +231,8 @@ class StrategyEngineV2:
         self.paper_engine = None
         
         self.logger.info("StrategyEngineV2 initialized with %d strategies", len(self.enabled_strategies))
+        if self.regime_engine:
+            self.logger.info("StrategyEngineV2: RegimeEngine enabled")
     
     def register_strategy(self, strategy_code: str, strategy: BaseStrategy):
         """Register a strategy instance."""
@@ -355,6 +366,19 @@ class StrategyEngineV2:
             
             # Compute indicators
             ind = self.compute_indicators(series)
+            
+            # Get regime snapshot if RegimeEngine is available
+            if self.regime_engine:
+                try:
+                    regime_snapshot = self.regime_engine.snapshot(symbol)
+                    ind["regime_trend"] = regime_snapshot.trend
+                    ind["regime_volatility"] = regime_snapshot.volatility
+                    ind["regime_structure"] = regime_snapshot.structure
+                    ind["regime_velocity"] = regime_snapshot.velocity
+                    ind["regime_atr"] = regime_snapshot.atr
+                    ind["regime_slope"] = regime_snapshot.slope
+                except Exception as e:
+                    self.logger.debug("Failed to get regime snapshot for %s: %s", symbol, e)
             
             # Generate signal
             decision = strategy.generate_signal(current_candle, series, ind)
