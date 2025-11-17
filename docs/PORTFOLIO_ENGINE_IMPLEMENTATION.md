@@ -37,7 +37,7 @@ Successfully implemented a comprehensive **Portfolio & Position Sizing Engine v1
    - **All tests passing** ✅
 
 5. **Documentation**
-   - `docs/PORTFOLIO_ENGINE_V1.md`: Complete user guide (300+ lines)
+   - `PORTFOLIO_ENGINE_V1.md`: Complete user guide (300+ lines)
    - `PORTFOLIO_ENGINE_SECURITY.md`: Security analysis
    - Inline code documentation throughout
 
@@ -242,7 +242,7 @@ core/portfolio_engine.py              (587 lines)
 tests/test_portfolio_engine.py        (350 lines)
 tests/validate_portfolio_engine.py    (158 lines)
 tests/test_portfolio_integration.py   (186 lines)
-docs/PORTFOLIO_ENGINE_V1.md           (375 lines)
+PORTFOLIO_ENGINE_V1.md           (375 lines)
 PORTFOLIO_ENGINE_SECURITY.md          (142 lines)
 ```
 
