@@ -455,11 +455,14 @@ class ExecutionService:
                 {
                     "order_id": result.get("order_id"),
                     "symbol": symbol,
+                    "logical": payload.get("logical"),
                     "side": side,
                     "fill_qty": quantity,
                     "fill_price": float(fill_price),
                     "status": "FILLED",
                     "mode": self.mode,
+                    "profile": payload.get("profile"),
+                    "strategy": payload.get("strategy"),
                     "timestamp": payload.get("timestamp", datetime.utcnow().isoformat()),
                 },
             )
