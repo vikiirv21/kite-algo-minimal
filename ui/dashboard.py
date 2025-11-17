@@ -273,25 +273,28 @@ if assets_dir.exists():
 #         logger.error("Failed to render dashboard: %s", exc)
 #         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-@app.get("/pages/{page_name}", response_class=HTMLResponse)
-async def get_page(request: Request, page_name: str) -> HTMLResponse:
-    """Serve individual page templates for HTMX loading"""
-    valid_pages = [
-        "overview", "portfolio", "engines", "strategies", 
-        "orders", "signals", "pnl_analytics", "logs", 
-        "trade_flow", "system_health"
-    ]
-    
-    if page_name not in valid_pages:
-        raise HTTPException(status_code=404, detail="Page not found")
-    
-    try:
-        return templates.TemplateResponse(f"pages/{page_name}.html", {
-            "request": request,
-        })
-    except Exception as exc:
-        logger.error("Failed to render page %s: %s", page_name, exc)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+# NOTE: This route is for the old Jinja/HTMX dashboard and is now disabled
+# since we're using React SPA exclusively. Keeping it would interfere with
+# React Router by catching paths like /signals, /risk, etc.
+# @app.get("/pages/{page_name}", response_class=HTMLResponse)
+# async def get_page(request: Request, page_name: str) -> HTMLResponse:
+#     """Serve individual page templates for HTMX loading"""
+#     valid_pages = [
+#         "overview", "portfolio", "engines", "strategies", 
+#         "orders", "signals", "pnl_analytics", "logs", 
+#         "trade_flow", "system_health"
+#     ]
+#     
+#     if page_name not in valid_pages:
+#         raise HTTPException(status_code=404, detail="Page not found")
+#     
+#     try:
+#         return templates.TemplateResponse(f"pages/{page_name}.html", {
+#             "request": request,
+#         })
+#     except Exception as exc:
+#         logger.error("Failed to render page %s: %s", page_name, exc)
+#         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 def load_app_config() -> AppConfig:
     global _CONFIG_CACHE  # noqa: PLW0603
@@ -2738,18 +2741,49 @@ if STATIC_DIR.exists():
 # Include all API routes BEFORE mounting the React UI at root
 app.include_router(router)
 
-# Mount React UI at root (serves index.html and all assets)
-# This MUST come last so API routes are not shadowed by the static file handler
+# Mount React UI static assets BEFORE catch-all route
+# This serves JS, CSS, images, etc. from /assets/
 if REACT_BUILD_DIR.exists():
-    print(f"[dashboard] Mounting React UI from {REACT_BUILD_DIR}")
-    app.mount(
-        "/",
-        StaticFiles(directory=str(REACT_BUILD_DIR), html=True),
-        name="react-ui",
-    )
-    print("[dashboard] React UI mounted successfully at / with html=True")
+    print(f"[dashboard] Mounting React UI assets from {REACT_BUILD_DIR}")
+    # Note: We don't use html=True here because we have a catch-all route below
+    # that handles serving index.html for all non-asset paths
+    assets_dir = REACT_BUILD_DIR / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="react-assets")
+    
+    # Also serve any root-level static files (like vite.svg, favicon, etc.)
+    @app.get("/vite.svg")
+    async def serve_vite_svg():
+        from fastapi.responses import FileResponse
+        svg_file = REACT_BUILD_DIR / "vite.svg"
+        if svg_file.exists():
+            return FileResponse(svg_file)
+        raise HTTPException(status_code=404)
 else:
     print(f"[dashboard] React UI directory not found: {REACT_BUILD_DIR}")
+
+# SPA catch-all route: serve index.html for any non-API, non-asset path
+# This ensures React Router can handle all frontend routes (e.g., /signals, /risk, /analytics)
+# when users refresh the page or access them directly
+from fastapi.responses import FileResponse
+
+@app.get("/{full_path:path}")
+async def spa_catch_all(full_path: str):
+    """
+    Catch-all route for React SPA.
+    Serves index.html for all non-API paths, allowing React Router to handle routing.
+    """
+    # If path starts with "api/", this shouldn't have been caught here
+    # (FastAPI should have matched the API routes first)
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="API endpoint not found")
+    
+    # Serve the React app's index.html for all other paths
+    index_file = REACT_BUILD_DIR / "index.html"
+    if index_file.exists():
+        return FileResponse(index_file)
+    else:
+        raise HTTPException(status_code=500, detail="React build not found")
 
 
 if __name__ == "__main__":

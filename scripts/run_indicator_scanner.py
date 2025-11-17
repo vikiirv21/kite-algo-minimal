@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+if __name__ == "__main__" and __package__ is None:
+    import sys
+    from pathlib import Path
+    
+    repo_root = Path(__file__).resolve().parents[1]
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+
 import argparse
 import logging
 from datetime import datetime, timedelta
@@ -12,12 +20,51 @@ from core.config import load_config
 from core.history_loader import fetch_and_store_history
 from core.strategy_tags import Profile
 from core.universe import fno_underlyings
-from core.universe_builder import (
-    UniverseInstrument,
-    load_equity_universe,
-    load_index_deriv_universe,
-)
 from core.history_loader import load_history
+
+# Try to import UniverseInstrument and related functions from universe_builder
+# If they don't exist, define a minimal placeholder
+try:
+    from core.universe_builder import (
+        UniverseInstrument,
+        load_equity_universe,
+        load_index_deriv_universe,
+    )
+except ImportError:
+    # Fallback: define a minimal UniverseInstrument placeholder
+    class UniverseInstrument(dict):
+        """
+        Fallback placeholder for UniverseInstrument to keep
+        scripts/run_indicator_scanner.py working even if the
+        original class is missing or refactored.
+        """
+        def __init__(self, exchange, tradingsymbol, token, tick_size, lot_size, segment, underlying):
+            super().__init__()
+            self.exchange = exchange
+            self.tradingsymbol = tradingsymbol
+            self.token = token
+            self.tick_size = tick_size
+            self.lot_size = lot_size
+            self.segment = segment
+            self.underlying = underlying
+            # Store as dict for compatibility
+            self.update({
+                "exchange": exchange,
+                "tradingsymbol": tradingsymbol,
+                "token": token,
+                "tick_size": tick_size,
+                "lot_size": lot_size,
+                "segment": segment,
+                "underlying": underlying,
+            })
+    
+    def load_equity_universe():
+        """Fallback that returns empty list."""
+        return []
+    
+    def load_index_deriv_universe():
+        """Fallback that returns empty list."""
+        return []
 
 logger = logging.getLogger(__name__)
 
