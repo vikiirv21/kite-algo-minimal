@@ -50,38 +50,6 @@ The `ExecutionRouter` in paper mode routes all orders to `PaperBroker`:
 
 ## Key Classes
 
-### ActiveTrade
-
-**Methods:**
-- `direction_multiplier()`
-- `update_price()`
-
-### PaperEngine
-
-Paper engine for FnO symbols (NIFTY, BANKNIFTY, FINNIFTY).
-
-Flow:
-- Read logical FnO names from config.
-- Resolve them to current NFO FUT tradingsymbols using instruments().
-- Initialize paper broker, execution router, data feed, and strategy.
-- Loop (only when market is open):
-  - For each symbol:
-    - Fetch LTP from NFO.
-    - Run strategy to get signal.
-    - Record every signal (with strategy tag in 'logical').
-    - If BUY/SELL:
-      - Check capital / notional constraints.
-      - Enforce per-symbol loss limit ("kill switch").
-      - Place order via ExecutionRouter (PAPER by default).
-      - Record order.
-  - Enforce per-trade max loss (stop-loss per position).
-  - Periodically snapshot paper broker state, including P&L metrics.
-  - Enforce global and per-symbol risk checks.
-
-**Methods:**
-- `__init__()`
-- `run_forever()`
-
 
 ## Running Paper Mode
 
@@ -121,4 +89,4 @@ risk:
 - **Perfect Execution**: No rejected orders
 
 ---
-*Auto-generated on 2025-11-15T21:51:37.952533+00:00*
+*Auto-generated on 2025-11-17T19:09:52.544445+00:00*

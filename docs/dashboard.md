@@ -1,134 +1,290 @@
-# Dashboard -- Architecture & Endpoints
+# Web Dashboard
 
-## Summary
+## Overview
 
-The dashboard entry point lives at `ui\dashboard.py` and is mounted via FastAPI.
-Dashboard code does not embed a ticker; `/api/quotes` is expected to read `artifacts/live_quotes.json`.
-Detected 29 `/api/*` routes inside the dashboard module.
+The web dashboard provides real-time monitoring and control of the trading system via a FastAPI-based web interface.
 
-## Dashboard Router
+## Architecture
 
-| Method | Path | Source |
-| ------ | ---- | ------ |
-| `GET` | `/` | `ui\dashboard.py` |
-| `GET` | `/api/auth/status` | `ui\dashboard.py` |
-| `GET` | `/api/config/summary` | `ui\dashboard.py` |
-| `GET` | `/api/debug/auth` | `ui\dashboard.py` |
-| `GET` | `/api/engines/status` | `ui\dashboard.py` |
-| `GET` | `/api/health` | `ui\dashboard.py` |
-| `GET` | `/api/logs` | `ui\dashboard.py` |
-| `GET` | `/api/logs/recent` | `ui\dashboard.py` |
-| `GET` | `/api/margins` | `ui\dashboard.py` |
-| `GET` | `/api/meta` | `ui\dashboard.py` |
-| `GET` | `/api/monitor/trade_flow` | `ui\dashboard.py` |
-| `GET` | `/api/orders` | `ui\dashboard.py` |
-| `GET` | `/api/orders/recent` | `ui\dashboard.py` |
-| `GET` | `/api/pm/log` | `ui\dashboard.py` |
-| `GET` | `/api/portfolio/summary` | `ui\dashboard.py` |
-| `GET` | `/api/positions/open` | `ui\dashboard.py` |
-| `GET` | `/api/positions_normalized` | `ui\dashboard.py` |
-| `GET` | `/api/quality/summary` | `ui\dashboard.py` |
-| `GET` | `/api/quotes` | `ui\dashboard.py` |
-| `POST` | `/api/resync` | `ui\dashboard.py` |
-| `GET` | `/api/signals` | `ui\dashboard.py` |
-| `GET` | `/api/signals/recent` | `ui\dashboard.py` |
-| `GET` | `/api/state` | `ui\dashboard.py` |
-| `GET` | `/api/stats/equity` | `ui\dashboard.py` |
-| `GET` | `/api/stats/strategies` | `ui\dashboard.py` |
-| `GET` | `/api/strategy_performance` | `ui\dashboard.py` |
-| `GET` | `/api/summary/today` | `ui\dashboard.py` |
-| `GET` | `/api/system/time` | `ui\dashboard.py` |
-| `GET` | `/api/trade_flow` | `ui\dashboard.py` |
+### Components
 
-## FastAPI Endpoints (repo-wide)
+1. **Dashboard API** (`ui/dashboard.py`)
+   - FastAPI application
+   - RESTful API endpoints
+   - WebSocket support (future)
 
-| Method | Path | File |
-| ------ | ---- | ---- |
-| `GET` | `/` | `apps\dashboard.py` |
-| `GET` | `/` | `ui\dashboard.py` |
-| `GET` | `/api/auth/status` | `ui\dashboard.py` |
-| `GET` | `/api/config/summary` | `apps\dashboard.py` |
-| `GET` | `/api/config/summary` | `ui\dashboard.py` |
-| `GET` | `/api/debug/auth` | `ui\dashboard.py` |
-| `GET` | `/api/engines/status` | `ui\dashboard.py` |
-| `GET` | `/api/health` | `ui\dashboard.py` |
-| `GET` | `/api/logs` | `ui\dashboard.py` |
-| `GET` | `/api/logs/recent` | `ui\dashboard.py` |
-| `GET` | `/api/margins` | `ui\dashboard.py` |
-| `GET` | `/api/meta` | `apps\dashboard.py` |
-| `GET` | `/api/meta` | `ui\dashboard.py` |
-| `GET` | `/api/monitor/trade_flow` | `ui\dashboard.py` |
-| `GET` | `/api/orders` | `ui\dashboard.py` |
-| `GET` | `/api/orders/recent` | `ui\dashboard.py` |
-| `GET` | `/api/pm/log` | `ui\dashboard.py` |
-| `GET` | `/api/portfolio/summary` | `ui\dashboard.py` |
-| `GET` | `/api/positions/open` | `ui\dashboard.py` |
-| `GET` | `/api/positions_normalized` | `ui\dashboard.py` |
-| `GET` | `/api/quality/summary` | `ui\dashboard.py` |
-| `GET` | `/api/quotes` | `ui\dashboard.py` |
-| `POST` | `/api/resync` | `ui\dashboard.py` |
-| `GET` | `/api/signals` | `ui\dashboard.py` |
-| `GET` | `/api/signals/recent` | `ui\dashboard.py` |
-| `GET` | `/api/state` | `ui\dashboard.py` |
-| `GET` | `/api/stats/equity` | `ui\dashboard.py` |
-| `GET` | `/api/stats/strategies` | `ui\dashboard.py` |
-| `GET` | `/api/strategy_performance` | `ui\dashboard.py` |
-| `GET` | `/api/summary/today` | `ui\dashboard.py` |
-| `GET` | `/api/system/time` | `ui\dashboard.py` |
-| `GET` | `/api/trade_flow` | `ui\dashboard.py` |
+2. **Dashboard Services** (`ui/services.py`)
+   - Business logic layer
+   - State aggregation
+   - Data formatting
 
-## Frontend fetch() Usage
+3. **Frontend** (`ui/templates/` and `ui/static/`)
+   - HTML templates (Jinja2)
+   - JavaScript for interactivity
+   - CSS styling
 
-| Frontend File | fetch() path | Backend route |
-| ------------- | ------------ | ------------- |
-| `static\dashboard.js` | `/api/config/summary` | GET (apps\dashboard.py), GET (ui\dashboard.py) |
-| `static\dashboard.js` | `/api/engines/status` | GET (ui\dashboard.py) |
-| `static\dashboard.js` | `/api/health` | GET (ui\dashboard.py) |
-| `static\dashboard.js` | `/api/logs/recent?limit=120` | _not found_ |
-| `static\dashboard.js` | `/api/meta` | GET (apps\dashboard.py), GET (ui\dashboard.py) |
-| `static\dashboard.js` | `/api/orders/recent?limit=50` | _not found_ |
-| `static\dashboard.js` | `/api/portfolio/summary` | GET (ui\dashboard.py) |
-| `static\dashboard.js` | `/api/positions/open` | GET (ui\dashboard.py) |
-| `static\dashboard.js` | `/api/signals/recent?limit=50` | _not found_ |
-| `static\dashboard.js` | `/api/state` | GET (ui\dashboard.py) |
-| `static\dashboard.js` | `/api/stats/equity?days=1` | _not found_ |
-| `static\dashboard.js` | `/api/stats/strategies?days=1` | _not found_ |
-| `static\dashboard.js` | `/api/summary/today` | GET (ui\dashboard.py) |
+## API Endpoints
 
-## Data Sources & Artifacts
+### `/api/state`
 
-| Artifact | Role |
-| -------- | ---- |
-| `live_quotes.json` | Cached quotes served by `/api/quotes`. |
-| `live_state.json` | General artifact consumed by dashboard endpoints. |
-| `orders.csv` | Order log powering `/api/orders*`. |
-| `paper_state.json` | Paper trading checkpoint consumed by `/api/state` and status endpoints. |
-| `signals.csv` | Signal history powering `/api/signals*`. |
+Description: [Auto-extracted endpoint]
 
-### Example `live_quotes.json` snapshot
+### `/api/meta`
 
-```json
-{
-  "NFO:NIFTY24JANFUT": { "last_price": 22425.5, "timestamp": "2025-01-10T09:30:00+05:30" },
-  "NFO:BANKNIFTY24JANFUT": { "last_price": 48900.0 }
-}
-```
+Description: [Auto-extracted endpoint]
 
-## How to Run
+### `/api/config/summary`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/summary/today`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/quality/summary`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/signals`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/orders`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/logs`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/auth/status`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/engines/status`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/portfolio/summary`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/monitor/trade_flow`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/trade_flow`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/signals/recent`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/positions/open`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/orders/recent`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/stats/strategies`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/stats/equity`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/scanner/universe`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/market_data/window`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/market_data/latest_tick`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/market_data/candles`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/market_data/v2/stats`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/backtests/list`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/backtests/result`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/backtests`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/backtests/{run_id:path}/summary`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/backtests/{run_id:path}/equity_curve`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/logs/recent`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/pm/log`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/system/time`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/health`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/risk/summary`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/strategy_performance`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/quotes`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/positions_normalized`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/margins`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/debug/auth`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/resync`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/analytics/summary`
+
+Description: [Auto-extracted endpoint]
+
+### `/api/analytics/equity_curve`
+
+Description: [Auto-extracted endpoint]
+
+
+## Key Features
+
+### Real-Time Monitoring
+- Live positions and P&L
+- Recent trades
+- Order status
+- Strategy performance
+
+### Control Panel
+- Start/stop trading
+- Emergency halt
+- Strategy enable/disable
+- Risk parameter adjustment
+
+### Analytics
+- Equity curve
+- Trade history
+- Performance metrics
+- Win/loss analysis
+
+### System Status
+- Market hours
+- Kite connection status
+- Engine health
+- Last heartbeat
+
+## Running the Dashboard
 
 ```bash
-# start dashboard (dev)
-uvicorn apps.server:app --reload --port 8765
+# Start dashboard server
+python scripts/run_dashboard.py
 
-# helper scripts
-python -m scripts.run_dashboard --reload
-python -m scripts.run_day --login --engines all
+# Or use uvicorn directly
+uvicorn ui.dashboard:app --reload --port 8000
 ```
 
-## Troubleshooting
+## Accessing the Dashboard
 
-- Call `/api/debug/auth` if tokens look stale.
-- Use `/api/resync` (or dashboard button) to rebuild paper checkpoints when data drifts.
-- Watch `logs/app.log` (or `artifacts/logs`) and `artifacts/live_quotes.json` when the UI shows stale numbers.
+```
+http://localhost:8000
+```
 
-_Generated by `tools/docs/repo_audit.py`._
+## API Usage
+
+### Get Current State
+
+```bash
+curl http://localhost:8000/api/state
+```
+
+### Get Positions
+
+```bash
+curl http://localhost:8000/api/positions
+```
+
+### Get Trade History
+
+```bash
+curl http://localhost:8000/api/trades
+```
+
+## Configuration
+
+```yaml
+dashboard:
+  host: "0.0.0.0"
+  port: 8000
+  reload: false
+  log_level: "info"
+```
+
+## Security
+
+⚠️ **Important**: The dashboard should not be exposed to the public internet without:
+- Authentication
+- HTTPS/TLS
+- API rate limiting
+- CORS configuration
+
+## Development
+
+### Local Development
+
+```bash
+# Run with auto-reload
+uvicorn ui.dashboard:app --reload --port 8000
+```
+
+### Adding New Endpoints
+
+1. Define route in `ui/dashboard.py`
+2. Implement logic in `ui/services.py`
+3. Update frontend templates
+4. Test endpoint
+
+---
+*Auto-generated on 2025-11-17T19:09:52.567436+00:00*
