@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from datetime import date
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from types import SimpleNamespace
@@ -830,6 +831,37 @@ class EquityPaperEngine:
                 self.banned_symbols.add(symbol)
 
     def _load_equity_universe(self) -> List[str]:
+        """
+        Load equity universe with the following precedence:
+        1. From scanner's universe.json (if equity_universe key exists)
+        2. From artifacts/equity_universe.json
+        3. From config trading.equity_universe
+        4. From config/universe_equity.csv (via load_equity_universe)
+        """
+        # Try scanner's universe.json first (new behavior)
+        scanner_universe_path = self.artifacts_dir / "scanner" / date.today().isoformat() / "universe.json"
+        if scanner_universe_path.exists():
+            try:
+                with scanner_universe_path.open("r", encoding="utf-8") as f:
+                    universe_data = json.load(f)
+                if isinstance(universe_data, dict):
+                    equity_universe = universe_data.get("equity_universe")
+                    if equity_universe and isinstance(equity_universe, list):
+                        cleaned = [str(sym).strip().upper() for sym in equity_universe if sym]
+                        if cleaned:
+                            # Determine mode for logging
+                            mode = "nifty_lists" if len(cleaned) <= 120 else "all"
+                            logger.info(
+                                "Equity universe loaded from scanner (mode=%s, symbols=%d): %s",
+                                mode,
+                                len(cleaned),
+                                cleaned[:10] if len(cleaned) > 10 else cleaned,
+                            )
+                            return cleaned
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to load equity_universe from scanner universe.json: %s", exc)
+        
+        # Fallback to artifacts/equity_universe.json
         artifacts_file = self.artifacts_dir / "equity_universe.json"
         if artifacts_file.exists():
             try:
@@ -850,9 +882,13 @@ class EquityPaperEngine:
                     return cleaned
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Failed to load artifacts/equity_universe.json: %s", exc)
+        
+        # Fallback to config trading.equity_universe
         cfg_list = [str(sym).strip().upper() for sym in self.cfg.trading.get("equity_universe", []) or [] if sym]
         if cfg_list:
             return cfg_list
+        
+        # Final fallback to load_equity_universe (config/universe_equity.csv)
         return load_equity_universe()
 
     def _build_sizer_config(self) -> SizerConfig:
