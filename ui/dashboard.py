@@ -246,25 +246,34 @@ DASHBOARD_TEMPLATE_NAME = _resolve_dashboard_template_name()
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
-    if not DASHBOARD_TEMPLATE_NAME:
-        try:
-            files = sorted(p.name for p in TEMPLATES_DIR.glob("*.html"))
-        except Exception:
-            files = []
-        logger.error(
-            "No dashboard template found in %s. Expected 'dashboard.html' or 'index.html'. Found HTML files: %s",
-            TEMPLATES_DIR,
-            files,
-        )
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error": "dashboard_template_missing",
-                "templates_dir": str(TEMPLATES_DIR),
-                "html_files": files,
-            },
-        )
-    return templates.TemplateResponse(DASHBOARD_TEMPLATE_NAME, {"request": request})
+    """Render the main dashboard using base.html with default overview page"""
+    try:
+        return templates.TemplateResponse("base.html", {
+            "request": request,
+        })
+    except Exception as exc:
+        logger.error("Failed to render dashboard: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+@app.get("/pages/{page_name}", response_class=HTMLResponse)
+async def get_page(request: Request, page_name: str) -> HTMLResponse:
+    """Serve individual page templates for HTMX loading"""
+    valid_pages = [
+        "overview", "portfolio", "engines", "strategies", 
+        "orders", "signals", "pnl_analytics", "logs", 
+        "trade_flow", "system_health"
+    ]
+    
+    if page_name not in valid_pages:
+        raise HTTPException(status_code=404, detail="Page not found")
+    
+    try:
+        return templates.TemplateResponse(f"pages/{page_name}.html", {
+            "request": request,
+        })
+    except Exception as exc:
+        logger.error("Failed to render page %s: %s", page_name, exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 def load_app_config() -> AppConfig:
     global _CONFIG_CACHE  # noqa: PLW0603
