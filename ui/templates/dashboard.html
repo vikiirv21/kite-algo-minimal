@@ -7,8 +7,11 @@
   <!-- TailwindCSS CDN - SPECIFIC VERSION -->
   <script src="https://cdn.tailwindcss.com?plugins=forms,typography,aspect-ratio,line-clamp&version=3.4.1"></script>
   <!-- DaisyUI CDN - SPECIFIC VERSION -->
+  <!-- Fixed Tailwind CSS CDN version 3.4.1 -->
+  <script src="https://cdn.tailwindcss.com/3.4.1"></script>
+  <!-- DaisyUI CDN loaded AFTER Tailwind -->
   <link href="https://cdn.jsdelivr.net/npm/daisyui@4.4.20/dist/full.min.css" rel="stylesheet" type="text/css" />
-  <!-- Custom Dashboard CSS -->
+  <!-- Custom Dashboard CSS loaded AFTER DaisyUI -->
   <link rel="stylesheet" href="/static/dashboard.css" />
 </head>
 <body>
@@ -45,63 +48,34 @@
       </div>
     </header>
 
-    <!-- Tabs -->
+    <!-- Tabs - Text with small icons for clarity -->
     <nav class="tabs">
       <button class="tab active" data-tab="overview">
-        <svg class="tab-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-        </svg>
-        <span>Dashboard</span>
+        <span>📊 Dashboard</span>
       </button>
       <button class="tab" data-tab="engine">
-        <svg class="tab-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
-        </svg>
-        <span>Engine</span>
+        <span>⚙️ Engine</span>
       </button>
       <button class="tab" data-tab="trades">
-        <svg class="tab-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-        </svg>
-        <span>Trades</span>
+        <span>💹 Trades</span>
       </button>
       <button class="tab" data-tab="signals">
-        <svg class="tab-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
-        </svg>
-        <span>Signals</span>
+        <span>📡 Signals</span>
       </button>
       <button class="tab" data-tab="orders">
-        <svg class="tab-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-        </svg>
-        <span>Orders</span>
+        <span>📋 Orders</span>
       </button>
       <button class="tab" data-tab="logs">
-        <svg class="tab-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-        </svg>
-        <span>Logs</span>
+        <span>📄 Logs</span>
       </button>
       <button class="tab" data-tab="analytics">
-        <svg class="tab-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-        </svg>
-        <span>Analytics</span>
+        <span>📈 Analytics</span>
       </button>
       <button class="tab" data-tab="monitor">
-        <svg class="tab-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-        </svg>
-        <span>Monitor</span>
+        <span>👁️ Monitor</span>
       </button>
       <button class="tab" data-tab="config">
-        <svg class="tab-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-        </svg>
-        <span>Config</span>
+        <span>⚙️ Config</span>
       </button>
     </nav>
 
@@ -1028,8 +1002,8 @@
     </main>
   </div>
 
+  <!-- All scripts at end of body without defer for faster parsing -->
   <script src="/static/dashboard.js"></script>
   <script src="/static/ui-polish.js"></script>
 </body>
 </html>
-

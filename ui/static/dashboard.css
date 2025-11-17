@@ -36,6 +36,8 @@ body {
   padding: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "SF Pro Display", system-ui, sans-serif;
   background: radial-gradient(ellipse at top left, #1a1f3a 0%, #0a0e1a 50%, #000000 100%);
+  background: -moz-radial-gradient(ellipse at top left, #1a1f3a 0%, #0a0e1a 50%, #000000 100%);
+  background: -webkit-radial-gradient(ellipse at top left, #1a1f3a 0%, #0a0e1a 50%, #000000 100%);
   color: var(--text);
   height: 100%;
   overflow-x: hidden;
@@ -52,9 +54,19 @@ body::before {
     radial-gradient(circle at 20% 50%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
     radial-gradient(circle at 80% 80%, rgba(34, 197, 94, 0.06) 0%, transparent 50%),
     radial-gradient(circle at 40% 20%, rgba(139, 92, 246, 0.05) 0%, transparent 50%);
+  background: 
+    -moz-radial-gradient(circle at 20% 50%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
+    -moz-radial-gradient(circle at 80% 80%, rgba(34, 197, 94, 0.06) 0%, transparent 50%),
+    -moz-radial-gradient(circle at 40% 20%, rgba(139, 92, 246, 0.05) 0%, transparent 50%);
+  background: 
+    -webkit-radial-gradient(circle at 20% 50%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
+    -webkit-radial-gradient(circle at 80% 80%, rgba(34, 197, 94, 0.06) 0%, transparent 50%),
+    -webkit-radial-gradient(circle at 40% 20%, rgba(139, 92, 246, 0.05) 0%, transparent 50%);
   pointer-events: none;
   z-index: 0;
   animation: backgroundFloat 20s ease-in-out infinite;
+  -webkit-animation: backgroundFloat 20s ease-in-out infinite;
+  -moz-animation: backgroundFloat 20s ease-in-out infinite;
 }
 
 @keyframes backgroundFloat {
@@ -105,6 +117,7 @@ body::before {
   box-shadow: var(--shadow-soft), 0 0 0 1px rgba(99, 102, 241, 0.1) inset;
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
+  -moz-backdrop-filter: blur(20px);
   position: relative;
   overflow: hidden;
 }
@@ -351,6 +364,7 @@ body::before {
   box-shadow: var(--shadow-soft), 0 0 0 1px rgba(99, 102, 241, 0.05) inset;
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
+  -moz-backdrop-filter: blur(20px);
 }
 
 .tab {
@@ -370,19 +384,7 @@ body::before {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
-}
-
-.tab-icon {
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
-  opacity: 0.7;
-  transition: opacity 0.3s ease;
-}
-
-.tab.active .tab-icon,
-.tab:hover .tab-icon {
-  opacity: 1;
+  white-space: nowrap;
 }
 
 .tab::before {
@@ -506,6 +508,7 @@ body::before {
   box-shadow: var(--shadow-soft), 0 0 0 1px rgba(99, 102, 241, 0.05) inset;
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
+  -moz-backdrop-filter: blur(20px);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -602,6 +605,7 @@ thead {
   background: linear-gradient(135deg, rgba(19, 24, 36, 0.98) 0%, rgba(13, 17, 28, 0.98) 100%);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+  -moz-backdrop-filter: blur(10px);
   z-index: 10;
 }
 
@@ -2155,14 +2159,12 @@ select:focus-visible,
   .tabs {
     overflow-x: auto;
     scrollbar-width: thin;
+    flex-wrap: nowrap;
   }
   
-  .tab span {
-    display: none;
-  }
-  
-  .tab-icon {
-    margin: 0;
+  .tab {
+    white-space: nowrap;
+    min-width: fit-content;
   }
 }
 
