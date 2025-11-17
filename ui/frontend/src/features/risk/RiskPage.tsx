@@ -18,6 +18,9 @@ export function RiskPage() {
   const currentExposure = portfolio?.exposure_pct || 0;
   const exposureUsedPct = (currentExposure / maxExposure) * 100;
   
+  // TODO: Get max_positions from backend config instead of hardcoding
+  // Expected: config.max_positions from GET /api/config/summary
+  // See docs/ANALYTICS_RISK_API_GAPS.md for implementation details
   const maxPositions = 5; // TODO: Get from config
   const currentPositions = portfolio?.position_count || 0;
   const positionsUsedPct = (currentPositions / maxPositions) * 100;
@@ -196,7 +199,10 @@ export function RiskPage() {
         </div>
       </Card>
       
-      {/* Future Enhancements */}
+      {/* Future Enhancements 
+          TODO: Implement advanced risk APIs
+          See docs/ANALYTICS_RISK_API_GAPS.md for detailed specifications
+      */}
       <Card title="Advanced Risk Metrics (Coming Soon)">
         <div className="text-center text-text-secondary py-8">
           <p className="font-semibold">Additional Risk Features Planned:</p>
@@ -214,6 +220,9 @@ GET /api/risk/breaches      // Current limit breaches
 GET /api/risk/var           // Value at Risk metrics
 POST /api/risk/limits       // Update risk limits`}
           </pre>
+          <p className="text-xs mt-4 text-text-secondary">
+            📝 See <code>docs/ANALYTICS_RISK_API_GAPS.md</code> for implementation details
+          </p>
         </div>
       </Card>
     </div>
