@@ -1,6 +1,13 @@
 /**
  * Main Dashboard Bootstrap
  * Entry point for Arthayukti HFT Dashboard
+ * 
+ * Features:
+ * - Tab switching with state preservation
+ * - Real-time data polling with smart re-rendering
+ * - Color-coded P&L values
+ * - Auto-scroll logs with follow mode
+ * - Responsive design
  */
 
 import * as API from './api_client.js';
@@ -13,7 +20,8 @@ const INTERVALS = {
   time: 1000,           // 1s - Server time
   engines: 2000,        // 2s - Engine status
   portfolio: 2000,      // 2s - Portfolio
-  positions: 3000,      // 3s - Positions
+  positions: 3000,      // 3s - Open positions
+  positionsClosed: 5000, // 5s - Closed positions (slower update)
   orders: 3000,         // 3s - Orders
   signals: 2000,        // 2s - Signals
   logs: 3000,           // 3s - Logs
@@ -61,6 +69,7 @@ async function fetchAll() {
       fetchPortfolio(),
       fetchTodaySummary(),
       fetchPositions(),
+      fetchClosedPositions(),
       fetchOrders(),
       fetchSignals(),
       fetchLogs(),
@@ -78,6 +87,7 @@ function startPolling() {
   timers.engines = setInterval(fetchEngines, INTERVALS.engines);
   timers.portfolio = setInterval(fetchPortfolio, INTERVALS.portfolio);
   timers.positions = setInterval(fetchPositions, INTERVALS.positions);
+  timers.positionsClosed = setInterval(fetchClosedPositions, INTERVALS.positionsClosed);
   timers.orders = setInterval(fetchOrders, INTERVALS.orders);
   timers.signals = setInterval(fetchSignals, INTERVALS.signals);
   timers.logs = setInterval(fetchLogs, INTERVALS.logs);
@@ -185,6 +195,23 @@ async function fetchPositions() {
     }
   } catch (error) {
     console.error('Error fetching positions:', error);
+  }
+}
+
+async function fetchClosedPositions() {
+  try {
+    const data = await API.getClosedPositions(20);
+    setState({ positionsClosed: Array.isArray(data) ? data : [] });
+    
+    // Re-render if on portfolio tab
+    const state = getState();
+    if (state.activeTab === 'portfolio') {
+      renderTab('portfolio');
+    }
+  } catch (error) {
+    // Closed positions endpoint may not exist - fail silently
+    // console.error('Error fetching closed positions:', error);
+    setState({ positionsClosed: [] });
   }
 }
 

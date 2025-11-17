@@ -1,10 +1,17 @@
 /**
  * Tabs Controller - Handles tab switching and rendering
+ * 
+ * Key features:
+ * - Tab switching with state persistence
+ * - Color-coded P&L values (green for positive, red for negative)
+ * - Timestamps on all data rows
+ * - Auto-scroll logs with follow mode
  */
 
-import { getState } from './state.js';
+import { getState, setState } from './state.js';
 import { createCard, createTable, createSkeletonLines, createMetricRow, 
-         formatCurrency, formatNumber, formatPercent, formatTime, formatShortTime } from './components/index.js';
+         formatCurrency, formatNumber, formatPercent, formatTime, formatShortTime, formatDateTime,
+         coloredPnL, coloredPercent, directionBadge } from './components/index.js';
 
 /**
  * Initialize tab switching
@@ -23,6 +30,9 @@ export function initTabs() {
  * Switch to a tab
  */
 export function switchTab(tabName) {
+  // Update state - this is critical so polling functions don't override the tab
+  setState({ activeTab: tabName });
+  
   // Update tab UI
   document.querySelectorAll('.tab').forEach(tab => {
     if (tab.dataset.tab === tabName) {
@@ -112,10 +122,38 @@ function renderOverviewTab() {
     portfolioBody.appendChild(createSkeletonLines(5));
   } else {
     const p = state.portfolioSnapshot;
+    
+    // Helper to create colored metric row
+    const createColoredMetricRow = (label, value) => {
+      const row = document.createElement('div');
+      row.className = 'metric-row';
+      
+      const labelEl = document.createElement('span');
+      labelEl.className = 'metric-label';
+      labelEl.textContent = label;
+      
+      const valueEl = document.createElement('span');
+      valueEl.className = 'metric-value';
+      
+      // Determine color class
+      let colorClass = '';
+      if (value > 0) colorClass = 'value-positive';
+      else if (value < 0) colorClass = 'value-negative';
+      
+      if (colorClass) {
+        valueEl.className += ' ' + colorClass;
+      }
+      valueEl.textContent = formatCurrency(value);
+      
+      row.appendChild(labelEl);
+      row.appendChild(valueEl);
+      return row;
+    };
+    
     portfolioBody.appendChild(createMetricRow('Equity', formatCurrency(p.equity)));
-    portfolioBody.appendChild(createMetricRow('Realized P&L', formatCurrency(p.total_realized_pnl)));
-    portfolioBody.appendChild(createMetricRow('Unrealized P&L', formatCurrency(p.total_unrealized_pnl)));
-    portfolioBody.appendChild(createMetricRow('Daily P&L', formatCurrency(p.daily_pnl)));
+    portfolioBody.appendChild(createColoredMetricRow('Realized P&L', p.total_realized_pnl));
+    portfolioBody.appendChild(createColoredMetricRow('Unrealized P&L', p.total_unrealized_pnl));
+    portfolioBody.appendChild(createColoredMetricRow('Daily P&L', p.daily_pnl));
     portfolioBody.appendChild(createMetricRow('Exposure', formatPercent(p.exposure_pct * 100)));
   }
   portfolioCard.querySelector('.card-body')?.remove();
@@ -133,11 +171,11 @@ function renderOverviewTab() {
     emptyMsg.textContent = 'No signals yet';
     signalsBody.appendChild(emptyMsg);
   } else {
-    const headers = ['Time', 'Symbol', 'Signal', 'Price', 'Strategy'];
+    const headers = ['Time', 'Symbol', 'Direction', 'Price', 'Strategy'];
     const rows = state.signals.slice(0, 5).map(s => [
-      formatShortTime(s.ts),
+      formatShortTime(s.ts || s.timestamp),
       s.symbol || '—',
-      s.signal || '—',
+      directionBadge(s.signal || s.direction),
       formatCurrency(s.price, 2),
       s.strategy || '—'
     ]);
@@ -154,15 +192,15 @@ function renderOverviewTab() {
 }
 
 /**
- * Trading Tab
+ * Trading Tab - Shows recent orders with timestamps
  */
 function renderTradingTab() {
   const state = getState();
   const container = document.createElement('div');
   container.className = 'grid grid-2';
   
-  // Active Orders Card
-  const ordersCard = createCard('Active Orders', 
+  // Recent Orders Card
+  const ordersCard = createCard('Recent Orders', 
     state.orders.length > 0 ? `${state.orders.length} orders` : '0 orders');
   const ordersBody = document.createElement('div');
   ordersBody.className = 'card-body';
@@ -173,14 +211,15 @@ function renderTradingTab() {
     emptyMsg.textContent = 'No orders yet';
     ordersBody.appendChild(emptyMsg);
   } else {
-    const headers = ['Time', 'Symbol', 'Side', 'Qty', 'Price', 'Status'];
+    const headers = ['Time', 'Symbol', 'Side', 'Qty', 'Price', 'Status', 'Order ID'];
     const rows = state.orders.slice(0, 20).map(o => [
-      formatShortTime(o.timestamp || o.ts),
+      formatShortTime(o.timestamp || o.ts || o.order_time),
       o.symbol || '—',
-      o.side || '—',
+      directionBadge(o.side || o.transaction_type),
       o.quantity || o.qty || '—',
       formatCurrency(o.price, 2),
-      o.status || '—'
+      o.status || '—',
+      (o.order_id || o.id || '').toString().substring(0, 8) || '—'
     ]);
     ordersBody.appendChild(createTable(headers, rows));
   }
@@ -193,12 +232,15 @@ function renderTradingTab() {
 }
 
 /**
- * Portfolio Tab
+ * Portfolio Tab - Shows portfolio summary, open positions, and closed positions with color-coded P&L
  */
 function renderPortfolioTab() {
   const state = getState();
   const container = document.createElement('div');
-  container.className = 'grid grid-2';
+  
+  // Use full-width layout for portfolio
+  const summaryRow = document.createElement('div');
+  summaryRow.className = 'grid grid-2';
   
   // Portfolio Summary Card
   const summaryCard = createCard('Portfolio Summary');
@@ -209,15 +251,45 @@ function renderPortfolioTab() {
     summaryBody.appendChild(createSkeletonLines(6));
   } else {
     const p = state.portfolioSnapshot;
+    
+    // Helper to create colored metric row
+    const createColoredMetricRow = (label, value) => {
+      const row = document.createElement('div');
+      row.className = 'metric-row';
+      
+      const labelEl = document.createElement('span');
+      labelEl.className = 'metric-label';
+      labelEl.textContent = label;
+      
+      const valueEl = document.createElement('span');
+      valueEl.className = 'metric-value';
+      
+      // Determine color class
+      let colorClass = '';
+      if (value > 0) colorClass = 'value-positive';
+      else if (value < 0) colorClass = 'value-negative';
+      
+      if (colorClass) {
+        valueEl.className += ' ' + colorClass;
+      }
+      valueEl.textContent = formatCurrency(value);
+      
+      row.appendChild(labelEl);
+      row.appendChild(valueEl);
+      return row;
+    };
+    
     summaryBody.appendChild(createMetricRow('Paper Capital', formatCurrency(p.paper_capital)));
     summaryBody.appendChild(createMetricRow('Equity', formatCurrency(p.equity)));
     summaryBody.appendChild(createMetricRow('Total Notional', formatCurrency(p.total_notional)));
     summaryBody.appendChild(createMetricRow('Free Notional', formatCurrency(p.free_notional)));
-    summaryBody.appendChild(createMetricRow('Realized P&L', formatCurrency(p.total_realized_pnl)));
-    summaryBody.appendChild(createMetricRow('Unrealized P&L', formatCurrency(p.total_unrealized_pnl)));
+    summaryBody.appendChild(createColoredMetricRow('Realized P&L', p.total_realized_pnl));
+    summaryBody.appendChild(createColoredMetricRow('Unrealized P&L', p.total_unrealized_pnl));
   }
   summaryCard.querySelector('.card-body')?.remove();
   summaryCard.appendChild(summaryBody);
+  
+  summaryRow.appendChild(summaryCard);
   
   // Open Positions Card
   const positionsCard = createCard('Open Positions',
@@ -231,34 +303,59 @@ function renderPortfolioTab() {
     emptyMsg.textContent = 'No open positions';
     positionsBody.appendChild(emptyMsg);
   } else {
-    const headers = ['Symbol', 'Side', 'Qty', 'Avg Price', 'LTP', 'P&L'];
+    const headers = ['Symbol', 'Side', 'Qty', 'Avg Price', 'LTP', 'P&L', '%P&L'];
     const rows = state.positionsOpen.map(pos => [
       pos.symbol || '—',
-      pos.side || '—',
+      directionBadge(pos.side),
       pos.quantity || '—',
       formatCurrency(pos.avg_price, 2),
       formatCurrency(pos.last_price, 2),
-      formatCurrency(pos.unrealized_pnl, 2)
+      coloredPnL(pos.unrealized_pnl, 2),
+      coloredPercent(pos.pnl_percent || 0, 2)
     ]);
     positionsBody.appendChild(createTable(headers, rows));
   }
   positionsCard.querySelector('.card-body')?.remove();
   positionsCard.appendChild(positionsBody);
   
-  container.appendChild(summaryCard);
-  container.appendChild(positionsCard);
+  summaryRow.appendChild(positionsCard);
+  container.appendChild(summaryRow);
+  
+  // Closed Positions Card (full width)
+  if (state.positionsClosed && state.positionsClosed.length > 0) {
+    const closedCard = createCard('Closed Positions', `${state.positionsClosed.length} closed`);
+    const closedBody = document.createElement('div');
+    closedBody.className = 'card-body';
+    
+    const headers = ['Closed Time', 'Symbol', 'Side', 'Qty', 'Entry Price', 'Exit Price', 'P&L', '%P&L'];
+    const rows = state.positionsClosed.slice(0, 20).map(pos => [
+      formatShortTime(pos.closed_at || pos.exit_time || pos.timestamp),
+      pos.symbol || '—',
+      directionBadge(pos.side),
+      pos.quantity || '—',
+      formatCurrency(pos.avg_entry_price || pos.avg_price, 2),
+      formatCurrency(pos.avg_exit_price || pos.exit_price, 2),
+      coloredPnL(pos.realized_pnl || pos.pnl, 2),
+      coloredPercent(pos.pnl_percent || 0, 2)
+    ]);
+    closedBody.appendChild(createTable(headers, rows));
+    closedCard.querySelector('.card-body')?.remove();
+    closedCard.appendChild(closedBody);
+    
+    container.appendChild(closedCard);
+  }
   
   return container;
 }
 
 /**
- * Signals Tab
+ * Signals Tab - Shows all signals with timestamps and direction badges
  */
 function renderSignalsTab() {
   const state = getState();
   const container = document.createElement('div');
   
-  // Signals Card
+  // Signals Card (full width)
   const signalsCard = createCard('All Signals', 
     state.signals.length > 0 ? `${state.signals.length} signals` : '0 signals');
   const signalsBody = document.createElement('div');
@@ -270,14 +367,15 @@ function renderSignalsTab() {
     emptyMsg.textContent = 'No signals yet';
     signalsBody.appendChild(emptyMsg);
   } else {
-    const headers = ['Time', 'Symbol', 'TF', 'Signal', 'Price', 'Strategy'];
+    const headers = ['Time', 'Symbol', 'TF', 'Direction', 'Price', 'Strategy', 'Confidence'];
     const rows = state.signals.map(s => [
-      formatTime(s.ts),
+      formatTime(s.ts || s.timestamp),
       s.symbol || '—',
-      s.tf || '—',
-      s.signal || '—',
+      s.tf || s.timeframe || '—',
+      directionBadge(s.signal || s.direction),
       formatCurrency(s.price, 2),
-      s.strategy || '—'
+      s.strategy || '—',
+      s.confidence ? formatPercent(s.confidence * 100, 1) : (s.score ? formatNumber(s.score, 2) : '—')
     ]);
     signalsBody.appendChild(createTable(headers, rows));
   }
@@ -395,7 +493,7 @@ function renderSystemTab() {
 }
 
 /**
- * Logs Tab
+ * Logs Tab - Engine logs with auto-scroll follow mode and severity filter
  */
 function renderLogsTab() {
   const state = getState();
@@ -427,12 +525,18 @@ function renderLogsTab() {
     <option value="ERROR">ERROR</option>
   `;
   
+  // Add filter handler
+  levelSelect.addEventListener('change', () => {
+    filterAndDisplayLogs(state.logs, levelSelect.value);
+  });
+  
   const followLabel = document.createElement('label');
   followLabel.style.display = 'flex';
   followLabel.style.alignItems = 'center';
   followLabel.style.gap = 'var(--space-2)';
+  followLabel.style.cursor = 'pointer';
   followLabel.innerHTML = `
-    <input type="checkbox" id="log-follow" checked>
+    <input type="checkbox" id="log-follow" checked style="cursor: pointer;">
     <span class="text-sm">Follow logs</span>
   `;
   
@@ -442,24 +546,44 @@ function renderLogsTab() {
   // Logs display
   const logsBody = document.createElement('div');
   logsBody.className = 'card-body';
+  logsBody.id = 'logs-container';
   logsBody.style.maxHeight = '600px';
   logsBody.style.overflowY = 'auto';
+  logsBody.style.position = 'relative';
   
   const logsPre = document.createElement('pre');
   logsPre.id = 'logs-display';
   logsPre.className = 'font-mono text-sm';
   logsPre.style.whiteSpace = 'pre-wrap';
   logsPre.style.margin = '0';
+  logsPre.style.wordBreak = 'break-word';
   
   if (state.logs.length === 0) {
     logsPre.textContent = 'No logs available';
   } else {
     logsPre.textContent = state.logs
-      .map(log => `${log.timestamp || log.ts} [${log.level}] ${log.logger || log.source}: ${log.message}`)
+      .map(log => formatLogEntry(log))
       .join('\n');
   }
   
   logsBody.appendChild(logsPre);
+  
+  // Set up scroll detection for follow mode
+  logsBody.addEventListener('scroll', () => {
+    const followCheckbox = document.getElementById('log-follow');
+    if (!followCheckbox) return;
+    
+    const isNearBottom = logsBody.scrollHeight - logsBody.scrollTop - logsBody.clientHeight < 50;
+    
+    // If user scrolls up, disable follow
+    if (!isNearBottom && followCheckbox.checked) {
+      followCheckbox.checked = false;
+    }
+    // If user scrolls to bottom, enable follow
+    else if (isNearBottom && !followCheckbox.checked) {
+      followCheckbox.checked = true;
+    }
+  });
   
   logsCard.querySelector('.card-body')?.remove();
   logsCard.appendChild(toolbar);
@@ -468,4 +592,44 @@ function renderLogsTab() {
   container.appendChild(logsCard);
   
   return container;
+}
+
+/**
+ * Format a single log entry with timestamp
+ */
+function formatLogEntry(log) {
+  const timestamp = formatTime(log.timestamp || log.ts);
+  const level = (log.level || 'INFO').padEnd(7);
+  const source = (log.logger || log.source || 'system').padEnd(20);
+  return `${timestamp} [${level}] ${source}: ${log.message}`;
+}
+
+/**
+ * Filter and display logs based on severity level
+ */
+function filterAndDisplayLogs(logs, filterLevel) {
+  const logsPre = document.getElementById('logs-display');
+  if (!logsPre) return;
+  
+  let filteredLogs = logs;
+  if (filterLevel) {
+    filteredLogs = logs.filter(log => 
+      (log.level || '').toUpperCase() === filterLevel.toUpperCase()
+    );
+  }
+  
+  if (filteredLogs.length === 0) {
+    logsPre.textContent = `No logs available for level: ${filterLevel || 'ALL'}`;
+  } else {
+    logsPre.textContent = filteredLogs
+      .map(log => formatLogEntry(log))
+      .join('\n');
+  }
+  
+  // Auto-scroll if follow is enabled
+  const followCheckbox = document.getElementById('log-follow');
+  const logsContainer = document.getElementById('logs-container');
+  if (followCheckbox?.checked && logsContainer) {
+    logsContainer.scrollTop = logsContainer.scrollHeight;
+  }
 }
