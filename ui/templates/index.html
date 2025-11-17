@@ -3,114 +3,580 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Arthayukti - HFT Control Panel</title>
-    <link rel="stylesheet" href="/static/css/arthayukti.css">
+    <title>Arthayukti - Dashboard</title>
+    <style>
+        /* 
+         * Arthayukti Dashboard - Dark Theme with Tabbed Layout
+         * Uses CSS variables for consistent theming
+         * Implements: Overview, Engines & Logs, Portfolio, Signals & Strategies, System tabs
+         */
+        
+        :root {
+            /* Color Palette */
+            --bg: #0a0e12;
+            --bg-card: #161b22;
+            --bg-elevated: #1c2128;
+            --bg-hover: #21262d;
+            --text-main: #e6edf3;
+            --text-muted: #8b949e;
+            --text-dim: #6e7681;
+            --accent: #2f81f7;
+            --accent-soft: #1f6feb;
+            --accent-dim: #0d419d;
+            --border-subtle: #30363d;
+            --success: #3fb950;
+            --success-dim: #2ea043;
+            --warning: #d29922;
+            --warning-dim: #9e6a03;
+            --error: #f85149;
+            --error-dim: #da3633;
+            
+            /* Mode badge colors */
+            --paper-bg: #1f6feb;
+            --live-bg: #f85149;
+            --idle-bg: #6e7681;
+            
+            /* Spacing */
+            --spacing-xs: 4px;
+            --spacing-sm: 8px;
+            --spacing-md: 12px;
+            --spacing-lg: 16px;
+            --spacing-xl: 24px;
+            
+            /* Sizes */
+            --navbar-height: 60px;
+            --tabs-height: 48px;
+            --border-radius: 6px;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text-main);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+        
+        /* Navbar - Sticky */
+        .navbar {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            height: var(--navbar-height);
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 var(--spacing-xl);
+        }
+        
+        .navbar-left {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-md);
+        }
+        
+        .brand {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--accent);
+            letter-spacing: -0.5px;
+        }
+        
+        .navbar-center {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-lg);
+        }
+        
+        .mode-badge {
+            padding: var(--spacing-xs) var(--spacing-md);
+            border-radius: var(--border-radius);
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        
+        .mode-badge.paper {
+            background: var(--paper-bg);
+            color: white;
+        }
+        
+        .mode-badge.live {
+            background: var(--live-bg);
+            color: white;
+        }
+        
+        .mode-badge.idle {
+            background: var(--idle-bg);
+            color: white;
+        }
+        
+        .navbar-right {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+        }
+        
+        .server-time {
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+        
+        .server-time .time-value {
+            font-weight: 600;
+            color: var(--text-main);
+            margin-left: var(--spacing-xs);
+        }
+        
+        /* Tabs */
+        .tabs {
+            position: sticky;
+            top: var(--navbar-height);
+            z-index: 99;
+            height: var(--tabs-height);
+            background: var(--bg-elevated);
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            align-items: center;
+            padding: 0 var(--spacing-xl);
+            gap: var(--spacing-sm);
+        }
+        
+        .tab {
+            padding: var(--spacing-sm) var(--spacing-lg);
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s ease;
+        }
+        
+        .tab:hover {
+            color: var(--text-main);
+            background: var(--bg-hover);
+        }
+        
+        .tab.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+        
+        /* Content Area */
+        .content {
+            padding: var(--spacing-xl);
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--border-radius);
+            padding: var(--spacing-lg);
+            margin-bottom: var(--spacing-lg);
+        }
+        
+        .card-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: var(--spacing-md);
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: var(--spacing-lg);
+        }
+        
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        
+        table thead {
+            background: var(--bg-elevated);
+        }
+        
+        table th {
+            padding: var(--spacing-sm) var(--spacing-md);
+            text-align: left;
+            font-weight: 600;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        
+        table td {
+            padding: var(--spacing-sm) var(--spacing-md);
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        
+        table tr:hover {
+            background: var(--bg-hover);
+        }
+        
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: var(--spacing-md);
+            margin-top: var(--spacing-md);
+        }
+        
+        .stat-item {
+            text-align: center;
+            padding: var(--spacing-md);
+            background: var(--bg-elevated);
+            border-radius: var(--border-radius);
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .stat-value {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--text-main);
+            margin-top: var(--spacing-xs);
+        }
+        
+        .stat-value.positive {
+            color: var(--success);
+        }
+        
+        .stat-value.negative {
+            color: var(--error);
+        }
+        
+        /* Logs */
+        .logs-toolbar {
+            display: flex;
+            gap: var(--spacing-md);
+            align-items: center;
+            margin-bottom: var(--spacing-md);
+        }
+        
+        .logs-toolbar select, .logs-toolbar label {
+            font-size: 13px;
+        }
+        
+        .logs-toolbar select {
+            background: var(--bg-elevated);
+            color: var(--text-main);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--border-radius);
+            padding: var(--spacing-xs) var(--spacing-sm);
+        }
+        
+        .logs-container {
+            background: var(--bg);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--border-radius);
+            padding: var(--spacing-md);
+            height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        
+        .log-entry {
+            margin-bottom: var(--spacing-xs);
+            padding: var(--spacing-xs);
+        }
+        
+        .log-entry .timestamp {
+            color: var(--text-dim);
+        }
+        
+        .log-entry .level {
+            font-weight: 600;
+            margin: 0 var(--spacing-xs);
+        }
+        
+        .log-entry .level.INFO {
+            color: var(--success);
+        }
+        
+        .log-entry .level.WARNING {
+            color: var(--warning);
+        }
+        
+        .log-entry .level.ERROR {
+            color: var(--error);
+        }
+        
+        .log-entry .message {
+            color: var(--text-main);
+        }
+        
+        /* Loading/Error States */
+        .loading {
+            text-align: center;
+            padding: var(--spacing-xl);
+            color: var(--text-muted);
+        }
+        
+        .error {
+            text-align: center;
+            padding: var(--spacing-xl);
+            color: var(--error);
+        }
+        
+        /* Badges */
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .badge.success {
+            background: var(--success-dim);
+            color: white;
+        }
+        
+        .badge.warning {
+            background: var(--warning-dim);
+            color: white;
+        }
+        
+        .badge.error {
+            background: var(--error-dim);
+            color: white;
+        }
+        
+        .badge.info {
+            background: var(--accent-dim);
+            color: white;
+        }
+        
+        /* Button */
+        button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: var(--spacing-sm) var(--spacing-lg);
+            border-radius: var(--border-radius);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+        
+        button:hover {
+            background: var(--accent-soft);
+        }
+        
+        /* Utilities */
+        .text-muted {
+            color: var(--text-muted);
+        }
+        
+        .text-success {
+            color: var(--success);
+        }
+        
+        .text-error {
+            color: var(--error);
+        }
+        
+        .text-warning {
+            color: var(--warning);
+        }
+    </style>
 </head>
 <body>
-    <!-- Main Dashboard Container -->
-    <div class="dashboard-container">
-        
-        <!-- Top Bar -->
-        <header class="topbar">
-            <div class="topbar-left">
-                <div class="brand">
-                    <span class="brand-logo">A</span>
-                    <div class="brand-text">
-                        <h1>Arthayukti</h1>
-                        <span class="brand-subtitle">HFT Control Panel</span>
-                    </div>
-                </div>
+    <!-- Sticky Navbar -->
+    <nav class="navbar">
+        <div class="navbar-left">
+            <div class="brand">Arthayukti</div>
+        </div>
+        <div class="navbar-center">
+            <span class="mode-badge idle" id="mode-badge">CHECKING...</span>
+        </div>
+        <div class="navbar-right">
+            <div class="server-time">
+                <span>Server Time:</span>
+                <span class="time-value" id="server-time">--:--:--</span>
             </div>
-            
-            <div class="topbar-center">
-                <div class="mode-indicator" id="mode-indicator">
-                    <span class="mode-badge" id="mode-badge">PAPER</span>
-                </div>
-                <div class="status-pills" id="status-pills">
-                    <span class="status-pill" id="market-status-pill">MARKET CLOSED</span>
-                </div>
-            </div>
-            
-            <div class="topbar-right">
-                <div class="server-time">
-                    <span class="time-label">Server Time</span>
-                    <span class="time-value" id="server-time">--:--:--</span>
-                </div>
-            </div>
-        </header>
-
-        <!-- Main Content Area -->
-        <main class="main-content">
-            
-            <!-- Mode & Engines Panel -->
-            <section class="panel panel-engines">
-                <div class="panel-header">
-                    <h2>Mode & Engines</h2>
-                    <span class="badge" id="engines-badge">Checking...</span>
-                </div>
-                <div class="panel-body" id="engines-panel-body">
-                    <div class="loading">Loading engine status...</div>
-                </div>
-            </section>
-
-            <!-- Portfolio / Positions Panel -->
-            <section class="panel panel-portfolio">
-                <div class="panel-header">
-                    <h2>Portfolio & Positions</h2>
-                    <span class="badge" id="portfolio-badge">--</span>
-                </div>
-                <div class="panel-body" id="portfolio-panel-body">
-                    <div class="loading">Loading portfolio...</div>
-                </div>
-            </section>
-
-            <!-- Logs / Events Panel -->
-            <section class="panel panel-logs">
-                <div class="panel-header">
-                    <h2>Logs / Events</h2>
-                    <div class="panel-controls">
-                        <select id="log-filter" class="log-filter">
-                            <option value="">All Logs</option>
-                            <option value="engine">Engine</option>
-                            <option value="trades">Trades</option>
-                            <option value="signals">Signals</option>
-                            <option value="system">System</option>
-                        </select>
-                        <button class="btn-icon" id="logs-refresh" title="Refresh logs">↻</button>
-                    </div>
-                </div>
-                <div class="panel-body panel-body-logs" id="logs-panel-body">
-                    <pre class="logs-view" id="logs-view">Loading logs...</pre>
-                </div>
-            </section>
-
-            <!-- Signals / Strategies Panel -->
-            <section class="panel panel-signals">
-                <div class="panel-header">
-                    <h2>Signals & Strategies</h2>
-                    <span class="badge" id="signals-count-badge">0</span>
-                </div>
-                <div class="panel-body" id="signals-panel-body">
-                    <div class="loading">Loading signals...</div>
-                </div>
-            </section>
-
-            <!-- Health / Meta Panel -->
-            <section class="panel panel-meta">
-                <div class="panel-header">
-                    <h2>System Health & Meta</h2>
-                    <span class="badge" id="health-badge">--</span>
-                </div>
-                <div class="panel-body" id="meta-panel-body">
-                    <div class="loading">Loading system info...</div>
-                </div>
-            </section>
-
-        </main>
-
+        </div>
+    </nav>
+    
+    <!-- Tabs -->
+    <div class="tabs">
+        <button class="tab active" data-tab="overview">Overview</button>
+        <button class="tab" data-tab="engines">Engines & Logs</button>
+        <button class="tab" data-tab="portfolio">Portfolio</button>
+        <button class="tab" data-tab="signals">Signals & Strategies</button>
+        <button class="tab" data-tab="system">System</button>
     </div>
-
-    <!-- Load JavaScript -->
-    <script src="/static/js/arthayukti.js"></script>
+    
+    <!-- Content -->
+    <div class="content">
+        <!-- Overview Tab -->
+        <div class="tab-content active" id="tab-overview">
+            <div class="card-grid">
+                <div class="card">
+                    <div class="card-title">Mode & Status</div>
+                    <div id="overview-mode-status">
+                        <div class="loading">Loading...</div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-title">Portfolio Snapshot</div>
+                    <div id="overview-portfolio">
+                        <div class="loading">Loading...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-title">Key Signals (Last 5)</div>
+                <div id="overview-signals">
+                    <div class="loading">Loading...</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Engines & Logs Tab -->
+        <div class="tab-content" id="tab-engines">
+            <div class="card">
+                <div class="card-title">Engines Status</div>
+                <div id="engines-status">
+                    <div class="loading">Loading...</div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-title">Logs</div>
+                <div class="logs-toolbar">
+                    <label>
+                        Severity:
+                        <select id="log-severity-filter">
+                            <option value="">ALL</option>
+                            <option value="INFO">INFO</option>
+                            <option value="WARNING">WARNING</option>
+                            <option value="ERROR">ERROR</option>
+                        </select>
+                    </label>
+                    <label>
+                        <input type="checkbox" id="log-follow" checked> Follow logs
+                    </label>
+                </div>
+                <div class="logs-container" id="logs-container">
+                    <div class="loading">Loading logs...</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Portfolio Tab -->
+        <div class="tab-content" id="tab-portfolio">
+            <div class="card">
+                <div class="card-title">Portfolio Summary</div>
+                <div id="portfolio-summary">
+                    <div class="loading">Loading...</div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-title">Open Positions</div>
+                <div id="portfolio-positions">
+                    <div class="loading">Loading...</div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-title">Recent Orders</div>
+                <div id="portfolio-orders">
+                    <div class="loading">Loading...</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Signals & Strategies Tab -->
+        <div class="tab-content" id="tab-signals">
+            <div class="card">
+                <div class="card-title">Strategies</div>
+                <div id="strategies-table">
+                    <div class="loading">Loading...</div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-title">Recent Signals</div>
+                <div id="signals-table">
+                    <div class="loading">Loading...</div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-title">Scanner Snapshot</div>
+                <div id="scanner-snapshot">
+                    <div class="loading">Loading...</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- System Tab -->
+        <div class="tab-content" id="tab-system">
+            <div class="card">
+                <div class="card-title">System Info</div>
+                <div id="system-info">
+                    <div class="loading">Loading...</div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-title">Configuration Summary</div>
+                <div id="config-summary">
+                    <div class="loading">Loading...</div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-title">
+                    Debug / Raw JSON
+                    <button id="toggle-debug">Show</button>
+                </div>
+                <div id="debug-json" style="display: none;">
+                    <pre style="background: var(--bg); padding: var(--spacing-md); border-radius: var(--border-radius); overflow-x: auto; font-size: 12px;"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/static/dashboard_tabs.js"></script>
 </body>
 </html>
