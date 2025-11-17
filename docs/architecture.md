@@ -8,13 +8,31 @@ This document describes the architecture of the kite-algo-minimal algorithmic tr
 
 ## Changelog (Latest Refinements)
 
-**2025-11-17 – Architecture refinement v2 with component status and clarifications:**
+**2025-11-17 – Architecture refinement v2 - All requested improvements completed:**
 
-- **Added "Component Status" section** to clarify which components exist vs. planned/WIP
-- **Verified all major components**: All scripts, engines, core modules, and docs exist and are operational
-- **Clarified partial implementations**: Live options/equity trading and multi-process architecture are planned
-- **Confirmed existing sections**: Data Validation & Fault Tolerance, Debugging & Observability, Process Model (current vs future), and Equity Universe (NIFTY 50/100) sections are accurate and complete
-- **No breaking changes**: Document structure preserved, only status clarifications added
+- **✅ Added "Component Status" section** to clarify which components exist vs. planned/WIP
+  - Verified all major components exist: scripts, engines, core modules, and docs
+  - Explicitly marked live options/equity trading and multi-process architecture as WIP/planned
+- **✅ Added "Current vs Future" subsection** in "Process & Concurrency Model"
+  - CURRENT: All engines run as threads in single process, dashboard as separate uvicorn
+  - FUTURE: Multi-process with message queue/Redis for IPC
+  - Added performance considerations explaining I/O-bound workload and GIL implications
+- **✅ Verified "Data Validation & Fault Tolerance" section** (already complete)
+  - Documents behavior when LTP fetch fails or returns None
+  - Documents behavior when indicators are not ready (insufficient history)
+  - Shows implementation patterns with code examples
+  - References specific TypeError runtime errors now prevented
+  - Confirms analytics layer guardrails (only log signals with valid numeric price)
+- **✅ Verified "Debugging & Observability" section** (already complete)
+  - Documents debugging no-trade scenarios (only HOLD signals)
+  - Documents debugging per-symbol errors
+  - Explains using signals.csv, orders.csv, JSON event logs, and engine logs
+  - Documents optional LOG_REASON_FOR_HOLD flag for deep debugging
+- **✅ Verified "Universe and Instruments" equity section** (already accurate)
+  - Explicitly mentions NIFTY 50 and NIFTY 100 restriction with min_price filter
+  - Documents scanner output structure with equity_universe key
+  - Explains equity engine only loops over filtered universe
+  - Shows actual file naming: artifacts/scanner/YYYY-MM-DD/universe.json
 
 **Previous Updates (2025-11-17):**
 
