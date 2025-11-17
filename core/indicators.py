@@ -479,3 +479,99 @@ def hl3(high: NumericSeries, low: NumericSeries, close: NumericSeries,
                   for i in range(len(high_data))]
     
     return hl3_values if return_series else hl3_values[-1]
+
+
+def compute_bundle(
+    series: Dict[str, List[float]],
+    config: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Compute a unified bundle of indicators for Strategy Engine v3.
+    
+    This is the primary indicator computation function for v3 strategies.
+    It computes all standard indicators and returns them in a dictionary.
+    
+    Args:
+        series: Dict with keys: open, high, low, close, volume (lists)
+        config: Optional configuration for indicator parameters
+    
+    Returns:
+        Dictionary of computed indicators with keys like:
+        - ema9, ema20, ema50, ema100, ema200
+        - sma20, sma50
+        - rsi14
+        - atr14
+        - bb_upper, bb_middle, bb_lower
+        - vwap
+        - slope10
+        - trend (derived from EMAs)
+    """
+    config = config or {}
+    close = series.get("close", [])
+    high = series.get("high", [])
+    low = series.get("low", [])
+    volume = series.get("volume", [])
+    
+    if not close or len(close) < 20:
+        return {}
+    
+    bundle = {}
+    
+    try:
+        # EMAs
+        if len(close) >= 9:
+            bundle["ema9"] = ema(close, 9)
+        if len(close) >= 20:
+            bundle["ema20"] = ema(close, 20)
+        if len(close) >= 50:
+            bundle["ema50"] = ema(close, 50)
+        if len(close) >= 100:
+            bundle["ema100"] = ema(close, 100)
+        if len(close) >= 200:
+            bundle["ema200"] = ema(close, 200)
+        
+        # SMAs
+        if len(close) >= 20:
+            bundle["sma20"] = sma(close, 20)
+        if len(close) >= 50:
+            bundle["sma50"] = sma(close, 50)
+        
+        # RSI
+        if len(close) >= 15:
+            bundle["rsi14"] = rsi(close, 14)
+        
+        # ATR
+        if len(high) >= 14 and len(low) >= 14:
+            bundle["atr14"] = atr(high, low, close, 14)
+        
+        # Bollinger Bands
+        if len(close) >= 20:
+            bb = bollinger(close, 20, 2.0)
+            bundle["bb_upper"] = bb["upper"]
+            bundle["bb_middle"] = bb["middle"]
+            bundle["bb_lower"] = bb["lower"]
+        
+        # VWAP
+        if volume and len(volume) == len(close):
+            bundle["vwap"] = vwap(close, volume)
+        
+        # Slope
+        if len(close) >= 10:
+            bundle["slope10"] = slope(close, 10)
+        
+        # HL2/HL3
+        if high and low:
+            bundle["hl2"] = hl2(high, low)
+            bundle["hl3"] = hl3(high, low, close)
+        
+        # Trend determination
+        if "ema20" in bundle and "ema50" in bundle:
+            bundle["trend"] = "up" if bundle["ema20"] > bundle["ema50"] else "down"
+        
+    except Exception as e:
+        # Log error but don't crash - return partial bundle
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning("Error computing indicator bundle: %s", e)
+    
+    return bundle

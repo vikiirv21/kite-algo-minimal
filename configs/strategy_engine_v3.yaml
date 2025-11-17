@@ -1,0 +1,76 @@
+# Strategy Engine v3 Configuration
+# Multi-strategy fusion with multi-timeframe confirmation
+
+strategy_engine_v3:
+  # Timeframes
+  primary_tf: "5m"      # Primary timeframe for signal generation
+  secondary_tf: "15m"   # Secondary timeframe for trend confirmation
+  
+  # Strategy registry - list of strategies to enable
+  strategies:
+    - id: ema20_50
+      enabled: true
+    
+    - id: trend
+      enabled: true
+      adx_threshold: 20
+    
+    - id: rsi_pullback
+      enabled: true
+      rsi_oversold: 35
+      rsi_overbought: 65
+    
+    - id: vwap_filter
+      enabled: true
+    
+    - id: vol_regime
+      enabled: true
+      low_vol_threshold: 0.015
+    
+    - id: htf_trend
+      enabled: true
+  
+  # Playbook definitions for setup classification
+  playbooks:
+    trend_follow_breakout:
+      description: "Strong trend with EMA alignment and ADX confirmation"
+      adx_min: 20
+      ema_alignment_required: true
+      confidence_boost: 0.1
+    
+    pullback_buy:
+      description: "Mean reversion buy in uptrend"
+      ema_alignment_required: true
+      rsi_oversold: 35
+      confidence_boost: 0.05
+    
+    pullback_sell:
+      description: "Mean reversion sell in downtrend"
+      ema_alignment_required: true
+      rsi_overbought: 65
+      confidence_boost: 0.05
+    
+    volatility_squeeze_break:
+      description: "Breakout from low volatility compression"
+      bb_width_max: 3.0
+      atr_threshold_pct: 1.5
+      confidence_boost: 0.15
+    
+    momentum:
+      description: "General momentum play"
+      confidence_boost: 0.0
+  
+  # Fusion parameters
+  fusion:
+    min_confidence: 0.5              # Minimum confidence to allow trade
+    conflict_resolution: "weighted"  # "weighted", "highest", or "veto"
+    require_htf_alignment: true      # Require secondary TF trend alignment
+  
+  # Filters
+  filters:
+    vol_regime:
+      min_atr_pct: 0.5    # Minimum volatility (ATR% of price)
+      max_atr_pct: 10.0   # Maximum volatility
+    
+    trend_alignment:
+      enabled: true       # Require signals to align with primary trend
