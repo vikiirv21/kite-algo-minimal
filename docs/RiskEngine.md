@@ -139,5 +139,11 @@ decision = risk_engine.check_entry(trade_context)
 risk_engine.update_state(fill_info)
 ```
 
+## See Also
+
+- **System Architecture**: For overall system design, see [HFT-System-Architecture-kite-algo-minimal.md](HFT-System-Architecture-kite-algo-minimal.md)
+- **Strategies**: See [Strategies.md](Strategies.md) for strategy development with risk constraints
+- **Commands**: See [Commands.md](Commands.md) for configuring risk parameters
+
 ---
 *Auto-generated on 2025-11-15T21:51:37.960899+00:00*
