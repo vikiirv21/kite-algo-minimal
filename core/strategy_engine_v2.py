@@ -28,6 +28,40 @@ except ImportError:
     StrategyOrchestrator = None
 
 
+class StrategySignal:
+    """
+    Normalized signal from a strategy before filtering.
+    
+    This is the standardized format all raw signals are converted to.
+    """
+    
+    def __init__(
+        self,
+        timestamp: datetime,
+        symbol: str,
+        strategy_name: str,
+        direction: str,  # "long", "short", "flat"
+        strength: float = 0.0,  # Confidence/score (0-1)
+        tags: Optional[Dict[str, Any]] = None,
+    ):
+        self.timestamp = timestamp
+        self.symbol = symbol
+        self.strategy_name = strategy_name
+        self.direction = direction.lower()
+        self.strength = max(0.0, min(1.0, strength))  # Clamp to [0, 1]
+        self.tags = tags or {}
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "timestamp": self.timestamp.isoformat(),
+            "symbol": self.symbol,
+            "strategy_name": self.strategy_name,
+            "direction": self.direction,
+            "strength": self.strength,
+            "tags": self.tags,
+        }
+
+
 class OrderIntent:
     """Represents a trading intent from a strategy before risk checks."""
     
@@ -68,6 +102,14 @@ class StrategyState:
         self.positions: Dict[str, Dict[str, Any]] = {}  # symbol -> position info
         self.signals: List[Dict[str, Any]] = []
         self.metadata: Dict[str, Any] = {}
+        
+        # Per-strategy risk tracking
+        self.trades_today: int = 0
+        self.win_streak: int = 0
+        self.loss_streak: int = 0
+        self.recent_pnl: float = 0.0
+        self.last_signal_time: Optional[datetime] = None
+        self.recent_decisions: List[Dict[str, Any]] = []  # Last N signal decisions
     
     def is_position_open(self, symbol: str) -> bool:
         """Check if position is open for symbol."""
@@ -91,6 +133,30 @@ class StrategyState:
                 "entry_price": entry_price,
                 "entry_time": datetime.utcnow().isoformat()
             }
+    
+    def record_decision(self, symbol: str, decision: str, confidence: float, reason: str):
+        """Record a signal decision for analytics."""
+        entry = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "symbol": symbol,
+            "decision": decision,
+            "confidence": confidence,
+            "reason": reason,
+        }
+        self.recent_decisions.append(entry)
+        # Keep only last 20 decisions
+        if len(self.recent_decisions) > 20:
+            self.recent_decisions = self.recent_decisions[-20:]
+    
+    def update_pnl(self, pnl_delta: float):
+        """Update PnL tracking and win/loss streaks."""
+        self.recent_pnl += pnl_delta
+        if pnl_delta > 0:
+            self.win_streak += 1
+            self.loss_streak = 0
+        elif pnl_delta < 0:
+            self.loss_streak += 1
+            self.win_streak = 0
 
 
 class BaseStrategy(ABC):
@@ -211,19 +277,25 @@ class StrategyEngineV2:
         portfolio_engine: Optional[Any] = None,
         analytics_engine: Optional[Any] = None,
         regime_engine: Optional[Any] = None,
-        logger: Optional[logging.Logger] = None
+        logger: Optional[logging.Logger] = None,
+        risk_engine: Optional[Any] = None,
+        logger_instance: Optional[logging.Logger] = None,
+        market_data_engine_v2: Optional[Any] = None,
+        state_store: Optional[Any] = None,
+        analytics: Optional[Any] = None,
     ):
         self.config = config
         self.mde = mde
         self.portfolio_engine = portfolio_engine
-        self.analytics_engine = analytics_engine
+        self.analytics_engine = analytics_engine or analytics
         self.regime_engine = regime_engine
-        self.logger = logger or logging.getLogger(__name__)
+        self.logger = logger_instance or logger or logging.getLogger(__name__)
         
         # Backward compatibility aliases
         self.market_data = mde
-        self.market_data_v2 = None  # Optional MDE v2 instance
-        self.risk_engine = None
+        self.market_data_v2 = market_data_engine_v2  # Optional MDE v2 instance
+        self.risk_engine = risk_engine
+        self.state_store = state_store
         
         # Strategy registry
         self.strategies: Dict[str, BaseStrategy] = {}
@@ -232,6 +304,14 @@ class StrategyEngineV2:
         # Configuration
         self.window_size = config.get("history_lookback", 200)
         self.enabled_strategies = config.get("strategies", [])
+        
+        # Conflict resolution config
+        self.conflict_resolution_mode = config.get("conflict_resolution", "highest_confidence")
+        self.strategy_priorities: Dict[str, int] = config.get("strategy_priorities", {})
+        
+        # Filtering config
+        self.max_trades_per_day = config.get("max_trades_per_day", 10)
+        self.max_loss_streak = config.get("max_loss_streak", 3)
         
         # Paper engine reference (for execution)
         self.paper_engine = None
@@ -243,6 +323,8 @@ class StrategyEngineV2:
         self.logger.info("StrategyEngineV2 initialized with %d strategies", len(self.enabled_strategies))
         if self.regime_engine:
             self.logger.info("StrategyEngineV2: RegimeEngine enabled")
+        if self.conflict_resolution_mode:
+            self.logger.info("StrategyEngineV2: Conflict resolution mode: %s", self.conflict_resolution_mode)
     
     def register_strategy(self, strategy_code: str, strategy: BaseStrategy):
         """Register a strategy instance."""
@@ -558,6 +640,280 @@ class StrategyEngineV2:
             
         except Exception as e:
             self.logger.exception("Failed to execute intent for %s: %s", symbol, e)
+    
+    def normalize_signal(self, decision: Decision, strategy_code: str, symbol: str) -> Optional[StrategySignal]:
+        """
+        Normalize a raw strategy decision into a StrategySignal.
+        
+        Args:
+            decision: Raw decision from strategy
+            strategy_code: Strategy identifier
+            symbol: Trading symbol
+        
+        Returns:
+            Normalized StrategySignal or None if invalid
+        """
+        if not decision or not decision.action:
+            return None
+        
+        action = decision.action.upper()
+        
+        # Map action to direction
+        if action in ["BUY", "LONG"]:
+            direction = "long"
+        elif action in ["SELL", "SHORT"]:
+            direction = "short"
+        elif action in ["EXIT", "FLAT", "CLOSE"]:
+            direction = "flat"
+        elif action == "HOLD":
+            return None  # No signal for HOLD
+        else:
+            self.logger.warning("Unknown action %s from strategy %s", action, strategy_code)
+            return None
+        
+        # Create normalized signal
+        signal = StrategySignal(
+            timestamp=datetime.utcnow().replace(tzinfo=timezone.utc),
+            symbol=symbol,
+            strategy_name=strategy_code,
+            direction=direction,
+            strength=getattr(decision, "confidence", 0.0),
+            tags={
+                "reason": getattr(decision, "reason", ""),
+                "mode": getattr(decision, "mode", ""),
+            }
+        )
+        
+        return signal
+    
+    def filter_signal_basic(self, signal: StrategySignal) -> Tuple[bool, str]:
+        """
+        Basic validity filter: market open, tradable symbol, etc.
+        
+        Returns:
+            (allowed, reason)
+        """
+        # Check if market is open (simplified - can be enhanced)
+        try:
+            from core.market_session import is_market_open
+            if not is_market_open():
+                return False, "market_closed"
+        except Exception:
+            pass  # Market session check not available
+        
+        # Check symbol validity
+        if not signal.symbol or signal.symbol.strip() == "":
+            return False, "invalid_symbol"
+        
+        # Check direction validity
+        if signal.direction not in ["long", "short", "flat"]:
+            return False, "invalid_direction"
+        
+        return True, "passed_basic"
+    
+    def filter_signal_risk(self, signal: StrategySignal, state: StrategyState) -> Tuple[bool, str]:
+        """
+        Per-strategy risk filter: max trades/day, loss streaks, etc.
+        
+        Returns:
+            (allowed, reason)
+        """
+        # Check max trades per day
+        if state.trades_today >= self.max_trades_per_day:
+            return False, f"max_trades_per_day:{self.max_trades_per_day}"
+        
+        # Check loss streak
+        if state.loss_streak >= self.max_loss_streak:
+            return False, f"loss_streak:{state.loss_streak}"
+        
+        # Check recent PnL (can be enhanced with more sophisticated checks)
+        # For now, just basic checks
+        
+        return True, "passed_risk"
+    
+    def resolve_conflicts(self, signals: List[StrategySignal]) -> List[StrategySignal]:
+        """
+        Resolve conflicts when multiple strategies emit signals on the same symbol.
+        
+        Args:
+            signals: List of signals from different strategies
+        
+        Returns:
+            Filtered list of signals with conflicts resolved
+        """
+        if len(signals) <= 1:
+            return signals
+        
+        # Group signals by symbol
+        by_symbol: Dict[str, List[StrategySignal]] = {}
+        for signal in signals:
+            if signal.symbol not in by_symbol:
+                by_symbol[signal.symbol] = []
+            by_symbol[signal.symbol].append(signal)
+        
+        resolved = []
+        
+        for symbol, symbol_signals in by_symbol.items():
+            if len(symbol_signals) == 1:
+                resolved.append(symbol_signals[0])
+                continue
+            
+            # Check for conflicting directions
+            directions = set(s.direction for s in symbol_signals)
+            
+            if len(directions) == 1:
+                # All strategies agree on direction - use highest confidence
+                best = max(symbol_signals, key=lambda s: s.strength)
+                resolved.append(best)
+                self.logger.info(
+                    "Multiple strategies agree on %s %s, using %s (conf=%.2f)",
+                    symbol, directions.pop(), best.strategy_name, best.strength
+                )
+            else:
+                # Conflicting directions - apply resolution strategy
+                winner = self._resolve_conflict_by_mode(symbol_signals)
+                if winner:
+                    resolved.append(winner)
+                    self.logger.info(
+                        "Conflict resolved for %s: %s %s (conf=%.2f)",
+                        symbol, winner.strategy_name, winner.direction, winner.strength
+                    )
+                else:
+                    self.logger.info("Conflict for %s: no winner, skipping", symbol)
+        
+        return resolved
+    
+    def _resolve_conflict_by_mode(self, signals: List[StrategySignal]) -> Optional[StrategySignal]:
+        """
+        Apply conflict resolution strategy based on configured mode.
+        
+        Returns:
+            Winning signal or None if conflict cannot be resolved
+        """
+        if self.conflict_resolution_mode == "highest_confidence":
+            # Use signal with highest confidence
+            return max(signals, key=lambda s: s.strength)
+        
+        elif self.conflict_resolution_mode == "priority":
+            # Use strategy priorities
+            def priority(signal: StrategySignal) -> int:
+                return self.strategy_priorities.get(signal.strategy_name, 0)
+            
+            sorted_signals = sorted(signals, key=priority, reverse=True)
+            return sorted_signals[0] if sorted_signals else None
+        
+        elif self.conflict_resolution_mode == "net_out":
+            # Net out conflicting signals - if conflict is strong, skip
+            # Count long vs short signals weighted by confidence
+            long_weight = sum(s.strength for s in signals if s.direction == "long")
+            short_weight = sum(s.strength for s in signals if s.direction == "short")
+            
+            # If net is strong enough, use it
+            net_diff = abs(long_weight - short_weight)
+            if net_diff > 0.5:  # Threshold
+                if long_weight > short_weight:
+                    return max((s for s in signals if s.direction == "long"), key=lambda s: s.strength)
+                else:
+                    return max((s for s in signals if s.direction == "short"), key=lambda s: s.strength)
+            else:
+                # Net is too weak, skip
+                return None
+        
+        else:
+            # Default: highest confidence
+            return max(signals, key=lambda s: s.strength)
+    
+    def generate_decisions(
+        self,
+        market_snapshot: Dict[str, Any],
+        state: Dict[str, Any],
+        strategies: List[str]
+    ) -> List[OrderIntent]:
+        """
+        Generate execution-ready decisions from market data.
+        
+        This is the main entry point for PaperEngine to get trading decisions.
+        
+        Args:
+            market_snapshot: Current market data (prices, volumes, etc.)
+            state: Current portfolio state
+            strategies: List of strategy codes to run
+        
+        Returns:
+            List of execution-ready OrderIntent objects
+        """
+        all_signals: List[StrategySignal] = []
+        
+        # Run each strategy and collect signals
+        for strategy_code in strategies:
+            if strategy_code not in self.strategies:
+                continue
+            
+            strategy_state = self.strategy_states.get(strategy_code, StrategyState())
+            
+            # Get symbols from market snapshot
+            symbols = list(market_snapshot.keys()) if isinstance(market_snapshot, dict) else []
+            
+            for symbol in symbols:
+                # Run strategy for this symbol
+                intents = self.run_strategy(strategy_code, symbol, self.config.get("timeframe", "5m"))
+                
+                # Convert intents to signals for filtering
+                for intent in intents:
+                    # Create decision from intent
+                    decision = Decision(
+                        action=intent.action,
+                        reason=intent.reason,
+                        confidence=intent.confidence
+                    )
+                    
+                    # Normalize to signal
+                    signal = self.normalize_signal(decision, strategy_code, symbol)
+                    if signal:
+                        # Apply filters
+                        basic_ok, basic_reason = self.filter_signal_basic(signal)
+                        if not basic_ok:
+                            self.logger.debug("Signal rejected (basic): %s - %s", signal.strategy_name, basic_reason)
+                            continue
+                        
+                        risk_ok, risk_reason = self.filter_signal_risk(signal, strategy_state)
+                        if not risk_ok:
+                            self.logger.debug("Signal rejected (risk): %s - %s", signal.strategy_name, risk_reason)
+                            continue
+                        
+                        # Record decision
+                        strategy_state.record_decision(symbol, signal.direction, signal.strength, signal.tags.get("reason", ""))
+                        
+                        all_signals.append(signal)
+        
+        # Resolve conflicts
+        resolved_signals = self.resolve_conflicts(all_signals)
+        
+        # Convert signals back to OrderIntents for execution
+        decisions: List[OrderIntent] = []
+        for signal in resolved_signals:
+            # Map direction back to action
+            if signal.direction == "long":
+                action = "BUY"
+            elif signal.direction == "short":
+                action = "SELL"
+            elif signal.direction == "flat":
+                action = "EXIT"
+            else:
+                continue
+            
+            intent = OrderIntent(
+                symbol=signal.symbol,
+                action=action,
+                qty=None,  # Will be determined by portfolio engine
+                reason=signal.tags.get("reason", ""),
+                strategy_code=signal.strategy_name,
+                confidence=signal.strength,
+                metadata=signal.tags
+            )
+            decisions.append(intent)
+        
+        return decisions
     
     def on_candle_close(self, symbol: str, timeframe: str, candle: Dict[str, Any]) -> None:
         """

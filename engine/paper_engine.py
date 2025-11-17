@@ -656,19 +656,26 @@ class PaperEngine:
                 "history_lookback": strategy_engine_config.get("window_size", 200),
                 "strategies": strategy_engine_config.get("strategies_v2", []),
                 "timeframe": self.default_timeframe,
+                "conflict_resolution": strategy_engine_config.get("conflict_resolution", "highest_confidence"),
+                "strategy_priorities": strategy_engine_config.get("strategy_priorities", {}),
+                "max_trades_per_day": strategy_engine_config.get("max_trades_per_day", 10),
+                "max_loss_streak": strategy_engine_config.get("max_loss_streak", 3),
             }
             # Copy the full config for orchestrator access
             full_config = dict(self.cfg.raw) if hasattr(self.cfg, 'raw') else {}
             full_config.update(v2_config)
             
             self.strategy_engine_v2 = StrategyEngineV2(
-                full_config,
-                self.market_data_engine,
-                risk_engine=None,  # Will be set later
+                config=full_config,
+                mde=self.market_data_engine,
+                portfolio_engine=self.portfolio_engine,
+                analytics_engine=None,  # Analytics can be added later if needed
+                regime_engine=self.regime_detector,
                 logger_instance=logger,
+                risk_engine=None,  # Will be set after initialization
                 market_data_engine_v2=self.market_data_engine_v2,
                 state_store=self.state_store,
-                analytics=None  # Analytics can be added later if needed
+                analytics=None,
             )
             self.strategy_engine_v2.set_paper_engine(self)
             
@@ -688,6 +695,7 @@ class PaperEngine:
                         "timeframe": self.default_timeframe,
                         "ema_fast": 20,
                         "ema_slow": 50,
+                        "current_symbol": None,  # Will be set per-run
                     }
                     strategy = EMA2050IntradayV2(strategy_config, state)
                     self.strategy_engine_v2.register_strategy(strategy_code, strategy)
