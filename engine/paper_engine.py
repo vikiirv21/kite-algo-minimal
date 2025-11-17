@@ -618,7 +618,8 @@ class PaperEngine:
         self.guardian = None
         try:
             from core.trade_guardian import TradeGuardian
-            self.guardian = TradeGuardian(self.cfg.raw, self.checkpoint_store, logger)
+            # Use self.state_store instead of self.checkpoint_store which doesn't exist
+            self.guardian = TradeGuardian(self.cfg.raw, self.state_store, logger)
         except Exception as exc:
             logger.warning("Failed to initialize TradeGuardian: %s", exc)
         
@@ -646,7 +647,13 @@ class PaperEngine:
                 self.portfolio_engine = None
         
         # Initialize Strategy Engine (v1, v2, or v3 based on config)
-        strategy_engine_config = self.cfg.raw.get("strategy_engine", {})
+        # Normalize strategy_engine_config - handle None/null values
+        strategy_engine_config = self.cfg.raw.get("strategy_engine")
+        if strategy_engine_config is None:
+            logger.warning("No strategy_engine config provided, v2 strategies will not be registered")
+            strategy_engine_config = {}
+        self.strategy_engine_config = strategy_engine_config
+        
         strategy_engine_version = strategy_engine_config.get("version", 1)
         strategy_engine_mode = strategy_engine_config.get("mode", "").lower()  # Can be "v3" to force v3
         
@@ -731,8 +738,17 @@ class PaperEngine:
                 )
                 logger.info("Wired MDE v2 candle_close events to StrategyEngineV2")
             
+            # Register v2 strategies - safely handle None or empty lists
+            strategy_engine_config = self.strategy_engine_config or {}
+            strategies_v2 = strategy_engine_config.get("strategies_v2") or []
+            strategies_v1 = strategy_engine_config.get("strategies") or []
+            
+            # Warn if no strategies are configured
+            if not strategies_v2 and not strategies_v1:
+                logger.warning("No strategies configured (strategies_v2 and strategies are both empty). Engine will run in idle mode.")
+            
             # Register v2 strategies
-            for strategy_code in strategy_engine_config.get("strategies_v2", []):
+            for strategy_code in strategies_v2:
                 if strategy_code == "ema20_50_intraday_v2":
                     state = StrategyState()
                     strategy_config = {
@@ -747,8 +763,7 @@ class PaperEngine:
                     logger.info("Registered v2 strategy: %s", strategy_code)
             
             self.strategy_runner = None  # Disable v1 when using v2
-            logger.info("Strategy Engine v2 initialized with %d strategies", 
-                       len(strategy_engine_config.get("strategies_v2", [])))
+            logger.info("Strategy Engine v2 initialized with %d strategies", len(strategies_v2))
         else:
             # Use legacy Strategy Engine v1
             if strategy_engine_version == 2:
