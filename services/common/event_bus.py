@@ -188,11 +188,24 @@ class InMemoryEventBus(EventBus):
         """
         Dispatch an event to all subscribed handlers.
         
+        Supports wildcard matching: if a subscription ends with '*',
+        it matches all topics that start with the prefix before '*'.
+        
         Args:
             event: Event to dispatch
         """
+        handlers = []
+        
         with self._lock:
-            handlers = self._subscribers.get(event.type, [])
+            # Exact match
+            handlers.extend(self._subscribers.get(event.type, []))
+            
+            # Wildcard prefix matching
+            for topic_pattern, pattern_handlers in self._subscribers.items():
+                if topic_pattern.endswith('*'):
+                    prefix = topic_pattern[:-1]  # Remove trailing '*'
+                    if event.type.startswith(prefix):
+                        handlers.extend(pattern_handlers)
         
         for handler in handlers:
             try:
