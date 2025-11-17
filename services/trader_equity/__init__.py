@@ -1,0 +1,1 @@
+"""Equity cash trading service."""
