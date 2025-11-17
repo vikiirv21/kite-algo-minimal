@@ -354,5 +354,11 @@ python scripts/run_backtest.py --strategy NEW_STRATEGY
 # 5. Refine and repeat
 ```
 
+## See Also
+
+- **System Architecture**: For overall system design and component interactions, see [HFT System Architecture – kite-algo-minimal (Architecture v2, 2025-11-17)](HFT-System-Architecture-kite-algo-minimal.md)
+- **Dashboard Features**: See [Dashboard.md](Dashboard.md) for web interface and API endpoints
+- **Risk Configuration**: See [RiskEngine.md](RiskEngine.md) for risk guardrails and limits
+
 ---
 *Auto-generated on 2025-11-15T21:51:37.969522+00:00*
