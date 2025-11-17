@@ -43,6 +43,30 @@ SIGNAL_HEADERS = [
     "rel_volume",
     "vol_spike",
     "strategy",
+    "fuse_reason",          # v3: reason for fusion decision
+    "multi_tf_status",      # v3: multi-timeframe alignment status
+    "num_strategies",       # v3: number of strategies in fusion
+    "strategy_codes",       # v3: comma-separated strategy codes
+]
+
+# v3 fused signals headers (separate log file)
+SIGNAL_FUSED_HEADERS = [
+    "timestamp",
+    "signal_id",
+    "symbol",
+    "price",
+    "action",
+    "confidence",
+    "setup",
+    "fuse_reason",
+    "multi_tf_status",
+    "num_strategies",
+    "strategy_codes",
+    "htf_ema20",
+    "htf_ema50",
+    "primary_trend",
+    "htf_trend",
+    "indicators_json",
 ]
 ORDER_HEADERS = [
     "timestamp",
@@ -100,6 +124,11 @@ class SignalLogPayload:
     rel_volume: Optional[float] = None
     vol_spike: Optional[bool] = None
     strategy: Optional[str] = None
+    # v3 fields
+    fuse_reason: Optional[str] = None
+    multi_tf_status: Optional[str] = None
+    num_strategies: Optional[int] = None
+    strategy_codes: Optional[str] = None
 
 
 @dataclass
@@ -140,11 +169,13 @@ class TradeRecorder:
         os.makedirs(self.artifacts_dir, exist_ok=True)
 
         self.signals_path = os.path.join(self.artifacts_dir, "signals.csv")
+        self.signals_fused_path = os.path.join(self.artifacts_dir, "signals_fused.csv")
         self.orders_path = os.path.join(self.artifacts_dir, "orders.csv")
         self.state_path = os.path.join(self.artifacts_dir, "paper_state.json")
 
         # Ensure CSVs have headers if freshly created
         self._ensure_csv_headers(self.signals_path, SIGNAL_HEADERS)
+        self._ensure_csv_headers(self.signals_fused_path, SIGNAL_FUSED_HEADERS)
         self._ensure_csv_headers(self.orders_path, ORDER_HEADERS)
 
     @staticmethod
@@ -218,6 +249,11 @@ class TradeRecorder:
         vol_spike: bool | None = None,
         strategy: str | None = None,
         signal_id: Optional[str] = None,
+        # v3 fields
+        fuse_reason: str | None = None,
+        multi_tf_status: str | None = None,
+        num_strategies: int | None = None,
+        strategy_codes: str | None = None,
     ) -> str:
         signal_id = signal_id or str(uuid.uuid4())
         
@@ -266,6 +302,10 @@ class TradeRecorder:
             rel_volume=rel_volume,
             vol_spike=vol_spike,
             strategy=strategy,
+            fuse_reason=fuse_reason,
+            multi_tf_status=multi_tf_status,
+            num_strategies=num_strategies,
+            strategy_codes=strategy_codes,
         )
 
         def _value(val: Any) -> Any:
@@ -302,6 +342,10 @@ class TradeRecorder:
             "rel_volume": _value(payload.rel_volume),
             "vol_spike": "" if payload.vol_spike is None else int(bool(payload.vol_spike)),
             "strategy": _value(payload.strategy),
+            "fuse_reason": _value(payload.fuse_reason),
+            "multi_tf_status": _value(payload.multi_tf_status),
+            "num_strategies": _value(payload.num_strategies),
+            "strategy_codes": _value(payload.strategy_codes),
         }
 
         with open(self.signals_path, "a", newline="", encoding="utf-8") as f:
@@ -390,3 +434,99 @@ class TradeRecorder:
 
         with open(self.state_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2, default=str)
+    
+    def log_fused_signal(
+        self,
+        *,
+        symbol: str,
+        price: float,
+        action: str,
+        confidence: float,
+        setup: str,
+        fuse_reason: str,
+        multi_tf_status: str,
+        num_strategies: int,
+        strategy_codes: List[str],
+        indicators: Optional[Dict[str, Any]] = None,
+        signal_id: Optional[str] = None,
+    ) -> str:
+        """
+        Log a fused signal from Strategy Engine v3.
+        
+        This creates a separate log entry specifically for v3 fused signals
+        in signals_fused.csv.
+        
+        Args:
+            symbol: Trading symbol
+            price: Current price
+            action: BUY, SELL, or HOLD
+            confidence: Fused confidence score
+            setup: Setup classification (e.g., TREND_FOLLOW_BREAKOUT)
+            fuse_reason: Reason for fusion decision
+            multi_tf_status: Multi-timeframe alignment status
+            num_strategies: Number of strategies in fusion
+            strategy_codes: List of strategy codes that contributed
+            indicators: Optional indicator bundle dictionary
+            signal_id: Optional signal ID (generated if not provided)
+        
+        Returns:
+            Signal ID
+        """
+        signal_id = signal_id or str(uuid.uuid4())
+        
+        # Extract HTF indicators if available
+        htf_ema20 = None
+        htf_ema50 = None
+        primary_trend = None
+        htf_trend = None
+        
+        if indicators:
+            htf_ema20 = indicators.get("htf_ema20")
+            htf_ema50 = indicators.get("htf_ema50")
+            primary_trend = indicators.get("trend")
+            
+            if htf_ema20 and htf_ema50:
+                htf_trend = "up" if htf_ema20 > htf_ema50 else "down"
+        
+        # Serialize indicators to JSON
+        indicators_json = ""
+        if indicators:
+            try:
+                indicators_json = json.dumps(indicators, ensure_ascii=False, default=str)
+            except Exception as e:
+                logger.warning("Failed to serialize indicators: %s", e)
+        
+        row = {
+            "timestamp": self._now_ist_iso(),
+            "signal_id": signal_id,
+            "symbol": symbol,
+            "price": price,
+            "action": action,
+            "confidence": round(confidence, 4) if confidence else "",
+            "setup": setup or "",
+            "fuse_reason": fuse_reason or "",
+            "multi_tf_status": multi_tf_status or "",
+            "num_strategies": num_strategies or "",
+            "strategy_codes": ",".join(strategy_codes) if strategy_codes else "",
+            "htf_ema20": htf_ema20 if htf_ema20 is not None else "",
+            "htf_ema50": htf_ema50 if htf_ema50 is not None else "",
+            "primary_trend": primary_trend or "",
+            "htf_trend": htf_trend or "",
+            "indicators_json": indicators_json,
+        }
+        
+        with open(self.signals_fused_path, "a", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=SIGNAL_FUSED_HEADERS)
+            writer.writerow(row)
+        
+        logger.info(
+            "Logged fused signal: %s %s %s (setup=%s, conf=%.2f, strategies=%d)",
+            symbol,
+            action,
+            signal_id,
+            setup,
+            confidence,
+            num_strategies
+        )
+        
+        return signal_id
