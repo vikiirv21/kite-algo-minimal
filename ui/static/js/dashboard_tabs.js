@@ -281,36 +281,51 @@ const DashboardTabs = (() => {
         const { equityCurve, analyticsSummary } = state;
 
         // Check if we have equity data
-        if (!equityCurve || equityCurve.length === 0) {
-            document.getElementById('analytics-equity-chart').innerHTML = '<p class="placeholder-text">No equity curve data available. The engine needs to record snapshots during trading.</p>';
-        } else {
-            // Render equity chart (placeholder for now - needs chart library)
-            document.getElementById('analytics-equity-chart').innerHTML = `<p class="placeholder-text">Equity chart: ${equityCurve.length} data points available. Chart library integration needed.</p>`;
+        const chartEl = document.getElementById('analytics-equity-chart');
+        if (chartEl) {
+            if (!equityCurve || equityCurve.length === 0) {
+                chartEl.innerHTML = '<p class="placeholder-text">No equity curve data available. The engine needs to record snapshots during trading.</p>';
+            } else {
+                // Render equity chart (placeholder for now - needs chart library)
+                chartEl.innerHTML = `<p class="placeholder-text">Equity chart: ${equityCurve.length} data points available. Chart library integration needed.</p>`;
+            }
         }
 
         // Analytics summary
         if (analyticsSummary && analyticsSummary.daily) {
             const daily = analyticsSummary.daily;
-            document.getElementById('analytics-realized-pnl').textContent = Components.formatCurrency(daily.realized_pnl);
-            document.getElementById('analytics-trades').textContent = daily.num_trades || 0;
-            document.getElementById('analytics-winrate').textContent = `${(daily.win_rate || 0).toFixed(1)}%`;
-            document.getElementById('analytics-avg-win').textContent = Components.formatCurrency(daily.avg_win);
-            document.getElementById('analytics-avg-loss').textContent = Components.formatCurrency(daily.avg_loss);
+            const realizedEl = document.getElementById('analytics-realized-pnl');
+            const tradesEl = document.getElementById('analytics-trades');
+            const winrateEl = document.getElementById('analytics-winrate');
+            const avgWinEl = document.getElementById('analytics-avg-win');
+            const avgLossEl = document.getElementById('analytics-avg-loss');
+            
+            if (realizedEl) realizedEl.textContent = Components.formatCurrency(daily.realized_pnl);
+            if (tradesEl) tradesEl.textContent = daily.num_trades || 0;
+            if (winrateEl) winrateEl.textContent = `${(daily.win_rate || 0).toFixed(1)}%`;
+            if (avgWinEl) avgWinEl.textContent = Components.formatCurrency(daily.avg_win);
+            if (avgLossEl) avgLossEl.textContent = Components.formatCurrency(daily.avg_loss);
         } else {
-            document.getElementById('analytics-placeholder').innerHTML = '<p class="placeholder-text">Analytics data is being computed...</p>';
+            const placeholderEl = document.getElementById('analytics-placeholder');
+            if (placeholderEl) {
+                placeholderEl.innerHTML = '<p class="placeholder-text">Analytics data is being computed...</p>';
+            }
         }
 
         // Note about missing backend features
-        document.getElementById('analytics-notes').innerHTML = `
-            <div class="info-box">
-                <strong>Note:</strong> Advanced analytics features like NIFTY/BANKNIFTY benchmark comparison 
-                would require additional backend endpoints:
-                <ul>
-                    <li><code>GET /api/perf/benchmark?symbol=NIFTY&days=1</code></li>
-                    <li><code>GET /api/perf/sharpe</code> for risk-adjusted metrics</li>
-                </ul>
-            </div>
-        `;
+        const notesEl = document.getElementById('analytics-notes');
+        if (notesEl) {
+            notesEl.innerHTML = `
+                <div class="info-box">
+                    <strong>Note:</strong> Advanced analytics features like NIFTY/BANKNIFTY benchmark comparison 
+                    would require additional backend endpoints:
+                    <ul>
+                        <li><code>GET /api/perf/benchmark?symbol=NIFTY&days=1</code></li>
+                        <li><code>GET /api/perf/sharpe</code> for risk-adjusted metrics</li>
+                    </ul>
+                </div>
+            `;
+        }
     }
 
     /**
