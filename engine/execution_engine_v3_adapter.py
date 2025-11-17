@@ -251,15 +251,18 @@ class ExecutionEngineV2ToV3Adapter:
         """
         # Map V3 status to V2 status
         status_map = {
-            OrderStatus.PENDING: "PENDING",
-            OrderStatus.PLACED: "PLACED",
+            OrderStatus.NEW: "PENDING",
+            OrderStatus.SUBMITTED: "PENDING",
+            OrderStatus.OPEN: "PLACED",
+            OrderStatus.PARTIALLY_FILLED: "PARTIAL",
             OrderStatus.FILLED: "FILLED",
-            OrderStatus.PARTIAL: "PARTIAL",
             OrderStatus.REJECTED: "REJECTED",
             OrderStatus.CANCELLED: "CANCELLED",
+            OrderStatus.ERROR: "REJECTED",
         }
         
-        status = status_map.get(order.status, "REJECTED")
+        # Use get with default to handle any unknown statuses
+        status = status_map.get(order.status, str(order.status).upper())
         
         return ExecutionResult(
             order_id=order.order_id,
