@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from core.universe import load_equity_universe
+from data.universe.nifty_lists import get_equity_universe_from_indices
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,102 @@ ARTIFACTS_DIR = BASE_DIR / "artifacts"
 PENNY_STOCK_THRESHOLD = 20.0
 # Minimum lot size for equity
 MIN_LOT_SIZE = 1
+
+
+def filter_low_price_equities(symbols: List[str], min_price: float, kite: Any) -> List[str]:
+    """
+    Filter out low-priced equities based on current LTP or last close.
+    
+    Args:
+        symbols: List of equity symbols to filter
+        min_price: Minimum price threshold
+        kite: Kite client for fetching LTP
+        
+    Returns:
+        Filtered list of symbols with price >= min_price
+    """
+    if not symbols or min_price <= 0:
+        return symbols
+    
+    filtered: List[str] = []
+    
+    # Batch fetch LTP for all symbols to avoid hammering API
+    try:
+        # Construct instrument keys for NSE
+        instrument_keys = [f"NSE:{symbol}" for symbol in symbols]
+        ltp_data = kite.ltp(instrument_keys)
+        
+        for symbol in symbols:
+            key = f"NSE:{symbol}"
+            data = ltp_data.get(key, {})
+            last_price = data.get("last_price", 0.0)
+            
+            if last_price >= min_price:
+                filtered.append(symbol)
+            else:
+                logger.debug(
+                    "Filtered out %s (price=%.2f < min_price=%.2f)",
+                    symbol,
+                    last_price,
+                    min_price,
+                )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Failed to fetch LTP for price filtering, returning unfiltered list: %s",
+            exc,
+        )
+        return symbols
+    
+    return filtered
+
+
+def build_equity_universe(cfg: Dict[str, Any], kite: Any) -> List[str]:
+    """
+    Build the equity universe based on configuration.
+    
+    Args:
+        cfg: Configuration dictionary
+        kite: Kite client for fetching LTP (used for price filtering)
+        
+    Returns:
+        List of equity symbols to trade
+    """
+    trading = cfg.get("trading", {})
+    eu_cfg = trading.get("equity_universe_config") or {}
+    mode = (eu_cfg.get("mode") or "all").lower()
+    
+    if mode == "nifty_lists":
+        # Use NIFTY lists mode
+        indices = eu_cfg.get("include_indices") or ["NIFTY50"]
+        symbols = get_equity_universe_from_indices(indices)
+        
+        logger.info(
+            "Building equity universe from indices=%s, found %d symbols",
+            indices,
+            len(symbols),
+        )
+        
+        # Apply max_symbols cap
+        max_symbols = eu_cfg.get("max_symbols")
+        if max_symbols and len(symbols) > int(max_symbols):
+            symbols = symbols[: int(max_symbols)]
+            logger.info("Applied max_symbols cap, reduced to %d symbols", len(symbols))
+        
+        # Apply min_price filter
+        min_price = eu_cfg.get("min_price")
+        if min_price is not None and float(min_price) > 0:
+            symbols = filter_low_price_equities(symbols, float(min_price), kite)
+            logger.info(
+                "Applied min_price filter (%.2f), %d symbols remain",
+                float(min_price),
+                len(symbols),
+            )
+        
+        return symbols
+    
+    # Fallback: preserve existing behavior (all F&O / larger universe, etc.)
+    # This loads from config/universe_equity.csv
+    return load_equity_universe()
 
 
 @dataclass
@@ -68,6 +165,7 @@ class MarketScanner:
             "asof": datetime.utcnow().isoformat() + "Z",
             "fno": fno_selected,
             "equity": equity_selected,
+            "equity_universe": equity_selected,  # Expose equity universe explicitly
             "meta": meta,
         }
         
@@ -118,12 +216,17 @@ class MarketScanner:
         Scan NSE for equity instruments from the configured universe.
         
         Applies filters:
-        - Enabled in config/universe_equity.csv
+        - Enabled via build_equity_universe (respects equity_universe_config)
         - Valid instrument metadata
         - Not a penny stock (last_price >= threshold if available)
         """
-        # Load enabled symbols from config
-        enabled_symbols = load_equity_universe()
+        # Build equity universe based on configuration
+        # This will use NIFTY lists if equity_universe_config.mode == "nifty_lists"
+        # Otherwise falls back to load_equity_universe() (config/universe_equity.csv)
+        enabled_symbols = build_equity_universe(
+            self.config.raw if hasattr(self.config, "raw") else self.config,
+            self.kite,
+        )
         if not enabled_symbols:
             logger.warning("MarketScanner: no equity symbols enabled in universe")
             return [], {}
