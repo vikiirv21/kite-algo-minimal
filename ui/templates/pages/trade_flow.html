@@ -1,0 +1,59 @@
+<div class="page-header">
+    <h2>Trade Flow Monitor</h2>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3>Trade Flow Metrics</h3>
+    </div>
+    <div class="card-body" 
+         hx-get="/api/monitor/trade_flow" 
+         hx-trigger="load, every 3s"
+         hx-target="this"
+         hx-swap="innerHTML">
+        <div class="loading">Loading trade flow...</div>
+    </div>
+</div>
+
+<script>
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.requestConfig && evt.detail.requestConfig.path === '/api/monitor/trade_flow') {
+        try {
+            const data = JSON.parse(evt.detail.xhr.responseText);
+            
+            const html = `
+                <div class="trade-flow-grid">
+                    <div class="flow-item">
+                        <span class="flow-label">Signals Seen</span>
+                        <span class="flow-value">${data.signals_seen || 0}</span>
+                    </div>
+                    <div class="flow-item">
+                        <span class="flow-label">Signals Evaluated</span>
+                        <span class="flow-value">${data.signals_evaluated || 0}</span>
+                    </div>
+                    <div class="flow-item">
+                        <span class="flow-label">Trades Allowed</span>
+                        <span class="flow-value">${data.trades_allowed || 0}</span>
+                    </div>
+                    <div class="flow-item">
+                        <span class="flow-label">Trades Vetoed</span>
+                        <span class="flow-value">${data.trades_vetoed || 0}</span>
+                    </div>
+                    <div class="flow-item">
+                        <span class="flow-label">Orders Placed</span>
+                        <span class="flow-value">${data.orders_placed || 0}</span>
+                    </div>
+                    <div class="flow-item">
+                        <span class="flow-label">Orders Filled</span>
+                        <span class="flow-value">${data.orders_filled || 0}</span>
+                    </div>
+                </div>
+            `;
+            
+            evt.detail.target.innerHTML = html;
+        } catch (e) {
+            console.error('Error rendering trade flow:', e);
+        }
+    }
+});
+</script>

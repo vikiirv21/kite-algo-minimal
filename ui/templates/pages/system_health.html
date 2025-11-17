@@ -1,0 +1,150 @@
+<div class="page-header">
+    <h2>System Health</h2>
+</div>
+
+<div class="page-grid">
+    <!-- Config Summary -->
+    <div class="card">
+        <div class="card-header">
+            <h3>Configuration</h3>
+        </div>
+        <div class="card-body" 
+             hx-get="/api/config/summary" 
+             hx-trigger="load, every 30s"
+             hx-target="this"
+             hx-swap="innerHTML">
+            <div class="loading">Loading config...</div>
+        </div>
+    </div>
+    
+    <!-- System Health -->
+    <div class="card">
+        <div class="card-header">
+            <h3>Health Status</h3>
+        </div>
+        <div class="card-body" 
+             hx-get="/api/health" 
+             hx-trigger="load, every 15s"
+             hx-target="this"
+             hx-swap="innerHTML">
+            <div class="loading">Loading health...</div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target.closest('.card-body')) {
+        const target = evt.detail.target;
+        try {
+            const data = JSON.parse(evt.detail.xhr.responseText);
+            
+            // Render config summary
+            if (evt.detail.requestConfig.path === '/api/config/summary') {
+                target.innerHTML = `
+                    <div class="config-grid">
+                        <div class="config-item">
+                            <span class="config-label">Mode</span>
+                            <span class="config-value badge badge-${data.mode === 'paper' ? 'paper' : 'live'}">
+                                ${(data.mode || 'paper').toUpperCase()}
+                            </span>
+                        </div>
+                        <div class="config-item">
+                            <span class="config-label">Paper Capital</span>
+                            <span class="config-value">₹${(data.paper_capital || 0).toLocaleString()}</span>
+                        </div>
+                        <div class="config-item">
+                            <span class="config-label">Risk Per Trade</span>
+                            <span class="config-value">${((data.risk_per_trade_pct || 0) * 100).toFixed(2)}%</span>
+                        </div>
+                        <div class="config-item">
+                            <span class="config-label">Max Daily Loss</span>
+                            <span class="config-value">₹${(data.max_daily_loss || 0).toFixed(2)}</span>
+                        </div>
+                        <div class="config-item">
+                            <span class="config-label">Max Exposure</span>
+                            <span class="config-value">${((data.max_exposure_pct || 0) * 100).toFixed(1)}%</span>
+                        </div>
+                        <div class="config-item">
+                            <span class="config-label">Risk Profile</span>
+                            <span class="config-value">${data.risk_profile || 'Default'}</span>
+                        </div>
+                        <div class="config-item">
+                            <span class="config-label">FnO Universe</span>
+                            <span class="config-value">${(data.fno_universe || []).join(', ') || 'N/A'}</span>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Render health status
+            if (evt.detail.requestConfig.path === '/api/health') {
+                const engineStatus = data.engine_status || {};
+                const engines = engineStatus.engines || [];
+                const logHealth = data.log_health || {};
+                const marketStatus = data.market_status || {};
+                
+                let html = '<div class="health-sections">';
+                
+                // Engine health
+                html += '<div class="health-section"><h4>Engines</h4>';
+                if (engines.length > 0) {
+                    engines.forEach(eng => {
+                        const status = eng.running ? 'success' : 'error';
+                        html += `
+                            <div class="health-item">
+                                <span>${eng.engine || 'Unknown'}</span>
+                                <span class="badge badge-${status}">${eng.running ? 'RUNNING' : 'STOPPED'}</span>
+                            </div>
+                        `;
+                    });
+                } else {
+                    html += '<p class="no-data">No engine data</p>';
+                }
+                html += '</div>';
+                
+                // Log health
+                html += '<div class="health-section"><h4>Logs</h4>';
+                html += `
+                    <div class="health-item">
+                        <span>Last Log</span>
+                        <span>${logHealth.last_log_ts || 'N/A'}</span>
+                    </div>
+                    <div class="health-item">
+                        <span>Recent Errors</span>
+                        <span class="${logHealth.error_count_recent > 0 ? 'negative' : ''}">
+                            ${logHealth.error_count_recent || 0}
+                        </span>
+                    </div>
+                    <div class="health-item">
+                        <span>Recent Warnings</span>
+                        <span>${logHealth.warning_count_recent || 0}</span>
+                    </div>
+                `;
+                html += '</div>';
+                
+                // Market status
+                html += '<div class="health-section"><h4>Market</h4>';
+                html += `
+                    <div class="health-item">
+                        <span>Status</span>
+                        <span class="badge badge-${marketStatus.status === 'OPEN' ? 'success' : 'closed'}">
+                            ${marketStatus.status || 'UNKNOWN'}
+                        </span>
+                    </div>
+                    <div class="health-item">
+                        <span>IST Time</span>
+                        <span>${marketStatus.now_ist ? new Date(marketStatus.now_ist).toLocaleString() : 'N/A'}</span>
+                    </div>
+                `;
+                html += '</div>';
+                
+                html += '</div>';
+                target.innerHTML = html;
+            }
+        } catch (e) {
+            console.error('Error rendering health data:', e);
+        }
+    }
+});
+</script>

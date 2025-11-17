@@ -1,0 +1,64 @@
+<div class="page-header">
+    <h2>Engine Logs</h2>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3>Recent Logs (Last 150)</h3>
+    </div>
+    <div class="card-body">
+        <div id="logs-container" 
+             hx-get="/api/logs?limit=150&kind=engine" 
+             hx-trigger="load, every 5s"
+             hx-target="this"
+             hx-swap="innerHTML">
+            <div class="loading">Loading logs...</div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target.id === 'logs-container') {
+        try {
+            const response = JSON.parse(evt.detail.xhr.responseText);
+            const logs = response.logs || response.entries || [];
+            
+            if (logs.length === 0) {
+                evt.detail.target.innerHTML = '<p class="no-data">No logs available</p>';
+                return;
+            }
+            
+            let html = '<div class="logs-wrapper"><div class="logs-list">';
+            
+            logs.forEach(log => {
+                const level = (log.level || 'INFO').toUpperCase();
+                const levelClass = level === 'ERROR' ? 'error' : (level === 'WARNING' || level === 'WARN' ? 'warning' : 'info');
+                const timestamp = log.timestamp || log.ts || '';
+                const source = log.source || log.logger || '';
+                const message = log.message || '';
+                
+                html += `
+                    <div class="log-entry log-${levelClass}">
+                        <span class="log-time">${timestamp}</span>
+                        <span class="log-level badge badge-${levelClass}">${level}</span>
+                        <span class="log-source">${source}</span>
+                        <span class="log-message">${message}</span>
+                    </div>
+                `;
+            });
+            
+            html += '</div></div>';
+            evt.detail.target.innerHTML = html;
+            
+            // Auto-scroll to bottom
+            const logsWrapper = evt.detail.target.querySelector('.logs-wrapper');
+            if (logsWrapper) {
+                logsWrapper.scrollTop = logsWrapper.scrollHeight;
+            }
+        } catch (e) {
+            console.error('Error rendering logs:', e);
+        }
+    }
+});
+</script>
