@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arthayukti - Professional HFT Trading Platform</title>
+    
+    <!-- Design System & Styles -->
+    <link rel="stylesheet" href="/static/css/design-system.css">
+    <link rel="stylesheet" href="/static/dashboard.css">
+    
+    <style>
+        /* Enhanced Header Styling */
+        .navbar {
+            background: linear-gradient(135deg, #0a0f1a 0%, #141b2d 100%);
+            border-bottom: 2px solid #00d4ff;
+            box-shadow: 0 4px 20px rgba(0, 212, 255, 0.2);
+        }
+        
+        .brand {
+            font-size: 28px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #00d4ff 0%, #6366f1 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: -0.5px;
+        }
+        
+        .subtitle {
+            font-size: 11px;
+            color: #7a8ca0;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            font-weight: 600;
+            margin-left: 12px;
+        }
+        
+        /* Enhanced Mode Badge */
+        .mode-badge {
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 13px;
+            letter-spacing: 0.5px;
+            box-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+            transition: all 0.3s ease;
+        }
+        
+        .mode-badge:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 30px rgba(0, 212, 255, 0.5);
+        }
+        
+        .mode-paper {
+            background: linear-gradient(135deg, #00d4ff 0%, #0099ff 100%);
+            color: white;
+        }
+        
+        .mode-live {
+            background: linear-gradient(135deg, #ff3366 0%, #ff6b9d 100%);
+            color: white;
+            box-shadow: 0 0 20px rgba(255, 51, 102, 0.3);
+        }
+        
+        .mode-idle {
+            background: #2a3548;
+            color: #7a8ca0;
+            border: 1px solid #3a4558;
+        }
+        
+        /* Enhanced Tabs */
+        .tabs {
+            background: #0a0f1a;
+            border-bottom: 1px solid #2a3548;
+        }
+        
+        .tab-btn {
+            position: relative;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+            transition: all 0.25s ease;
+        }
+        
+        .tab-btn::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #00d4ff, #6366f1);
+            transform: scaleX(0);
+            transition: transform 0.25s ease;
+        }
+        
+        .tab-btn.active::after {
+            transform: scaleX(1);
+        }
+        
+        .tab-btn.active {
+            color: #00d4ff;
+        }
+        
+        /* Enhanced Cards */
+        .card {
+            background: linear-gradient(145deg, #141b2d, #1a2332);
+            border: 1px solid #2a3548;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+            transition: all 0.3s ease;
+        }
+        
+        .card:hover {
+            border-color: #00d4ff;
+            box-shadow: 0 8px 32px rgba(0, 212, 255, 0.2);
+            transform: translateY(-2px);
+        }
+        
+        .card-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: #ffffff;
+            margin-bottom: 16px;
+            padding-left: 12px;
+            border-left: 4px solid #00d4ff;
+        }
+        
+        /* Enhanced Stats */
+        .stat-box {
+            background: linear-gradient(145deg, #1a2332, #222b3e);
+            border: 1px solid #2a3548;
+            border-radius: 10px;
+            padding: 20px;
+            transition: all 0.3s ease;
+        }
+        
+        .stat-box:hover {
+            border-color: #00d4ff;
+            box-shadow: 0 0 20px rgba(0, 212, 255, 0.15);
+            transform: scale(1.02);
+        }
+        
+        .stat-label {
+            font-size: 11px;
+            color: #7a8ca0;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        
+        .stat-value {
+            font-size: 32px;
+            font-weight: 800;
+            font-family: 'SF Mono', 'Monaco', 'Cascadia Code', monospace;
+            line-height: 1.1;
+        }
+        
+        .stat-value.positive {
+            color: #00ff88;
+            text-shadow: 0 0 10px rgba(0, 255, 136, 0.3);
+        }
+        
+        .stat-value.negative {
+            color: #ff3366;
+            text-shadow: 0 0 10px rgba(255, 51, 102, 0.3);
+        }
+        
+        /* Enhanced Table */
+        .data-table {
+            background: transparent;
+        }
+        
+        .data-table th {
+            background: #1a2332;
+            color: #7a8ca0;
+            font-weight: 700;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            padding: 14px;
+            border-bottom: 2px solid #2a3548;
+        }
+        
+        .data-table td {
+            padding: 12px 14px;
+            font-family: 'SF Mono', monospace;
+            font-size: 13px;
+        }
+        
+        .data-table tbody tr {
+            border-bottom: 1px solid #2a3548;
+            transition: all 0.2s ease;
+        }
+        
+        .data-table tbody tr:hover {
+            background: #1a2332;
+            border-left: 3px solid #00d4ff;
+        }
+        
+        /* Enhanced Badges */
+        .signal-badge, .side-badge, .status-badge {
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+        
+        .signal-buy, .side-long {
+            background: linear-gradient(135deg, #00ff88, #00d4ff);
+            color: #0a0f1a;
+        }
+        
+        .signal-sell, .side-short {
+            background: linear-gradient(135deg, #ff3366, #ff6b9d);
+            color: white;
+        }
+        
+        .signal-hold, .signal-exit {
+            background: #3a4558;
+            color: #b4c0d3;
+        }
+        
+        /* Loading Animation */
+        .loading-pulse {
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+            .brand {
+                font-size: 22px;
+            }
+            .subtitle {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Enhanced Navbar -->
+    <nav class="navbar">
+        <div class="navbar-left">
+            <div class="brand">⚡ Arthayukti</div>
+            <span class="subtitle">Professional HFT Platform</span>
+        </div>
+        <div class="navbar-center">
+            <div id="mode-badge" class="mode-badge mode-idle">IDLE</div>
+        </div>
+        <div class="navbar-right">
+            <div id="server-time" class="server-time">--:--:--</div>
+        </div>
+    </nav>
+    
+    <!-- Enhanced Tabs -->
+    <div class="tabs">
+        <button class="tab-btn active" data-tab="overview">📊 Overview</button>
+        <button class="tab-btn" data-tab="engines">⚙️ Engines & Logs</button>
+        <button class="tab-btn" data-tab="portfolio">💼 Portfolio</button>
+        <button class="tab-btn" data-tab="signals">⚡ Signals & Strategies</button>
+        <button class="tab-btn" data-tab="analytics">📈 Analytics</button>
+        <button class="tab-btn" data-tab="system">🔧 System</button>
+    </div>
+    
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Overview Tab -->
+        <div id="tab-overview" class="tab-content active">
+            <div class="card">
+                <h3 class="card-title">🎯 Trading Dashboard</h3>
+                <div class="stats-grid">
+                    <div class="stat-box">
+                        <div class="stat-label">💰 Total P&L</div>
+                        <div id="overview-pnl" class="stat-value">₹0.00</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">📊 Win Rate</div>
+                        <div id="overview-winrate" class="stat-value">0%</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">🎲 Trades Today</div>
+                        <div id="overview-trades" class="stat-value">0</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">⚡ Active Signals</div>
+                        <div id="overview-signals" class="stat-value">0</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3 class="card-title">📈 Recent Signals</h3>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Symbol</th>
+                            <th>Signal</th>
+                            <th>Strategy</th>
+                            <th>Price</th>
+                        </tr>
+                    </thead>
+                    <tbody id="overview-signals-table">
+                        <tr>
+                            <td colspan="5" style="text-align: center; padding: 40px;">
+                                <div class="loading-pulse">Loading signals...</div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Engines Tab -->
+        <div id="tab-engines" class="tab-content">
+            <div class="card">
+                <h3 class="card-title">⚙️ Engine Status</h3>
+                <div id="engines-status">Loading engine status...</div>
+            </div>
+            
+            <div class="card">
+                <h3 class="card-title">📝 System Logs</h3>
+                <div id="logs-display" style="font-family: monospace; font-size: 13px; max-height: 500px; overflow-y: auto;">
+                    Loading logs...
+                </div>
+            </div>
+        </div>
+        
+        <!-- Portfolio Tab -->
+        <div id="tab-portfolio" class="tab-content">
+            <div class="card">
+                <h3 class="card-title">💼 Portfolio Overview</h3>
+                <div class="stats-grid">
+                    <div class="stat-box">
+                        <div class="stat-label">💵 Total Equity</div>
+                        <div id="portfolio-equity" class="stat-value">₹0.00</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">✅ Realized P&L</div>
+                        <div id="portfolio-realized" class="stat-value">₹0.00</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">⏳ Unrealized P&L</div>
+                        <div id="portfolio-unrealized" class="stat-value">₹0.00</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">📊 Exposure</div>
+                        <div id="portfolio-exposure" class="stat-value">0%</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3 class="card-title">📍 Open Positions</h3>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Symbol</th>
+                            <th>Side</th>
+                            <th>Qty</th>
+                            <th>Avg Price</th>
+                            <th>Last Price</th>
+                            <th>P&L</th>
+                        </tr>
+                    </thead>
+                    <tbody id="positions-table">
+                        <tr>
+                            <td colspan="6" style="text-align: center; padding: 40px;">
+                                <div class="loading-pulse">Loading positions...</div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Signals Tab -->
+        <div id="tab-signals" class="tab-content">
+            <div class="card">
+                <h3 class="card-title">⚡ Trading Signals</h3>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Symbol</th>
+                            <th>Signal</th>
+                            <th>Strategy</th>
+                            <th>Timeframe</th>
+                            <th>Price</th>
+                        </tr>
+                    </thead>
+                    <tbody id="signals-table">
+                        <tr>
+                            <td colspan="6" style="text-align: center; padding: 40px;">
+                                <div class="loading-pulse">Loading signals...</div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="card">
+                <h3 class="card-title">🎯 Strategy Performance</h3>
+                <div id="strategies-grid" class="stats-grid">
+                    Loading strategies...
+                </div>
+            </div>
+        </div>
+        
+        <!-- Analytics Tab -->
+        <div id="tab-analytics" class="tab-content">
+            <div class="card">
+                <h3 class="card-title">📈 Performance Analytics</h3>
+                <div id="analytics-display">
+                    <p style="text-align: center; padding: 60px; color: #7a8ca0;">
+                        Advanced analytics coming soon...
+                    </p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- System Tab -->
+        <div id="tab-system" class="tab-content">
+            <div class="card">
+                <h3 class="card-title">🔧 System Configuration</h3>
+                <div id="config-display">Loading configuration...</div>
+            </div>
+            
+            <div class="card">
+                <h3 class="card-title">🔐 Authentication Status</h3>
+                <div id="auth-display">Checking authentication...</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Scripts -->
+    <script src="/static/js/components/helpers.js"></script>
+    <script src="/static/js/api_client.js"></script>
+    <script src="/static/js/state_store.js"></script>
+    <script src="/static/js/dashboard_tabs.js"></script>
+    <script>
+        // Initialize dashboard on load
+        document.addEventListener('DOMContentLoaded', async () => {
+            console.log('🚀 Initializing Arthayukti Dashboard...');
+            
+            // Initialize state store (starts polling)
+            await StateStore.init();
+            
+            // Initialize tab system
+            DashboardTabs.init();
+            
+            // Update server time every second in navbar
+            setInterval(async () => {
+                const state = StateStore.getState();
+                if (state.serverTime) {
+                    try {
+                        const date = new Date(state.serverTime);
+                        const istTime = date.toLocaleTimeString('en-IN', {
+                            timeZone: 'Asia/Kolkata',
+                            hour12: false
+                        });
+                        document.getElementById('server-time').textContent = istTime;
+                    } catch (error) {
+                        console.error('Error formatting time:', error);
+                    }
+                }
+                
+                // Update mode badge
+                const modeBadge = document.getElementById('mode-badge');
+                modeBadge.textContent = state.mode;
+                modeBadge.className = `mode-badge mode-${state.mode.toLowerCase()}`;
+            }, 1000);
+            
+            console.log('✅ Dashboard initialized successfully');
+        });
+    </script>
+</body>
+</html>
