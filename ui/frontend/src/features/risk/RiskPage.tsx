@@ -1,11 +1,12 @@
 import { Card, CardSkeleton } from '../../components/Card';
-import { usePortfolioSummary, useConfigSummary, useTodaySummary } from '../../hooks/useApi';
+import { usePortfolioSummary, useConfigSummary, useTodaySummary, useRiskSummary } from '../../hooks/useApi';
 import { formatCurrency, formatPercent, getPnlClass } from '../../utils/format';
 
 export function RiskPage() {
   const { data: portfolio, isLoading: portfolioLoading } = usePortfolioSummary();
   const { data: config, isLoading: configLoading } = useConfigSummary();
   const { data: today } = useTodaySummary();
+  const { data: riskSummary } = useRiskSummary();
   
   // Calculate risk metrics
   const maxDailyLoss = config?.max_daily_loss || 3000;
@@ -28,6 +29,21 @@ export function RiskPage() {
         <p className="text-text-secondary mt-2">
           Monitor risk metrics and limits in real-time
         </p>
+        
+        {/* Trading Halted Alert */}
+        {riskSummary?.trading_halted && (
+          <div className="mt-4 bg-negative/20 border-2 border-negative rounded-lg px-4 py-3">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">⚠️</span>
+              <div>
+                <div className="font-bold text-negative text-lg">TRADING HALTED</div>
+                <div className="text-sm text-text-secondary mt-1">
+                  Reason: {riskSummary.halt_reason || 'Unknown'}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       
       {/* Risk Gauges */}

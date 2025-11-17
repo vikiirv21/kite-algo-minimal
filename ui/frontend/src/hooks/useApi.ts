@@ -154,3 +154,29 @@ export function useConnectionStatus() {
     timeSinceUpdate,
   };
 }
+
+// Analytics hooks
+export function useAnalyticsSummary() {
+  return useQuery({
+    queryKey: ['analytics', 'summary'] as const,
+    queryFn: api.getAnalyticsSummary,
+    refetchInterval: 10000, // 10 seconds
+  });
+}
+
+export function useAnalyticsEquityCurve(params?: { strategy?: string; symbol?: string }) {
+  return useQuery({
+    queryKey: ['analytics', 'equity_curve', params] as const,
+    queryFn: () => api.getAnalyticsEquityCurve(params),
+    refetchInterval: 10000, // 10 seconds
+  });
+}
+
+// Risk hook
+export function useRiskSummary() {
+  return useQuery({
+    queryKey: ['risk', 'summary'] as const,
+    queryFn: api.getRiskSummary,
+    refetchInterval: 5000, // 5 seconds
+  });
+}

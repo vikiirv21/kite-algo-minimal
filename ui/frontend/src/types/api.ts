@@ -152,3 +152,60 @@ export interface AuthStatus {
   token_valid: boolean;
   error: string | null;
 }
+
+export interface AnalyticsSummary {
+  daily: {
+    realized_pnl: number;
+    num_trades: number;
+    win_rate: number;
+    loss_rate: number;
+    avg_win: number;
+    avg_loss: number;
+    pnl_distribution: {
+      wins: number;
+      losses: number;
+      breakeven: number;
+    };
+    biggest_winner: number;
+    biggest_loser: number;
+  };
+  strategies: Record<string, {
+    pnl: number;
+    trades: number;
+    win_rate: number;
+  }>;
+  symbols: Record<string, {
+    pnl: number;
+    trades: number;
+  }>;
+}
+
+export interface EquityCurveData {
+  equity_curve: Array<{
+    timestamp: string;
+    equity: number;
+    pnl: number;
+  }>;
+  drawdown: {
+    max_drawdown: number;
+    drawdown_series: Array<{
+      timestamp: string;
+      drawdown: number;
+    }>;
+  };
+  filters: {
+    strategy: string | null;
+    symbol: string | null;
+  };
+}
+
+export interface RiskSummary {
+  mode: string;
+  per_trade_risk_pct: number | null;
+  max_daily_loss_abs: number | null;
+  max_daily_loss_pct: number | null;
+  trading_halted: boolean;
+  halt_reason: string | null;
+  current_day_pnl: number | null;
+  current_exposure: number | null;
+}
