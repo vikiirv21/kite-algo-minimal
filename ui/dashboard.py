@@ -242,15 +242,23 @@ def _resolve_dashboard_template_name() -> Optional[str]:
 
 
 DASHBOARD_TEMPLATE_NAME = _resolve_dashboard_template_name()
+REACT_BUILD_DIR = BASE_DIR / "ui" / "static-react"
 
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
-    """Render the main Arthayukti dashboard"""
+    """Render the main Arthayukti dashboard (React SPA)"""
     try:
-        return templates.TemplateResponse("dashboard.html", {
-            "request": request,
-        })
+        # Serve the React app's index.html
+        react_index = REACT_BUILD_DIR / "index.html"
+        if react_index.exists():
+            return HTMLResponse(content=react_index.read_text(encoding="utf-8"))
+        else:
+            # Fallback to old dashboard if React build doesn't exist
+            logger.warning("React build not found at %s, falling back to old dashboard", REACT_BUILD_DIR)
+            return templates.TemplateResponse("dashboard.html", {
+                "request": request,
+            })
     except Exception as exc:
         logger.error("Failed to render dashboard: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -2712,8 +2720,8 @@ def api_equity_curve(
             "error": str(exc),
         })
 
-if STATIC_DIR.exists():
-    # Mount static files with caching headers
+# Mount React static assets
+if REACT_BUILD_DIR.exists():
     from starlette.staticfiles import StaticFiles as StarletteStaticFiles
     from starlette.responses import Response
     from starlette.types import Scope
@@ -2722,11 +2730,16 @@ if STATIC_DIR.exists():
         async def get_response(self, path: str, scope: Scope) -> Response:
             response = await super().get_response(path, scope)
             # Add cache headers for static assets (1 day cache)
-            if path.endswith(('.css', '.js')):
+            if path.endswith(('.css', '.js', '.svg', '.png', '.jpg', '.ico')):
                 response.headers["Cache-Control"] = "public, max-age=86400"
             return response
     
-    app.mount("/static", CachedStaticFiles(directory=STATIC_DIR), name="static")
+    app.mount("/assets", CachedStaticFiles(directory=REACT_BUILD_DIR / "assets"), name="react-assets")
+
+# Mount old static files (for backwards compatibility during transition)
+if STATIC_DIR.exists():
+    from starlette.staticfiles import StaticFiles as StarletteStaticFilesLegacy
+    app.mount("/static", StarletteStaticFilesLegacy(directory=STATIC_DIR), name="static")
 
 app.include_router(router)
 
