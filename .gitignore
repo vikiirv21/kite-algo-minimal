@@ -12,3 +12,4 @@ artifacts/analytics/
 artifacts/reports/
 artifacts/backtests/
 artifacts/market_data/
+ui/static/dashboard_old.js
