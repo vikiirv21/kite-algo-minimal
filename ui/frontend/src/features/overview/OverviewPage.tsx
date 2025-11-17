@@ -1,4 +1,4 @@
-import { Card, CardSkeleton } from '../../components/Card';
+import { Card, CardSkeleton, CardError } from '../../components/Card';
 import {
   useEnginesStatus,
   usePortfolioSummary,
@@ -8,10 +8,10 @@ import {
 import { formatCurrency, formatTimestamp, formatPercent, getPnlClass, getPnlPrefix } from '../../utils/format';
 
 export function OverviewPage() {
-  const { data: engines, isLoading: enginesLoading } = useEnginesStatus();
-  const { data: portfolio, isLoading: portfolioLoading } = usePortfolioSummary();
-  const { data: signals, isLoading: signalsLoading } = useRecentSignals(10);
-  const { data: today, isLoading: todayLoading } = useTodaySummary();
+  const { data: engines, isLoading: enginesLoading, error: enginesError } = useEnginesStatus();
+  const { data: portfolio, isLoading: portfolioLoading, error: portfolioError } = usePortfolioSummary();
+  const { data: signals, isLoading: signalsLoading, error: signalsError } = useRecentSignals(10);
+  const { data: today, isLoading: todayLoading, error: todayError } = useTodaySummary();
   
   return (
     <div className="space-y-6">
@@ -22,33 +22,41 @@ export function OverviewPage() {
         {/* Mode & Engines */}
         {enginesLoading ? (
           <CardSkeleton />
+        ) : enginesError ? (
+          <CardError title="Engines Status" error={enginesError} />
         ) : (
           <Card title="Engines Status">
-            {engines?.engines.map((engine) => (
-              <div key={engine.engine} className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-text-secondary">Mode:</span>
-                  <span className="font-semibold uppercase">{engine.mode}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-text-secondary">Status:</span>
-                  <span className={engine.running ? 'text-positive' : 'text-negative'}>
-                    {engine.running ? '● Running' : '○ Stopped'}
-                  </span>
-                </div>
-                {engine.checkpoint_age_seconds !== null && (
-                  <div className="text-xs text-text-secondary">
-                    Last update: {engine.checkpoint_age_seconds}s ago
+            {engines?.engines && engines.engines.length > 0 ? (
+              engines.engines.map((engine) => (
+                <div key={engine.engine} className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-secondary">Mode:</span>
+                    <span className="font-semibold uppercase">{engine.mode}</span>
                   </div>
-                )}
-              </div>
-            ))}
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-secondary">Status:</span>
+                    <span className={engine.running ? 'text-positive' : 'text-negative'}>
+                      {engine.running ? '● Running' : '○ Stopped'}
+                    </span>
+                  </div>
+                  {engine.checkpoint_age_seconds !== null && (
+                    <div className="text-xs text-text-secondary">
+                      Last update: {engine.checkpoint_age_seconds}s ago
+                    </div>
+                  )}
+                </div>
+              ))
+            ) : (
+              <div className="text-text-secondary text-sm">No engines configured</div>
+            )}
           </Card>
         )}
         
         {/* Portfolio Snapshot */}
         {portfolioLoading ? (
           <CardSkeleton />
+        ) : portfolioError ? (
+          <CardError title="Portfolio" error={portfolioError} />
         ) : (
           <Card title="Portfolio">
             <div className="space-y-2">
@@ -79,6 +87,8 @@ export function OverviewPage() {
         {/* Today's Summary */}
         {todayLoading ? (
           <CardSkeleton />
+        ) : todayError ? (
+          <CardError title="Today's Trading" error={todayError} />
         ) : (
           <Card title="Today's Trading">
             <div className="space-y-2">
@@ -134,52 +144,56 @@ export function OverviewPage() {
       </div>
       
       {/* Recent Signals */}
-      <Card title="Recent Signals">
-        {signalsLoading ? (
-          <div className="space-y-2">
-            <div className="h-4 bg-border rounded animate-pulse"></div>
-            <div className="h-4 bg-border rounded animate-pulse"></div>
-          </div>
-        ) : !signals || signals.length === 0 ? (
-          <div className="text-center text-text-secondary py-8">No signals yet</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border text-left">
-                  <th className="pb-2 text-text-secondary font-medium">Time</th>
-                  <th className="pb-2 text-text-secondary font-medium">Symbol</th>
-                  <th className="pb-2 text-text-secondary font-medium">Direction</th>
-                  <th className="pb-2 text-text-secondary font-medium">Strategy</th>
-                  <th className="pb-2 text-text-secondary font-medium text-right">Price</th>
-                </tr>
-              </thead>
-              <tbody>
-                {signals.map((signal, idx) => (
-                  <tr key={idx} className="border-b border-border/50 hover:bg-surface-light">
-                    <td className="py-2 text-sm">{formatTimestamp(signal.ts)}</td>
-                    <td className="py-2 font-medium">{signal.symbol}</td>
-                    <td className="py-2">
-                      <span className={`
-                        px-2 py-1 rounded text-xs font-semibold
-                        ${signal.signal === 'BUY' ? 'bg-positive/20 text-positive' : 
-                          signal.signal === 'SELL' ? 'bg-negative/20 text-negative' : 
-                          'bg-muted/20 text-muted'}
-                      `}>
-                        {signal.signal}
-                      </span>
-                    </td>
-                    <td className="py-2 text-sm text-text-secondary">{signal.strategy}</td>
-                    <td className="py-2 text-sm text-right font-mono">
-                      {signal.price ? `₹${signal.price.toFixed(2)}` : '--'}
-                    </td>
+      {signalsError ? (
+        <CardError title="Recent Signals" error={signalsError} />
+      ) : (
+        <Card title="Recent Signals">
+          {signalsLoading ? (
+            <div className="space-y-2">
+              <div className="h-4 bg-border rounded animate-pulse"></div>
+              <div className="h-4 bg-border rounded animate-pulse"></div>
+            </div>
+          ) : !signals || signals.length === 0 ? (
+            <div className="text-center text-text-secondary py-8">No signals yet</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border text-left">
+                    <th className="pb-2 text-text-secondary font-medium">Time</th>
+                    <th className="pb-2 text-text-secondary font-medium">Symbol</th>
+                    <th className="pb-2 text-text-secondary font-medium">Direction</th>
+                    <th className="pb-2 text-text-secondary font-medium">Strategy</th>
+                    <th className="pb-2 text-text-secondary font-medium text-right">Price</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
+                </thead>
+                <tbody>
+                  {signals.map((signal, idx) => (
+                    <tr key={idx} className="border-b border-border/50 hover:bg-surface-light">
+                      <td className="py-2 text-sm">{formatTimestamp(signal.ts)}</td>
+                      <td className="py-2 font-medium">{signal.symbol}</td>
+                      <td className="py-2">
+                        <span className={`
+                          px-2 py-1 rounded text-xs font-semibold
+                          ${signal.signal === 'BUY' ? 'bg-positive/20 text-positive' : 
+                            signal.signal === 'SELL' ? 'bg-negative/20 text-negative' : 
+                            'bg-muted/20 text-muted'}
+                        `}>
+                          {signal.signal}
+                        </span>
+                      </td>
+                      <td className="py-2 text-sm text-text-secondary">{signal.strategy}</td>
+                      <td className="py-2 text-sm text-right font-mono">
+                        {signal.price ? `₹${signal.price.toFixed(2)}` : '--'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
     </div>
   );
 }
