@@ -4,8 +4,8 @@ Equity Cash Trading Service
 Manages equity cash trading strategies.
 
 Topics:
-- Publishes: trader_equity.signal
-- Subscribes: marketdata.tick, execution.fill
+- Publishes: strategy.eval_request.eq.<symbol>
+- Subscribes: bars.eq.*
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -26,6 +27,11 @@ class ServiceConfig:
     """Configuration for Equity Trader service."""
     name: str = "trader_equity"
     enabled: bool = True
+    symbols: list = None
+    
+    def __post_init__(self):
+        if self.symbols is None:
+            self.symbols = ["RELIANCE", "TCS", "INFY"]
 
 
 class TraderEquityService:
@@ -34,8 +40,8 @@ class TraderEquityService:
     
     Responsibilities:
     - Monitor equity market data
-    - Generate equity trading signals
-    - Track equity positions
+    - Publish strategy evaluation requests for equity symbols
+    - Forward bar data to strategy service
     """
     
     def __init__(self, event_bus: EventBus, config: ServiceConfig):
@@ -50,23 +56,100 @@ class TraderEquityService:
         self.config = config
         self.running = False
     
+    def on_bar_event(self, event: Event) -> None:
+        """
+        Handle incoming bar data from market data service.
+        
+        Args:
+            event: Event containing bar data
+        """
+        try:
+            payload = event.payload
+            symbol = payload.get("symbol", "")
+            
+            # Extract bar data
+            bar = {
+                "open": payload.get("open", 0.0),
+                "high": payload.get("high", 0.0),
+                "low": payload.get("low", 0.0),
+                "close": payload.get("close", 0.0),
+                "volume": payload.get("volume", 0),
+                "timestamp": payload.get("timestamp", datetime.utcnow().isoformat())
+            }
+            
+            # Create strategy evaluation request
+            eval_request = {
+                "symbol": symbol,
+                "logical": symbol,
+                "asset_class": "eq",
+                "tf": "5m",  # Default timeframe
+                "price": bar["close"],
+                "mode": "live",
+                "timestamp": bar["timestamp"],
+                "bar": bar,
+            }
+            
+            # Publish to strategy service
+            topic = f"strategy.eval_request.eq.{symbol}"
+            self.event_bus.publish(topic, eval_request)
+            logger.debug(f"Published eval request to {topic}")
+            
+        except Exception as e:
+            logger.exception(f"Error processing bar event: {e}")
+    
+    def _publish_fake_bars(self):
+        """
+        Publish fake bar data for testing.
+        
+        This simulates receiving bar data from market data service.
+        In production, this would come from actual market data.
+        """
+        for symbol in self.config.symbols:
+            # Create fake bar with different prices for different stocks
+            fake_prices = {"RELIANCE": 2500.0, "TCS": 3600.0, "INFY": 1450.0}
+            fake_price = fake_prices.get(symbol, 1000.0)
+            
+            bar_payload = {
+                "symbol": symbol,
+                "open": fake_price,
+                "high": fake_price + 5,
+                "low": fake_price - 5,
+                "close": fake_price + 2,
+                "volume": 5000,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            
+            # Publish to bars.eq.<symbol>
+            topic = f"bars.eq.{symbol}"
+            self.event_bus.publish(topic, bar_payload)
+            logger.debug(f"Published fake bar to {topic}")
+    
     def run_forever(self) -> None:
         """
         Main service loop.
         
-        Placeholder implementation that logs startup and keeps running.
-        TODO: Implement equity trading logic.
+        Subscribes to bar events and publishes strategy evaluation requests.
         """
         logger.info(f"Service {self.config.name} starting...")
         self.running = True
         
+        # Subscribe to bar events with wildcard
+        self.event_bus.subscribe("bars.eq.*", self.on_bar_event)
+        logger.info("Subscribed to bars.eq.*")
+        
         try:
+            iteration = 0
             while self.running:
-                # TODO: Process equity market data
-                # TODO: Generate equity signals
-                # TODO: Publish signals to event_bus
+                # Publish fake bars every 5 seconds for testing
+                if iteration % 5 == 0:
+                    self._publish_fake_bars()
                 
-                time.sleep(1)  # Placeholder sleep
+                time.sleep(1)
+                iteration += 1
+                
+                if iteration % 60 == 0:  # Log every minute
+                    logger.info(f"Service {self.config.name} heartbeat")
+                    
         except KeyboardInterrupt:
             logger.info(f"Service {self.config.name} interrupted")
         finally:
