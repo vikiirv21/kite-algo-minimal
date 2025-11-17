@@ -22,6 +22,9 @@ import argparse
 import logging
 import sys
 
+from pathlib import Path
+import yaml
+
 from services.common.event_bus import InMemoryEventBus
 from services.marketdata.service_marketdata import MarketDataService, ServiceConfig as MarketDataConfig
 from services.trader_fno.service_trader_fno import TraderFnoService, ServiceConfig as TraderFnoConfig
@@ -50,6 +53,7 @@ SERVICE_REGISTRY = {
     "strategy": (StrategyService, StrategyConfig),
     "risk_portfolio": (RiskPortfolioService, RiskPortfolioConfig),
     "execution": (ExecutionService, ExecutionConfig),
+    "exec": (ExecutionService, ExecutionConfig),  # Alias for execution
     "journal": (JournalService, JournalConfig),
 }
 
@@ -87,6 +91,19 @@ Examples:
         help="Name of the service to run"
     )
     
+    parser.add_argument(
+        "--mode",
+        choices=["paper", "live"],
+        default="paper",
+        help="Trading mode for execution service (default: paper)"
+    )
+    
+    parser.add_argument(
+        "--config",
+        default="configs/dev.yaml",
+        help="Path to configuration file (default: configs/dev.yaml)"
+    )
+    
     args = parser.parse_args()
     
     service_name = args.service_name
@@ -105,11 +122,36 @@ Examples:
     event_bus = InMemoryEventBus(max_queue_size=1000)
     event_bus.start()
     
-    # Create service config
-    config = config_class(name=service_name, enabled=True)
+    # Load configuration from file if needed
+    app_cfg = {}
+    config_path = Path(args.config)
+    if config_path.exists():
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                app_cfg = yaml.safe_load(f) or {}
+            logger.info(f"Loaded configuration from {config_path}")
+        except Exception as e:
+            logger.warning(f"Failed to load config from {config_path}: {e}")
     
-    # Instantiate service
-    service = service_class(event_bus=event_bus, config=config)
+    # Special handling for execution service
+    if service_name in ("execution", "exec"):
+        # Get mode from command line or config
+        mode = args.mode
+        if mode is None:
+            mode = app_cfg.get("trading", {}).get("mode", "paper")
+        
+        # Get execution config with slippage
+        exec_cfg = app_cfg.get("execution", {})
+        exec_cfg["slippage_bps"] = exec_cfg.get("slippage_bps", 5.0)
+        exec_cfg["mode"] = mode
+        
+        logger.info(f"Execution service mode: {mode}")
+        service = ExecutionService(bus=event_bus, cfg=exec_cfg, mode=mode)
+    else:
+        # Create standard service config
+        config = config_class(name=service_name, enabled=True)
+        # Instantiate service
+        service = service_class(event_bus=event_bus, config=config)
     
     try:
         # Run service forever
