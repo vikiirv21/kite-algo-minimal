@@ -367,12 +367,12 @@ class EquityPaperEngine:
                 logical_tagged = f"{logical_base}|{strategy_label}"
 
                 logger.info(
-                    "Equity logical=%s tf=%s mode=%s strategy=%s price=%.2f signal=%s",
+                    "Equity logical=%s tf=%s mode=%s strategy=%s price=%s signal=%s",
                     logical_base,
                     tf_label,
                     mode_label,
                     strategy_label,
-                    price,
+                    f"{price:.2f}" if price is not None else "None",
                     signal,
                 )
 

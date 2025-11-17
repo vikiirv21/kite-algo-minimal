@@ -261,13 +261,28 @@ def determine_regime(price: float, ind: Dict[str, Any]) -> str:
 
 
 def build_reason(price: float, ind: Dict[str, Any], regime: str, signal: str) -> str:
+    # Extract indicators with None check
+    ema20 = ind.get("ema20")
+    ema50 = ind.get("ema50")
+    ema100 = ind.get("ema100")
+    ema200 = ind.get("ema200")
+    
+    # Guard: if any critical indicators or price is None, return early with diagnostic info
+    if price is None or ema20 is None or ema50 is None or ema100 is None or ema200 is None:
+        signal_str = getattr(signal, 'name', str(signal)) if signal is not None else 'None'
+        return (
+            f"Indicators warming up or missing for detailed reason: "
+            f"price={price}, ema20={ema20}, ema50={ema50}, ema100={ema100}, "
+            f"ema200={ema200}, regime={regime}, signal={signal_str}"
+        )
+    
     parts: List[str] = []
     parts.append(f"regime:{regime or 'UNKNOWN'}")
 
-    ema20 = ind.get("ema20", price)
-    ema50 = ind.get("ema50", price)
+    # Safe fallback for indicators that can be missing
     rsi = ind.get("rsi14", 50.0)
 
+    # Now safe to do chained comparisons - all values guaranteed non-None
     if price > ema20 > ema50:
         parts.append("above_fast_emas")
     elif price < ema20 < ema50:
@@ -281,7 +296,9 @@ def build_reason(price: float, ind: Dict[str, Any], regime: str, signal: str) ->
     if ind.get("vol_spike"):
         parts.append("vol_spike")
 
-    if signal.upper() == "HOLD":
+    # Safe signal formatting
+    signal_str = getattr(signal, 'name', str(signal)) if signal is not None else 'HOLD'
+    if str(signal_str).upper() == "HOLD":
         parts.append("no_new_edge")
 
     return "|".join(parts)
