@@ -246,9 +246,9 @@ DASHBOARD_TEMPLATE_NAME = _resolve_dashboard_template_name()
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
-    """Render the main dashboard using base.html with default overview page"""
+    """Render the main Arthayukti dashboard"""
     try:
-        return templates.TemplateResponse("base.html", {
+        return templates.TemplateResponse("index.html", {
             "request": request,
         })
     except Exception as exc:
