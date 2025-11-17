@@ -278,8 +278,10 @@ class ExecutionService:
                 order_intent.qty,
                 order_intent.symbol,
                 avg_price,
-                order_intent.strategy_code
+                getattr(order_intent, "strategy_code", "unknown")
             )
+            
+            reason = getattr(order_intent, "reason", "Paper trade")
             
             return OrderResult(
                 order_id=order_id,
@@ -288,11 +290,11 @@ class ExecutionService:
                 side=side,
                 qty=order_intent.qty,
                 avg_price=avg_price,
-                message=f"Paper fill: {order_intent.reason}",
+                message=f"Paper fill: {reason}",
                 timestamp=timestamp,
                 metadata={
-                    "strategy_code": order_intent.strategy_code,
-                    "confidence": order_intent.confidence,
+                    "strategy_code": getattr(order_intent, "strategy_code", "unknown"),
+                    "confidence": getattr(order_intent, "confidence", 0.0),
                     "mode": "paper",
                 }
             )

@@ -74,13 +74,19 @@ class PortfolioService:
         Handle fill event and update positions.
         
         Args:
-            fill_event: Fill event dict with:
+            fill_event: Fill event dict or EventBus event with:
                 - symbol: Trading symbol
                 - side: BUY or SELL
                 - qty: Quantity filled
                 - avg_price: Average fill price
                 - order_id: Order identifier
+                
+        Note: Handles both direct fill data or EventBus event format with payload.
         """
+        # Handle EventBus event format (has 'payload' key)
+        if "payload" in fill_event:
+            fill_event = fill_event["payload"]
+        
         symbol = fill_event.get("symbol")
         side = fill_event.get("side", "").upper()
         qty = fill_event.get("qty", 0)
