@@ -244,24 +244,34 @@ def _resolve_dashboard_template_name() -> Optional[str]:
 DASHBOARD_TEMPLATE_NAME = _resolve_dashboard_template_name()
 REACT_BUILD_DIR = BASE_DIR / "ui" / "static-react"
 
+# Debug logging for React build directory
+print("[dashboard] REACT_BUILD_DIR:", REACT_BUILD_DIR)
+print("[dashboard] index.html exists:", (REACT_BUILD_DIR / "index.html").exists())
+assets_dir = REACT_BUILD_DIR / "assets"
+print("[dashboard] assets dir exists:", assets_dir.exists())
+if assets_dir.exists():
+    print("[dashboard] sample assets:", list(assets_dir.iterdir())[:5])
 
-@app.get("/", response_class=HTMLResponse)
-async def index(request: Request) -> HTMLResponse:
-    """Render the main Arthayukti dashboard (React SPA)"""
-    try:
-        # Serve the React app's index.html
-        react_index = REACT_BUILD_DIR / "index.html"
-        if react_index.exists():
-            return HTMLResponse(content=react_index.read_text(encoding="utf-8"))
-        else:
-            # Fallback to old dashboard if React build doesn't exist
-            logger.warning("React build not found at %s, falling back to old dashboard", REACT_BUILD_DIR)
-            return templates.TemplateResponse("dashboard.html", {
-                "request": request,
-            })
-    except Exception as exc:
-        logger.error("Failed to render dashboard: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+# NOTE: The root path ("/") is now served by StaticFiles mount below (see bottom of file)
+# This route is commented out to avoid conflicts with React SPA routing
+# @app.get("/", response_class=HTMLResponse)
+# async def index(request: Request) -> HTMLResponse:
+#     """Render the main Arthayukti dashboard (React SPA)"""
+#     try:
+#         # Serve the React app's index.html
+#         react_index = REACT_BUILD_DIR / "index.html"
+#         if react_index.exists():
+#             return HTMLResponse(content=react_index.read_text(encoding="utf-8"))
+#         else:
+#             # Fallback to old dashboard if React build doesn't exist
+#             logger.warning("React build not found at %s, falling back to old dashboard", REACT_BUILD_DIR)
+#             return templates.TemplateResponse("dashboard.html", {
+#                 "request": request,
+#             })
+#     except Exception as exc:
+#         logger.error("Failed to render dashboard: %s", exc)
+#         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 @app.get("/pages/{page_name}", response_class=HTMLResponse)
 async def get_page(request: Request, page_name: str) -> HTMLResponse:
@@ -2720,34 +2730,26 @@ def api_equity_curve(
             "error": str(exc),
         })
 
-# Mount React static assets (only if the build directory and assets subdirectory exist)
-if REACT_BUILD_DIR.exists():
-    from starlette.staticfiles import StaticFiles as StarletteStaticFiles
-    from starlette.responses import Response
-    from starlette.types import Scope
-    
-    class CachedStaticFiles(StarletteStaticFiles):
-        async def get_response(self, path: str, scope: Scope) -> Response:
-            response = await super().get_response(path, scope)
-            # Add cache headers for static assets (1 day cache)
-            if path.endswith(('.css', '.js', '.svg', '.png', '.jpg', '.ico')):
-                response.headers["Cache-Control"] = "public, max-age=86400"
-            return response
-    
-    # Only mount /assets if the assets subdirectory exists
-    react_assets_dir = REACT_BUILD_DIR / "assets"
-    if react_assets_dir.exists():
-        app.mount("/assets", CachedStaticFiles(directory=react_assets_dir), name="react-assets")
-        logger.info("React assets mounted at /assets from %s", react_assets_dir)
-    else:
-        logger.warning("React assets directory not found at %s - skipping mount", react_assets_dir)
-
 # Mount old static files (for backwards compatibility during transition)
 if STATIC_DIR.exists():
     from starlette.staticfiles import StaticFiles as StarletteStaticFilesLegacy
     app.mount("/static", StarletteStaticFilesLegacy(directory=STATIC_DIR), name="static")
 
+# Include all API routes BEFORE mounting the React UI at root
 app.include_router(router)
+
+# Mount React UI at root (serves index.html and all assets)
+# This MUST come last so API routes are not shadowed by the static file handler
+if REACT_BUILD_DIR.exists():
+    print(f"[dashboard] Mounting React UI from {REACT_BUILD_DIR}")
+    app.mount(
+        "/",
+        StaticFiles(directory=str(REACT_BUILD_DIR), html=True),
+        name="react-ui",
+    )
+    print("[dashboard] React UI mounted successfully at / with html=True")
+else:
+    print(f"[dashboard] React UI directory not found: {REACT_BUILD_DIR}")
 
 
 if __name__ == "__main__":
