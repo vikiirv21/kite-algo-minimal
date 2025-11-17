@@ -3,10 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
+import logging
 import math
 import pandas as pd
 
 from .base import Decision
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -76,7 +79,17 @@ class FnoIntradayTrendStrategy:
         """
         Accepts a dict {"close": price} and returns a Decision(Action: BUY/SELL/HOLD).
         """
-        close = float(bar.get("close", 0.0))
+        # Safely parse close value with robust error handling
+        try:
+            raw_close = bar.get("close", 0.0)
+            if raw_close is None:
+                log.debug("Symbol %s: bar['close'] is None, returning HOLD", symbol)
+                return Decision(action="HOLD", reason="invalid_price_none", mode=self.mode, confidence=0.0)
+            close = float(raw_close)
+        except (TypeError, ValueError) as exc:
+            log.debug("Symbol %s: invalid bar['close']=%r (%s), returning HOLD", symbol, bar.get("close"), exc)
+            return Decision(action="HOLD", reason="invalid_price_conversion", mode=self.mode, confidence=0.0)
+        
         if close <= 0:
             return Decision(action="HOLD", reason="invalid_price", mode=self.mode, confidence=0.0)
 
