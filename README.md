@@ -6,6 +6,30 @@ Real content will be added later.
 
 ## Features
 
+### React Dashboard (NEW!)
+
+Modern web-based control panel built with React, TypeScript, and Tailwind CSS:
+
+- **7 Pages**: Overview, Trading, Portfolio, Signals, Analytics, System, Logs
+- **Real-time Updates**: Auto-polling with React Query (1-5s intervals)
+- **Dark Theme**: Professional futuristic design
+- **Live Metrics**: P&L, positions, orders, signals with color coding
+- **Log Viewer**: Filterable engine logs with auto-scroll
+- **Charts**: Equity curve visualization with Recharts
+
+**Quick Start:**
+```bash
+# Build the dashboard
+./build-dashboard.sh
+
+# Start the server
+python -m uvicorn apps.server:app --host 0.0.0.0 --port 9000
+
+# Open http://localhost:9000
+```
+
+See [docs/dashboard_new_ui.md](docs/dashboard_new_ui.md) for complete documentation.
+
 ### Backtest Engine v3
 Offline backtesting framework that reuses live/paper components:
 - Runs completely offline on historical data
