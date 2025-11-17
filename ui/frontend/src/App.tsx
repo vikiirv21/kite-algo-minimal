@@ -9,6 +9,7 @@ import { SignalsPage } from './features/signals/SignalsPage';
 import { AnalyticsPage } from './features/analytics/AnalyticsPage';
 import { SystemPage } from './features/system/SystemPage';
 import { LogsPage } from './features/logs/LogsPage';
+import { RiskPage } from './features/risk/RiskPage';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -36,6 +37,7 @@ function App() {
                 <Route path="/portfolio" element={<PortfolioPage />} />
                 <Route path="/signals" element={<SignalsPage />} />
                 <Route path="/analytics" element={<AnalyticsPage />} />
+                <Route path="/risk" element={<RiskPage />} />
                 <Route path="/system" element={<SystemPage />} />
                 <Route path="/logs" element={<LogsPage />} />
               </Routes>

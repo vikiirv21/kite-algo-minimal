@@ -12,7 +12,7 @@ export interface MetaResponse {
     phase: string;
   };
   regime: string;
-  regime_snapshot: Record<string, any>;
+  regime_snapshot: Record<string, unknown>;
 }
 
 export interface ConfigSummary {

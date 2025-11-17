@@ -3,12 +3,15 @@
 body {
   margin: 0;
   height: 100vh;
+  background-color: #0a0e1a;
+  color: #f3f4f6;
 }
 
 #root {
   height: 100%;
 }
 
+/* P&L Colors */
 .pnl-positive {
   color: #10b981;
 }
@@ -17,6 +20,7 @@ body {
   color: #ef4444;
 }
 
+/* Scrollbar Styles */
 .scrollbar-thin {
   scrollbar-width: thin;
 }
