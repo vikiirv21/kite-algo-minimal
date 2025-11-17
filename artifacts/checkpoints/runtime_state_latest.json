@@ -20,10 +20,10 @@
     }
   },
   "pnl": {
-    "day_pnl": 0.0,
-    "realized_pnl": 0.0,
+    "day_pnl": -941.9000000000087,
+    "realized_pnl": -941.9000000000087,
     "unrealized_pnl": 0.0,
-    "open_positions": 0,
+    "open_positions": 1,
     "num_trades": 0,
     "win_trades": 0,
     "loss_trades": 0,
@@ -32,27 +32,27 @@
     "largest_loss": 0.0,
     "avg_r": 0.0
   },
-  "ts": "2025-11-16T19:48:32.615005Z",
+  "ts": "2025-11-17T11:44:21.238151Z",
   "mode": "paper",
   "equity": {
-    "realized_pnl": 0.0,
+    "realized_pnl": -941.9000000000087,
     "unrealized_pnl": 0.0,
-    "day_pnl": 0.0
+    "day_pnl": -941.9000000000087
   },
   "summary": {
-    "date": "2025-11-16",
-    "realized_pnl": 0.0,
+    "date": "2025-11-17",
+    "realized_pnl": -941.9000000000087,
     "num_trades": 0,
     "win_trades": 0,
     "loss_trades": 0,
     "win_rate": 0.0,
-    "open_positions": 0,
+    "open_positions": 1,
     "largest_win": 0.0,
     "largest_loss": 0.0,
     "avg_r": 0.0,
     "note": ""
   },
-  "last_heartbeat_ts": "2025-11-16T19:48:32.614990+00:00",
+  "last_heartbeat_ts": "2025-11-17T11:44:21.238136+00:00",
   "universe": {
     "date": "2025-11-17",
     "asof": "2025-11-16T19:33:02.594846Z",
@@ -84,5 +84,45 @@
         "atr": null
       }
     }
-  }
+  },
+  "strategies": {
+    "ema20_50_intraday": {
+      "day_pnl": 0.0,
+      "open_trades": 0,
+      "win_trades": 0,
+      "loss_trades": 0,
+      "entry_count": 0,
+      "exit_count": 0,
+      "last_signal_ts": "2025-11-17T09:58:48.666830+00:00"
+    },
+    "expiry_scalper": {
+      "day_pnl": -4289.350000000015,
+      "open_trades": 0,
+      "win_trades": 0,
+      "loss_trades": 10,
+      "entry_count": 0,
+      "exit_count": 10,
+      "last_signal_ts": "37138ce9-89f7-46a7-8665-e3101763c891"
+    }
+  },
+  "positions": [
+    {
+      "symbol": "NIFTY25N1826050PE",
+      "quantity": 0,
+      "avg_price": 0.0,
+      "realized_pnl": -288.0000000000018
+    },
+    {
+      "symbol": "BANKNIFTY25NOV59000PE",
+      "quantity": 0,
+      "avg_price": 0.0,
+      "realized_pnl": -241.15000000000163
+    },
+    {
+      "symbol": "BANKNIFTY25NOV59000CE",
+      "quantity": 60,
+      "avg_price": 429.69999999999993,
+      "realized_pnl": -412.7500000000052
+    }
+  ]
 }
