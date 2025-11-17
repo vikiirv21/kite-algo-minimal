@@ -1,0 +1,78 @@
+<div class="page-header">
+    <h2>Engines Status</h2>
+</div>
+
+<div class="page-grid">
+    <div class="card">
+        <div class="card-header">
+            <h3>Engine Details</h3>
+        </div>
+        <div class="card-body" 
+             hx-get="/api/engines/status" 
+             hx-trigger="load, every 10s"
+             hx-target="this"
+             hx-swap="innerHTML">
+            <div class="loading">Loading engine status...</div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.requestConfig && evt.detail.requestConfig.path === '/api/engines/status') {
+        try {
+            const data = JSON.parse(evt.detail.xhr.responseText);
+            const engines = data.engines || [];
+            
+            let html = '<div class="engines-detailed">';
+            
+            engines.forEach(eng => {
+                const status = eng.running ? 'running' : 'stopped';
+                const statusClass = eng.running ? 'success' : 'error';
+                
+                html += `
+                    <div class="engine-card">
+                        <div class="engine-card-header">
+                            <h4>${eng.engine || 'Unknown Engine'}</h4>
+                            <span class="badge badge-${statusClass}">${status.toUpperCase()}</span>
+                        </div>
+                        <div class="engine-card-body">
+                            <div class="engine-detail">
+                                <span class="detail-label">Mode:</span>
+                                <span class="detail-value">${eng.mode || 'N/A'}</span>
+                            </div>
+                            <div class="engine-detail">
+                                <span class="detail-label">Market:</span>
+                                <span class="detail-value">${eng.market_open ? 'OPEN' : 'CLOSED'}</span>
+                            </div>
+                            ${eng.last_checkpoint_ts ? `
+                                <div class="engine-detail">
+                                    <span class="detail-label">Last Checkpoint:</span>
+                                    <span class="detail-value">${new Date(eng.last_checkpoint_ts).toLocaleString()}</span>
+                                </div>
+                            ` : ''}
+                            ${eng.checkpoint_age_seconds !== null ? `
+                                <div class="engine-detail">
+                                    <span class="detail-label">Checkpoint Age:</span>
+                                    <span class="detail-value">${eng.checkpoint_age_seconds.toFixed(1)}s</span>
+                                </div>
+                            ` : ''}
+                            ${eng.error ? `
+                                <div class="engine-detail error">
+                                    <span class="detail-label">Error:</span>
+                                    <span class="detail-value">${eng.error}</span>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            evt.detail.target.innerHTML = html;
+        } catch (e) {
+            console.error('Error rendering engines:', e);
+        }
+    }
+});
+</script>

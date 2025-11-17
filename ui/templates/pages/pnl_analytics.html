@@ -1,0 +1,132 @@
+<div class="page-header">
+    <h2>PnL Analytics</h2>
+</div>
+
+<div class="page-grid">
+    <!-- Today's Performance -->
+    <div class="card">
+        <div class="card-header">
+            <h3>Today's Performance</h3>
+        </div>
+        <div class="card-body" 
+             hx-get="/api/summary/today" 
+             hx-trigger="load, every 15s"
+             hx-target="this"
+             hx-swap="innerHTML">
+            <div class="loading">Loading...</div>
+        </div>
+    </div>
+    
+    <!-- Portfolio PnL -->
+    <div class="card">
+        <div class="card-header">
+            <h3>Portfolio PnL</h3>
+        </div>
+        <div class="card-body" 
+             hx-get="/api/portfolio/summary" 
+             hx-trigger="load, every 10s"
+             hx-target="this"
+             hx-swap="innerHTML">
+            <div class="loading">Loading...</div>
+        </div>
+    </div>
+</div>
+
+<!-- Equity Chart -->
+<div class="card mt-4">
+    <div class="card-header">
+        <h3>Equity Curve (Last 7 Days)</h3>
+    </div>
+    <div class="card-body" 
+         hx-get="/api/stats/equity?days=7" 
+         hx-trigger="load, every 60s"
+         hx-target="this"
+         hx-swap="innerHTML">
+        <div class="loading">Loading chart...</div>
+    </div>
+</div>
+
+<script>
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target.closest('.card-body')) {
+        const target = evt.detail.target;
+        try {
+            const data = JSON.parse(evt.detail.xhr.responseText);
+            
+            // Render today's summary
+            if (evt.detail.requestConfig.path === '/api/summary/today') {
+                target.innerHTML = `
+                    <div class="pnl-grid">
+                        <div class="pnl-item">
+                            <span class="pnl-label">Realized PnL</span>
+                            <span class="pnl-value ${data.realized_pnl >= 0 ? 'positive' : 'negative'}">
+                                ₹${(data.realized_pnl || 0).toFixed(2)}
+                            </span>
+                        </div>
+                        <div class="pnl-item">
+                            <span class="pnl-label">Total Trades</span>
+                            <span class="pnl-value">${data.num_trades || 0}</span>
+                        </div>
+                        <div class="pnl-item">
+                            <span class="pnl-label">Win Trades</span>
+                            <span class="pnl-value">${data.win_trades || 0}</span>
+                        </div>
+                        <div class="pnl-item">
+                            <span class="pnl-label">Loss Trades</span>
+                            <span class="pnl-value">${data.loss_trades || 0}</span>
+                        </div>
+                        <div class="pnl-item">
+                            <span class="pnl-label">Win Rate</span>
+                            <span class="pnl-value">${(data.win_rate || 0).toFixed(1)}%</span>
+                        </div>
+                        <div class="pnl-item">
+                            <span class="pnl-label">Largest Win</span>
+                            <span class="pnl-value positive">₹${(data.largest_win || 0).toFixed(2)}</span>
+                        </div>
+                        <div class="pnl-item">
+                            <span class="pnl-label">Largest Loss</span>
+                            <span class="pnl-value negative">₹${(data.largest_loss || 0).toFixed(2)}</span>
+                        </div>
+                        <div class="pnl-item">
+                            <span class="pnl-label">Avg R</span>
+                            <span class="pnl-value">${(data.avg_r || 0).toFixed(2)}R</span>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Render portfolio PnL
+            if (evt.detail.requestConfig.path === '/api/portfolio/summary') {
+                target.innerHTML = `
+                    <div class="pnl-grid">
+                        <div class="pnl-item">
+                            <span class="pnl-label">Total Equity</span>
+                            <span class="pnl-value">₹${(data.equity || 0).toFixed(2)}</span>
+                        </div>
+                        <div class="pnl-item">
+                            <span class="pnl-label">Realized PnL</span>
+                            <span class="pnl-value ${data.total_realized_pnl >= 0 ? 'positive' : 'negative'}">
+                                ₹${(data.total_realized_pnl || 0).toFixed(2)}
+                            </span>
+                        </div>
+                        <div class="pnl-item">
+                            <span class="pnl-label">Unrealized PnL</span>
+                            <span class="pnl-value ${data.total_unrealized_pnl >= 0 ? 'positive' : 'negative'}">
+                                ₹${(data.total_unrealized_pnl || 0).toFixed(2)}
+                            </span>
+                        </div>
+                        <div class="pnl-item">
+                            <span class="pnl-label">Daily PnL</span>
+                            <span class="pnl-value ${data.daily_pnl >= 0 ? 'positive' : 'negative'}">
+                                ₹${(data.daily_pnl || 0).toFixed(2)}
+                            </span>
+                        </div>
+                    </div>
+                `;
+            }
+        } catch (e) {
+            console.error('Error rendering PnL data:', e);
+        }
+    }
+});
+</script>

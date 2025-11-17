@@ -1,0 +1,74 @@
+<div class="page-header">
+    <h2>Orders</h2>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3>Recent Orders (Last 40)</h3>
+    </div>
+    <div class="card-body">
+        <div id="orders-table" 
+             hx-get="/api/orders/recent?limit=40" 
+             hx-trigger="load, every 3s"
+             hx-target="this"
+             hx-swap="innerHTML">
+            <div class="loading">Loading orders...</div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target.id === 'orders-table') {
+        try {
+            const response = JSON.parse(evt.detail.xhr.responseText);
+            const orders = response.orders || [];
+            
+            if (orders.length === 0) {
+                evt.detail.target.innerHTML = '<p class="no-data">No orders yet</p>';
+                return;
+            }
+            
+            let html = `
+                <div class="table-wrapper">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Symbol</th>
+                                <th>Side</th>
+                                <th>Qty</th>
+                                <th>Price</th>
+                                <th>Status</th>
+                                <th>Strategy</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            orders.forEach(order => {
+                const timestamp = order.ts || order.timestamp || order.created_at || '';
+                const time = timestamp ? new Date(timestamp).toLocaleTimeString() : '-';
+                const sideClass = (order.side || '').toUpperCase() === 'BUY' ? 'buy' : 'sell';
+                
+                html += `
+                    <tr>
+                        <td>${time}</td>
+                        <td>${order.symbol || order.tradingsymbol || ''}</td>
+                        <td class="${sideClass}">${(order.side || '').toUpperCase()}</td>
+                        <td>${order.quantity || order.qty || 0}</td>
+                        <td>₹${(parseFloat(order.price || order.avg_price || 0)).toFixed(2)}</td>
+                        <td><span class="badge badge-${(order.status || '').toLowerCase()}">${order.status || ''}</span></td>
+                        <td>${order.strategy || '-'}</td>
+                    </tr>
+                `;
+            });
+            
+            html += '</tbody></table></div>';
+            evt.detail.target.innerHTML = html;
+        } catch (e) {
+            console.error('Error rendering orders:', e);
+        }
+    }
+});
+</script>

@@ -1,0 +1,33 @@
+<div class="topbar">
+    <div class="topbar-left">
+        <h1 class="topbar-title">Arthayukti Algo Dashboard</h1>
+    </div>
+    
+    <div class="topbar-center">
+        <!-- Server Time -->
+        <div class="topbar-item" id="server-time-container" 
+             hx-get="/api/system/time" 
+             hx-trigger="load, every 1s"
+             hx-swap="innerHTML">
+            🕒 <span id="server-time">--:--:--</span>
+        </div>
+        
+        <!-- Market Status -->
+        <div class="topbar-item" id="market-status-container"
+             hx-get="/api/meta"
+             hx-trigger="load, every 5s"
+             hx-swap="none">
+            <span id="market-status" class="badge">CLOSED</span>
+        </div>
+    </div>
+    
+    <div class="topbar-right">
+        <!-- Mode Indicator (PAPER/LIVE) -->
+        <div class="topbar-item" id="mode-container"
+             hx-get="/api/config/summary"
+             hx-trigger="load, every 15s"
+             hx-swap="none">
+            <span id="mode-badge" class="badge badge-mode">PAPER</span>
+        </div>
+    </div>
+</div>

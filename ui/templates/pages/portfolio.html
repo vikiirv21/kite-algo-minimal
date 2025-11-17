@@ -1,0 +1,70 @@
+<div class="page-header">
+    <h2>Portfolio</h2>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3>Open Positions</h3>
+    </div>
+    <div class="card-body">
+        <div id="positions-table" 
+             hx-get="/api/positions/open" 
+             hx-trigger="load, every 5s"
+             hx-target="this"
+             hx-swap="innerHTML">
+            <div class="loading">Loading positions...</div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target.id === 'positions-table') {
+        try {
+            const data = JSON.parse(evt.detail.xhr.responseText);
+            const positions = Array.isArray(data) ? data : [];
+            
+            if (positions.length === 0) {
+                evt.detail.target.innerHTML = '<p class="no-data">No open positions</p>';
+                return;
+            }
+            
+            let html = `
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Symbol</th>
+                            <th>Qty</th>
+                            <th>Avg Price</th>
+                            <th>LTP</th>
+                            <th>Realized PnL</th>
+                            <th>Unrealized PnL</th>
+                            <th>Strategy</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            positions.forEach(pos => {
+                const unrealizedClass = (pos.unrealized_pnl || 0) >= 0 ? 'positive' : 'negative';
+                html += `
+                    <tr>
+                        <td>${pos.symbol || ''}</td>
+                        <td>${pos.quantity || 0}</td>
+                        <td>₹${(pos.avg_price || 0).toFixed(2)}</td>
+                        <td>₹${(pos.last_price || 0).toFixed(2)}</td>
+                        <td>₹${(pos.realized_pnl || 0).toFixed(2)}</td>
+                        <td class="${unrealizedClass}">₹${(pos.unrealized_pnl || 0).toFixed(2)}</td>
+                        <td>${pos.strategy || '-'}</td>
+                    </tr>
+                `;
+            });
+            
+            html += '</tbody></table>';
+            evt.detail.target.innerHTML = html;
+        } catch (e) {
+            console.error('Error rendering positions:', e);
+        }
+    }
+});
+</script>

@@ -1,0 +1,74 @@
+<div class="page-header">
+    <h2>Strategy Performance</h2>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3>Active Strategies</h3>
+    </div>
+    <div class="card-body">
+        <div id="strategies-table" 
+             hx-get="/api/strategy_performance" 
+             hx-trigger="load, every 15s"
+             hx-target="this"
+             hx-swap="innerHTML">
+            <div class="loading">Loading strategies...</div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target.id === 'strategies-table') {
+        try {
+            const data = JSON.parse(evt.detail.xhr.responseText);
+            const strategies = Array.isArray(data) ? data : [];
+            
+            if (strategies.length === 0) {
+                evt.detail.target.innerHTML = '<p class="no-data">No strategy data available</p>';
+                return;
+            }
+            
+            let html = `
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Strategy</th>
+                            <th>PnL</th>
+                            <th>Wins</th>
+                            <th>Losses</th>
+                            <th>Win Rate</th>
+                            <th>Entries</th>
+                            <th>Exits</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            strategies.forEach(strat => {
+                const winRate = strat.wins + strat.losses > 0 
+                    ? ((strat.wins / (strat.wins + strat.losses)) * 100).toFixed(1) 
+                    : '0.0';
+                const pnlClass = (strat.pnl || 0) >= 0 ? 'positive' : 'negative';
+                
+                html += `
+                    <tr>
+                        <td><strong>${strat.name || strat.code || 'Unknown'}</strong></td>
+                        <td class="${pnlClass}">₹${(strat.pnl || 0).toFixed(2)}</td>
+                        <td>${strat.wins || 0}</td>
+                        <td>${strat.losses || 0}</td>
+                        <td>${winRate}%</td>
+                        <td>${strat.entries || 0}</td>
+                        <td>${strat.exits || 0}</td>
+                    </tr>
+                `;
+            });
+            
+            html += '</tbody></table>';
+            evt.detail.target.innerHTML = html;
+        } catch (e) {
+            console.error('Error rendering strategies:', e);
+        }
+    }
+});
+</script>

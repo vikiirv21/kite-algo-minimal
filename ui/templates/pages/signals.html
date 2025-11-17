@@ -1,0 +1,72 @@
+<div class="page-header">
+    <h2>Signals</h2>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3>Recent Signals (Last 40)</h3>
+    </div>
+    <div class="card-body">
+        <div id="signals-table" 
+             hx-get="/api/signals/recent?limit=40" 
+             hx-trigger="load, every 3s"
+             hx-target="this"
+             hx-swap="innerHTML">
+            <div class="loading">Loading signals...</div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target.id === 'signals-table') {
+        try {
+            const signals = JSON.parse(evt.detail.xhr.responseText);
+            
+            if (!Array.isArray(signals) || signals.length === 0) {
+                evt.detail.target.innerHTML = '<p class="no-data">No signals yet</p>';
+                return;
+            }
+            
+            let html = `
+                <div class="table-wrapper">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Symbol</th>
+                                <th>Signal</th>
+                                <th>Price</th>
+                                <th>Timeframe</th>
+                                <th>Strategy</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            signals.forEach(sig => {
+                const timestamp = sig.ts || sig.timestamp || '';
+                const time = timestamp ? new Date(timestamp).toLocaleTimeString() : '-';
+                const signalType = (sig.signal || '').toUpperCase();
+                const signalClass = signalType === 'BUY' ? 'buy' : (signalType === 'SELL' ? 'sell' : 'neutral');
+                
+                html += `
+                    <tr>
+                        <td>${time}</td>
+                        <td>${sig.symbol || ''}</td>
+                        <td><span class="badge badge-${signalClass}">${signalType}</span></td>
+                        <td>${sig.price ? '₹' + parseFloat(sig.price).toFixed(2) : '-'}</td>
+                        <td>${sig.tf || sig.timeframe || '-'}</td>
+                        <td>${sig.strategy || '-'}</td>
+                    </tr>
+                `;
+            });
+            
+            html += '</tbody></table></div>';
+            evt.detail.target.innerHTML = html;
+        } catch (e) {
+            console.error('Error rendering signals:', e);
+        }
+    }
+});
+</script>
