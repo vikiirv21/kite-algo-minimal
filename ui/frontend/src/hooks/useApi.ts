@@ -16,7 +16,7 @@ export const queryKeys = {
   strategies: (days: number) => ['strategies', days] as const,
   equityCurve: (days: number) => ['equity', days] as const,
   todaySummary: ['today'] as const,
-  logs: (params?: any) => ['logs', params] as const,
+  logs: (params?: { limit?: number; level?: string; contains?: string; kind?: string }) => ['logs', params] as const,
 };
 
 // Hooks with appropriate refetch intervals
