@@ -16,3 +16,8 @@ artifacts/scanner/
 ui/static/dashboard_old.js
 ui/static/js/dashboard_old.js
 ui/static/css/dashboard_old.css
+
+# React frontend
+ui/frontend/node_modules/
+ui/frontend/dist/
+ui/static-react/
