@@ -2,12 +2,13 @@
 
 import sys
 from pathlib import Path
+from datetime import datetime, timezone
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.strategy_engine_v2 import (
-    BaseStrategy, OrderIntent, StrategyState, StrategyEngineV2
+    BaseStrategy, OrderIntent, StrategyState, StrategyEngineV2, StrategySignal
 )
 from strategies.base import Decision
 
@@ -230,6 +231,358 @@ def test_strategy_engine_v2_run_strategy():
     assert isinstance(intents, list)
 
 
+def test_strategy_state_pnl_tracking():
+    """Test StrategyState PnL tracking and streak management."""
+    state = StrategyState()
+    
+    # Test win streak
+    state.update_pnl(100.0)
+    assert state.win_streak == 1
+    assert state.loss_streak == 0
+    assert state.recent_pnl == 100.0
+    
+    state.update_pnl(50.0)
+    assert state.win_streak == 2
+    assert state.loss_streak == 0
+    assert state.recent_pnl == 150.0
+    
+    # Test loss streak
+    state.update_pnl(-30.0)
+    assert state.win_streak == 0
+    assert state.loss_streak == 1
+    assert state.recent_pnl == 120.0
+    
+    state.update_pnl(-40.0)
+    assert state.win_streak == 0
+    assert state.loss_streak == 2
+    assert state.recent_pnl == 80.0
+
+
+def test_strategy_state_decision_recording():
+    """Test StrategyState decision recording."""
+    state = StrategyState()
+    
+    # Record some decisions
+    state.record_decision("NIFTY", "long", 0.8, "test_reason")
+    state.record_decision("BANKNIFTY", "short", 0.7, "test_reason2")
+    
+    assert len(state.recent_decisions) == 2
+    assert state.recent_decisions[0]["symbol"] == "NIFTY"
+    assert state.recent_decisions[0]["decision"] == "long"
+    assert state.recent_decisions[1]["symbol"] == "BANKNIFTY"
+    
+    # Test max retention (20 decisions)
+    for i in range(25):
+        state.record_decision(f"SYM{i}", "long", 0.5, "test")
+    
+    assert len(state.recent_decisions) == 20
+
+
+def test_strategy_signal():
+    """Test StrategySignal class."""
+    signal = StrategySignal(
+        timestamp=datetime.utcnow().replace(tzinfo=timezone.utc),
+        symbol="NIFTY",
+        strategy_name="test_strategy",
+        direction="long",
+        strength=0.8,
+        tags={"reason": "test_reason"}
+    )
+    
+    assert signal.symbol == "NIFTY"
+    assert signal.direction == "long"
+    assert signal.strength == 0.8
+    assert signal.tags["reason"] == "test_reason"
+    
+    # Test to_dict
+    d = signal.to_dict()
+    assert d["symbol"] == "NIFTY"
+    assert d["direction"] == "long"
+    
+    # Test strength clamping
+    signal2 = StrategySignal(
+        timestamp=datetime.utcnow().replace(tzinfo=timezone.utc),
+        symbol="NIFTY",
+        strategy_name="test",
+        direction="long",
+        strength=1.5  # Should be clamped to 1.0
+    )
+    assert signal2.strength == 1.0
+    
+    signal3 = StrategySignal(
+        timestamp=datetime.utcnow().replace(tzinfo=timezone.utc),
+        symbol="NIFTY",
+        strategy_name="test",
+        direction="long",
+        strength=-0.5  # Should be clamped to 0.0
+    )
+    assert signal3.strength == 0.0
+
+
+def test_normalize_signal():
+    """Test signal normalization."""
+    config = {"history_lookback": 100}
+    market_data = MockMarketDataEngine()
+    engine = StrategyEngineV2(config, market_data)
+    
+    # Test BUY signal
+    decision = Decision(action="BUY", reason="test_buy", confidence=0.8)
+    signal = engine.normalize_signal(decision, "test_strategy", "NIFTY")
+    
+    assert signal is not None
+    assert signal.direction == "long"
+    assert signal.symbol == "NIFTY"
+    assert signal.strategy_name == "test_strategy"
+    assert signal.strength == 0.8
+    
+    # Test SELL signal
+    decision = Decision(action="SELL", reason="test_sell", confidence=0.7)
+    signal = engine.normalize_signal(decision, "test_strategy", "BANKNIFTY")
+    
+    assert signal is not None
+    assert signal.direction == "short"
+    
+    # Test EXIT signal
+    decision = Decision(action="EXIT", reason="test_exit", confidence=0.5)
+    signal = engine.normalize_signal(decision, "test_strategy", "FINNIFTY")
+    
+    assert signal is not None
+    assert signal.direction == "flat"
+    
+    # Test HOLD signal (should return None)
+    decision = Decision(action="HOLD", reason="test_hold", confidence=0.0)
+    signal = engine.normalize_signal(decision, "test_strategy", "NIFTY")
+    
+    assert signal is None
+
+
+def test_filter_signal_basic():
+    """Test basic signal filtering."""
+    config = {"history_lookback": 100}
+    market_data = MockMarketDataEngine()
+    engine = StrategyEngineV2(config, market_data)
+    
+    # Valid signal
+    signal = StrategySignal(
+        timestamp=datetime.utcnow().replace(tzinfo=timezone.utc),
+        symbol="NIFTY",
+        strategy_name="test_strategy",
+        direction="long",
+        strength=0.8
+    )
+    
+    allowed, reason = engine.filter_signal_basic(signal)
+    assert allowed or reason == "market_closed"  # Market might be closed in test
+    
+    # Invalid symbol
+    signal2 = StrategySignal(
+        timestamp=datetime.utcnow().replace(tzinfo=timezone.utc),
+        symbol="",
+        strategy_name="test_strategy",
+        direction="long",
+        strength=0.8
+    )
+    
+    allowed, reason = engine.filter_signal_basic(signal2)
+    assert not allowed
+    assert reason == "invalid_symbol"
+    
+    # Invalid direction
+    signal3 = StrategySignal(
+        timestamp=datetime.utcnow().replace(tzinfo=timezone.utc),
+        symbol="NIFTY",
+        strategy_name="test_strategy",
+        direction="invalid",
+        strength=0.8
+    )
+    
+    allowed, reason = engine.filter_signal_basic(signal3)
+    assert not allowed
+    assert reason == "invalid_direction"
+
+
+def test_filter_signal_risk():
+    """Test risk-based signal filtering."""
+    config = {
+        "history_lookback": 100,
+        "max_trades_per_day": 5,
+        "max_loss_streak": 3
+    }
+    market_data = MockMarketDataEngine()
+    engine = StrategyEngineV2(config, market_data)
+    
+    state = StrategyState()
+    
+    # Test max trades per day
+    signal = StrategySignal(
+        timestamp=datetime.utcnow().replace(tzinfo=timezone.utc),
+        symbol="NIFTY",
+        strategy_name="test_strategy",
+        direction="long",
+        strength=0.8
+    )
+    
+    # Should pass when trades_today < max
+    state.trades_today = 4
+    allowed, reason = engine.filter_signal_risk(signal, state)
+    assert allowed
+    assert reason == "passed_risk"
+    
+    # Should fail when trades_today >= max
+    state.trades_today = 5
+    allowed, reason = engine.filter_signal_risk(signal, state)
+    assert not allowed
+    assert "max_trades_per_day" in reason
+    
+    # Test loss streak
+    state.trades_today = 0
+    state.loss_streak = 2
+    allowed, reason = engine.filter_signal_risk(signal, state)
+    assert allowed
+    
+    state.loss_streak = 3
+    allowed, reason = engine.filter_signal_risk(signal, state)
+    assert not allowed
+    assert "loss_streak" in reason
+
+
+def test_conflict_resolution_highest_confidence():
+    """Test conflict resolution with highest confidence mode."""
+    config = {
+        "history_lookback": 100,
+        "conflict_resolution": "highest_confidence"
+    }
+    market_data = MockMarketDataEngine()
+    engine = StrategyEngineV2(config, market_data)
+    
+    # Create conflicting signals for same symbol
+    signal1 = StrategySignal(
+        timestamp=datetime.utcnow().replace(tzinfo=timezone.utc),
+        symbol="NIFTY",
+        strategy_name="strategy_a",
+        direction="long",
+        strength=0.7
+    )
+    
+    signal2 = StrategySignal(
+        timestamp=datetime.utcnow().replace(tzinfo=timezone.utc),
+        symbol="NIFTY",
+        strategy_name="strategy_b",
+        direction="short",
+        strength=0.9  # Higher confidence
+    )
+    
+    resolved = engine.resolve_conflicts([signal1, signal2])
+    
+    # Should pick signal2 (highest confidence)
+    assert len(resolved) == 1
+    assert resolved[0].strategy_name == "strategy_b"
+    assert resolved[0].strength == 0.9
+
+
+def test_conflict_resolution_priority():
+    """Test conflict resolution with priority mode."""
+    config = {
+        "history_lookback": 100,
+        "conflict_resolution": "priority",
+        "strategy_priorities": {
+            "strategy_a": 100,
+            "strategy_b": 50
+        }
+    }
+    market_data = MockMarketDataEngine()
+    engine = StrategyEngineV2(config, market_data)
+    
+    # Create conflicting signals
+    signal1 = StrategySignal(
+        timestamp=datetime.utcnow().replace(tzinfo=timezone.utc),
+        symbol="NIFTY",
+        strategy_name="strategy_a",  # Higher priority
+        direction="long",
+        strength=0.7
+    )
+    
+    signal2 = StrategySignal(
+        timestamp=datetime.utcnow().replace(tzinfo=timezone.utc),
+        symbol="NIFTY",
+        strategy_name="strategy_b",  # Lower priority
+        direction="short",
+        strength=0.9  # Even though confidence is higher
+    )
+    
+    resolved = engine.resolve_conflicts([signal1, signal2])
+    
+    # Should pick signal1 (higher priority)
+    assert len(resolved) == 1
+    assert resolved[0].strategy_name == "strategy_a"
+
+
+def test_conflict_resolution_no_conflict():
+    """Test conflict resolution when strategies agree."""
+    config = {
+        "history_lookback": 100,
+        "conflict_resolution": "highest_confidence"
+    }
+    market_data = MockMarketDataEngine()
+    engine = StrategyEngineV2(config, market_data)
+    
+    # Create agreeing signals for same symbol
+    signal1 = StrategySignal(
+        timestamp=datetime.utcnow().replace(tzinfo=timezone.utc),
+        symbol="NIFTY",
+        strategy_name="strategy_a",
+        direction="long",
+        strength=0.7
+    )
+    
+    signal2 = StrategySignal(
+        timestamp=datetime.utcnow().replace(tzinfo=timezone.utc),
+        symbol="NIFTY",
+        strategy_name="strategy_b",
+        direction="long",  # Same direction
+        strength=0.9
+    )
+    
+    resolved = engine.resolve_conflicts([signal1, signal2])
+    
+    # Should pick signal with highest confidence
+    assert len(resolved) == 1
+    assert resolved[0].strategy_name == "strategy_b"
+    assert resolved[0].strength == 0.9
+
+
+def test_conflict_resolution_different_symbols():
+    """Test conflict resolution for different symbols."""
+    config = {
+        "history_lookback": 100,
+        "conflict_resolution": "highest_confidence"
+    }
+    market_data = MockMarketDataEngine()
+    engine = StrategyEngineV2(config, market_data)
+    
+    # Create signals for different symbols
+    signal1 = StrategySignal(
+        timestamp=datetime.utcnow().replace(tzinfo=timezone.utc),
+        symbol="NIFTY",
+        strategy_name="strategy_a",
+        direction="long",
+        strength=0.7
+    )
+    
+    signal2 = StrategySignal(
+        timestamp=datetime.utcnow().replace(tzinfo=timezone.utc),
+        symbol="BANKNIFTY",  # Different symbol
+        strategy_name="strategy_b",
+        direction="short",
+        strength=0.9
+    )
+    
+    resolved = engine.resolve_conflicts([signal1, signal2])
+    
+    # Should keep both signals (no conflict)
+    assert len(resolved) == 2
+
+
 def run_all_tests():
     """Run all tests and report results."""
     tests = [
@@ -240,6 +593,17 @@ def run_all_tests():
         test_strategy_engine_v2_register,
         test_strategy_engine_v2_compute_indicators,
         test_strategy_engine_v2_run_strategy,
+        # New tests
+        test_strategy_state_pnl_tracking,
+        test_strategy_state_decision_recording,
+        test_strategy_signal,
+        test_normalize_signal,
+        test_filter_signal_basic,
+        test_filter_signal_risk,
+        test_conflict_resolution_highest_confidence,
+        test_conflict_resolution_priority,
+        test_conflict_resolution_no_conflict,
+        test_conflict_resolution_different_symbols,
     ]
     
     passed = 0
