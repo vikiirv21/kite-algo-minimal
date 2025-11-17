@@ -266,5 +266,11 @@ uvicorn ui.dashboard:app --reload --port 8000
 3. Update frontend templates
 4. Test endpoint
 
+## See Also
+
+- **System Architecture**: For overall system design, see [HFT-System-Architecture-kite-algo-minimal.md](HFT-System-Architecture-kite-algo-minimal.md)
+- **Commands Reference**: See [Commands.md](Commands.md) for CLI usage and workflows
+- **API Documentation**: See [API_ENDPOINTS.md](API_ENDPOINTS.md) for detailed endpoint specifications
+
 ---
 *Auto-generated on 2025-11-15T21:51:37.969511+00:00*
