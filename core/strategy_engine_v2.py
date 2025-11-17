@@ -273,7 +273,8 @@ class StrategyEngineV2:
     def __init__(
         self,
         config: Dict[str, Any],
-        mde: MarketDataEngine,
+        market_data_engine=None,
+        mde: Optional[MarketDataEngine] = None,
         portfolio_engine: Optional[Any] = None,
         analytics_engine: Optional[Any] = None,
         regime_engine: Optional[Any] = None,
@@ -283,42 +284,51 @@ class StrategyEngineV2:
         market_data_engine_v2: Optional[Any] = None,
         state_store: Optional[Any] = None,
         analytics: Optional[Any] = None,
+        **kwargs,
     ):
-        self.config = config
-        self.mde = mde
+        # Backward compatibility: accept market_data_engine or mde
+        if market_data_engine is None and mde is not None:
+            market_data_engine = mde
+        elif market_data_engine is None and "market_data_engine_v2" in kwargs:
+            market_data_engine = kwargs["market_data_engine_v2"]
+        
+        self.config = config or {}
+        self.mde = market_data_engine or mde
         self.portfolio_engine = portfolio_engine
         self.analytics_engine = analytics_engine or analytics
         self.regime_engine = regime_engine
         self.logger = logger_instance or logger or logging.getLogger(__name__)
         
         # Backward compatibility aliases
-        self.market_data = mde
+        self.market_data = self.mde
+        self.market_data_engine = self.mde
         self.market_data_v2 = market_data_engine_v2  # Optional MDE v2 instance
         self.risk_engine = risk_engine
         self.state_store = state_store
+        self.analytics = analytics
         
         # Strategy registry
         self.strategies: Dict[str, BaseStrategy] = {}
         self.strategy_states: Dict[str, StrategyState] = {}
         
         # Configuration
-        self.window_size = config.get("history_lookback", 200)
-        self.enabled_strategies = config.get("strategies", [])
+        self.window_size = self.config.get("history_lookback", 200)
+        self.enabled_strategies = self.config.get("strategies", [])
         
         # Conflict resolution config
-        self.conflict_resolution_mode = config.get("conflict_resolution", "highest_confidence")
-        self.strategy_priorities: Dict[str, int] = config.get("strategy_priorities", {})
+        self.conflict_resolution_mode = self.config.get("conflict_resolution", "highest_confidence")
+        self.strategy_priorities: Dict[str, int] = self.config.get("strategy_priorities", {})
         
         # Filtering config
-        self.max_trades_per_day = config.get("max_trades_per_day", 10)
-        self.max_loss_streak = config.get("max_loss_streak", 3)
+        self.max_trades_per_day = self.config.get("max_trades_per_day", 10)
+        self.max_loss_streak = self.config.get("max_loss_streak", 3)
         
         # Paper engine reference (for execution)
         self.paper_engine = None
         
         # Strategy Orchestrator v3 (optional)
         self.orchestrator = None
-        # Orchestrator initialization disabled - state_store and analytics not in signature
+        self._init_orchestrator()
         
         self.logger.info("StrategyEngineV2 initialized with %d strategies", len(self.enabled_strategies))
         if self.regime_engine:
@@ -336,6 +346,32 @@ class StrategyEngineV2:
     def set_paper_engine(self, paper_engine: Any):
         """Set reference to paper engine for order execution."""
         self.paper_engine = paper_engine
+    
+    def _init_orchestrator(self) -> None:
+        """
+        Initialize the Strategy Orchestrator if enabled in config.
+        """
+        if not ORCHESTRATOR_AVAILABLE:
+            self.orchestrator = None
+            return
+        
+        cfg = self.config.get("strategy_orchestrator") or self.config.get("orchestrator") or {}
+        enabled = cfg.get("enabled", False)
+        
+        if not enabled:
+            self.orchestrator = None
+            return
+        
+        try:
+            self.orchestrator = StrategyOrchestrator(
+                health_scoring_window=cfg.get("health_scoring_window", 50),
+                loss_streak_disable=cfg.get("loss_streak_disable", 3),
+                enforce_regimes=cfg.get("enforce_regimes", False),
+            )
+            self.logger.info("StrategyOrchestrator initialized successfully")
+        except Exception as e:
+            self.logger.warning("Failed to initialize StrategyOrchestrator: %s", e)
+            self.orchestrator = None
     
     def compute_indicators(
         self,
@@ -693,6 +729,10 @@ class StrategyEngineV2:
         Returns:
             (allowed, reason)
         """
+        # Check symbol validity first (before market checks)
+        if not signal.symbol or signal.symbol.strip() == "":
+            return False, "invalid_symbol"
+        
         # Check if market is open (simplified - can be enhanced)
         try:
             from core.market_session import is_market_open
@@ -700,10 +740,6 @@ class StrategyEngineV2:
                 return False, "market_closed"
         except Exception:
             pass  # Market session check not available
-        
-        # Check symbol validity
-        if not signal.symbol or signal.symbol.strip() == "":
-            return False, "invalid_symbol"
         
         # Check direction validity
         if signal.direction not in ["long", "short", "flat"]:
