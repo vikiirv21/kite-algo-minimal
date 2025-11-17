@@ -23,7 +23,7 @@ python -m scripts.run_backtest_v3 \
     --data-source csv
 ```
 
-See [BACKTEST_ENGINE_V3.md](BACKTEST_ENGINE_V3.md) for complete documentation.
+See [BACKTEST_ENGINE_V3.md](docs/BACKTEST_ENGINE_V3.md) for complete documentation.
 
 ## Git Hooks & Documentation
 

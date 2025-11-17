@@ -114,7 +114,7 @@ _(Manual notes can be added here)_
 
 ### 7. Documentation
 
-Updated `docs/Commands.md` with:
+Updated `Commands.md` with:
 - Session Orchestrator introduction and usage
 - Integration with existing run_day script
 - Example commands for all modes
@@ -237,7 +237,7 @@ python -m scripts.run_session --mode live --config configs/dev.yaml
 
 ### Modified Files
 - ✅ `configs/dev.yaml` (added session config)
-- ✅ `docs/Commands.md` (added session orchestrator docs)
+- ✅ `Commands.md` (added session orchestrator docs)
 - ✅ `.gitignore` (added artifacts/reports/)
 
 ### Artifacts Created (for testing)
