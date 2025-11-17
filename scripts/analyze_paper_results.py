@@ -80,7 +80,8 @@ def main() -> None:
         sig_counts = Counter(s["signal"] for s in signals)
         print(f"Total signals: {total_signals}")
         for sig, cnt in sig_counts.items():
-            print(f"  {sig:5}: {cnt}")
+            label = sig if isinstance(sig, str) and sig != "" else "UNKNOWN"
+            print(f"  {label:7}: {cnt}")
 
     print()
 
