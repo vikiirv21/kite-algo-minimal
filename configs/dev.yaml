@@ -21,6 +21,13 @@ trading:
 
   equity_universe: []      # Managed via config/universe_equity.csv
 
+  # Equity universe filtering configuration
+  equity_universe_config:
+    mode: "nifty_lists"              # supported: "nifty_lists" or "all" (default)
+    include_indices: ["NIFTY50", "NIFTY100"]
+    max_symbols: 120                 # soft cap
+    min_price: 100                   # drop penny/very low-priced stocks
+
   default_product: "MIS"
   default_quantity: 1       # units per order (strategy can override)
 
