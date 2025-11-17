@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -10,6 +11,8 @@ import uuid
 
 from broker.paper_broker import PaperBroker
 from core.universe import INDEX_BASES
+
+logger = logging.getLogger(__name__)
 
 SIGNAL_HEADERS = [
     "timestamp",
@@ -73,7 +76,7 @@ class SignalLogPayload:
     timestamp: str
     logical: str
     symbol: str
-    price: float
+    price: Optional[float]
     signal: str
     tf: str
     reason: str
@@ -190,7 +193,7 @@ class TradeRecorder:
         *,
         logical: str,
         symbol: str,
-        price: float,
+        price: Optional[float],
         signal: str,
         tf: str,
         reason: str,
@@ -217,11 +220,29 @@ class TradeRecorder:
         signal_id: Optional[str] = None,
     ) -> str:
         signal_id = signal_id or str(uuid.uuid4())
+        
+        # Safe price conversion
+        converted_price: Optional[float] = None
+        if price is None:
+            logger.info(
+                "log_signal: price is None for signal_id=%s, symbol=%s, signal=%s",
+                signal_id, symbol, signal
+            )
+        else:
+            try:
+                converted_price = float(price)
+            except (TypeError, ValueError) as exc:
+                logger.warning(
+                    "log_signal: Failed to convert price=%r to float for signal_id=%s, symbol=%s, signal=%s: %s",
+                    price, signal_id, symbol, signal, exc
+                )
+                converted_price = None
+        
         payload = SignalLogPayload(
             timestamp=self._now_ist_iso(),
             logical=logical,
             symbol=symbol,
-            price=float(price),
+            price=converted_price,
             signal=signal,
             tf=tf,
             reason=reason,
@@ -255,7 +276,7 @@ class TradeRecorder:
             "signal_id": signal_id,
             "logical": payload.logical,
             "symbol": payload.symbol,
-            "price": payload.price,
+            "price": _value(payload.price),
             "signal": payload.signal,
             "tf": payload.tf,
             "reason": payload.reason,
@@ -288,7 +309,7 @@ class TradeRecorder:
             writer.writerow(row)
         return signal_id
 
-    def record_signal(self, logical: str, symbol: str, price: float, signal: str) -> str:
+    def record_signal(self, logical: str, symbol: str, price: Optional[float], signal: str) -> str:
         return self.log_signal(
             logical=logical,
             symbol=symbol,
