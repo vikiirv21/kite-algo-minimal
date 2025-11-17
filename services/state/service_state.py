@@ -105,11 +105,11 @@ class StateService:
         self.bus = bus
         self.cfg = cfg
         self.mode = mode
-        self.state = self._init_state()
-        self.store = StateStore()
+        self.store = StateStore()  # Initialize store before _init_state
         self.fill_counter = 0
         self.checkpoint_interval = cfg.get("checkpoint_interval", 10)
         self.running = False
+        self.state = self._init_state()  # Now we can use self.store
         self._subscribe()
         logger.info("StateService initialized in mode=%s", mode)
     
