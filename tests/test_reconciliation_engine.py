@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, Mock
 
+import pytest
+
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -19,6 +21,9 @@ from core.execution_engine_v3 import (
     PaperExecutionEngine,
 )
 from core.reconciliation_engine import ReconciliationEngine
+
+# Mark all async tests in this module to use pytest-asyncio
+pytestmark = pytest.mark.asyncio
 
 
 # ============================================================================

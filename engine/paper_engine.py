@@ -695,34 +695,34 @@ class PaperEngine:
         
         if not use_v3:
             if strategy_engine_version == 2 and STRATEGY_ENGINE_V2_AVAILABLE:
-            # Initialize Strategy Engine v2
-            logger.info("Initializing Strategy Engine v2")
-            v2_config = {
-                "history_lookback": strategy_engine_config.get("window_size", 200),
-                "strategies": strategy_engine_config.get("strategies_v2", []),
-                "timeframe": self.default_timeframe,
-                "conflict_resolution": strategy_engine_config.get("conflict_resolution", "highest_confidence"),
-                "strategy_priorities": strategy_engine_config.get("strategy_priorities", {}),
-                "max_trades_per_day": strategy_engine_config.get("max_trades_per_day", 10),
-                "max_loss_streak": strategy_engine_config.get("max_loss_streak", 3),
-            }
-            # Copy the full config for orchestrator access
-            full_config = dict(self.cfg.raw) if hasattr(self.cfg, 'raw') else {}
-            full_config.update(v2_config)
-            
-            self.strategy_engine_v2 = StrategyEngineV2(
-                config=full_config,
-                mde=self.market_data_engine,
-                portfolio_engine=self.portfolio_engine,
-                analytics_engine=None,  # Analytics can be added later if needed
-                regime_engine=self.regime_detector,
-                logger_instance=logger,
-                risk_engine=None,  # Will be set after initialization
-                market_data_engine_v2=self.market_data_engine_v2,
-                state_store=self.state_store,
-                analytics=None,
-            )
-            self.strategy_engine_v2.set_paper_engine(self)
+                # Initialize Strategy Engine v2
+                logger.info("Initializing Strategy Engine v2")
+                v2_config = {
+                    "history_lookback": strategy_engine_config.get("window_size", 200),
+                    "strategies": strategy_engine_config.get("strategies_v2", []),
+                    "timeframe": self.default_timeframe,
+                    "conflict_resolution": strategy_engine_config.get("conflict_resolution", "highest_confidence"),
+                    "strategy_priorities": strategy_engine_config.get("strategy_priorities", {}),
+                    "max_trades_per_day": strategy_engine_config.get("max_trades_per_day", 10),
+                    "max_loss_streak": strategy_engine_config.get("max_loss_streak", 3),
+                }
+                # Copy the full config for orchestrator access
+                full_config = dict(self.cfg.raw) if hasattr(self.cfg, 'raw') else {}
+                full_config.update(v2_config)
+                
+                self.strategy_engine_v2 = StrategyEngineV2(
+                    config=full_config,
+                    mde=self.market_data_engine,
+                    portfolio_engine=self.portfolio_engine,
+                    analytics_engine=None,  # Analytics can be added later if needed
+                    regime_engine=self.regime_detector,
+                    logger_instance=logger,
+                    risk_engine=None,  # Will be set after initialization
+                    market_data_engine_v2=self.market_data_engine_v2,
+                    state_store=self.state_store,
+                    analytics=None,
+                )
+                self.strategy_engine_v2.set_paper_engine(self)
             
             # Wire MDE v2 candle close events to strategy engine
             if self.market_data_engine_v2:
