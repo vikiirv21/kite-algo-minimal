@@ -6,12 +6,15 @@ import {
   useTodaySummary,
 } from '../../hooks/useApi';
 import { formatCurrency, formatTimestamp, formatPercent, getPnlClass, getPnlPrefix } from '../../utils/format';
+import { deriveModeFromEngines } from '../../utils/mode';
 
 export function OverviewPage() {
   const { data: engines, isLoading: enginesLoading, error: enginesError } = useEnginesStatus();
   const { data: portfolio, isLoading: portfolioLoading, error: portfolioError } = usePortfolioSummary();
   const { data: signals, isLoading: signalsLoading, error: signalsError } = useRecentSignals(10);
   const { data: today, isLoading: todayLoading, error: todayError } = useTodaySummary();
+  
+  const tradingMode = deriveModeFromEngines(engines?.engines);
   
   return (
     <div className="space-y-6">
@@ -31,7 +34,13 @@ export function OverviewPage() {
                 <div key={engine.engine} className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-text-secondary">Mode:</span>
-                    <span className="font-semibold uppercase">{engine.mode}</span>
+                    <span className={`font-bold uppercase ${
+                      tradingMode === 'LIVE' ? 'text-negative' : 
+                      tradingMode === 'PAPER' ? 'text-warning' : 
+                      'text-text-secondary'
+                    }`}>
+                      {tradingMode}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-text-secondary">Status:</span>
