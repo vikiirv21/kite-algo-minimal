@@ -6,15 +6,15 @@ This document lists all implemented trading strategies in the system.
 
 ## Strategy List
 
-### MeanReversionIntradayStrategy
-
-**File**: `strategies/mean_reversion_intraday.py`
-
----
-
 ### FnoIntradayTrendStrategy
 
 **File**: `strategies/fno_intraday_trend.py`
+
+---
+
+### MeanReversionIntradayStrategy
+
+**File**: `strategies/mean_reversion_intraday.py`
 
 ---
 
@@ -71,11 +71,5 @@ strategies:
 5. Add configuration in `configs/config.yaml`
 6. Test in paper mode first
 
-## See Also
-
-- **System Architecture**: For overall system design, see [HFT-System-Architecture-kite-algo-minimal.md](HFT-System-Architecture-kite-algo-minimal.md)
-- **Commands**: See [Commands.md](Commands.md) for running strategies and backtests
-- **Risk Engine**: See [RiskEngine.md](RiskEngine.md) for strategy risk limits
-
 ---
-*Auto-generated on 2025-11-15T21:51:37.969202+00:00*
+*Auto-generated on 2025-11-17T19:09:52.566841+00:00*

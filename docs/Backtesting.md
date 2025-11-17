@@ -129,4 +129,4 @@ backtest:
 5. **Robustness**: Test parameter sensitivity
 
 ---
-*Auto-generated on 2025-11-15T21:51:37.969217+00:00*
+*Auto-generated on 2025-11-17T19:09:52.566860+00:00*

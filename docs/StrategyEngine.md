@@ -30,6 +30,16 @@ The **Strategy Engine v2** is a modern strategy execution framework with unified
 
 ## Key Classes
 
+### StrategySignal
+
+Normalized signal from a strategy before filtering.
+
+This is the standardized format all raw signals are converted to.
+
+**Methods:**
+- `__init__()`
+- `to_dict()`
+
 ### OrderIntent
 
 Represents a trading intent from a strategy before risk checks.
@@ -48,6 +58,8 @@ Maintains state for a strategy instance.
 - `is_long()`
 - `is_short()`
 - `update_position()`
+- `record_decision()`
+- `update_pnl()`
 
 ### BaseStrategy
 
@@ -80,6 +92,10 @@ and clean separation of concerns.
 - `compute_indicators()`
 - `run_strategy()`
 - `run()`
+- `normalize_signal()`
+- `filter_signal_basic()`
+- `filter_signal_risk()`
+- `resolve_conflicts()`
 
 
 ## Signal Flow
@@ -145,4 +161,4 @@ STRATEGY_REGISTRY = {{
 - **State Isolation**: Each strategy has independent state
 
 ---
-*Auto-generated on 2025-11-15T21:51:37.960882+00:00*
+*Auto-generated on 2025-11-17T19:09:52.557848+00:00*

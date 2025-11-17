@@ -53,6 +53,10 @@ Calculates HL2 indicator.
 
 Calculates HL3 indicator.
 
+### `compute_bundle()`
+
+Calculates COMPUTE_BUNDLE indicator.
+
 
 ## Usage Examples
 
@@ -138,4 +142,4 @@ To add a new indicator:
 5. Update this documentation (auto-generated)
 
 ---
-*Auto-generated on 2025-11-15T21:51:37.963247+00:00*
+*Auto-generated on 2025-11-17T19:09:52.560180+00:00*
