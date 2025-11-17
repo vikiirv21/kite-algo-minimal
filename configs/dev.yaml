@@ -49,12 +49,21 @@ data:
 
 strategy_engine:
   version: 1                # 1 = legacy StrategyRunner, 2 = StrategyEngineV2
+  enabled: true             # Enable strategy engine (applies to both v1 and v2)
+  
   # When version: 2, specify v2 strategies to enable:
   strategies_v2:
     # - ema20_50_intraday_v2
+  
   # Additional config for v2 engine
   window_size: 200          # Historical candle window for indicators
   use_unified_indicators: true
+  
+  # V2 filtering and conflict resolution
+  conflict_resolution: "highest_confidence"  # "highest_confidence", "priority", or "net_out"
+  strategy_priorities: {}   # E.g., {"ema20_50_intraday_v2": 100, "other_strategy": 50}
+  max_trades_per_day: 10    # Per-strategy daily trade limit
+  max_loss_streak: 3        # Disable strategy after N consecutive losses
 
 logging:
   level: "INFO"
