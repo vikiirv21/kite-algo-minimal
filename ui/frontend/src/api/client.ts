@@ -11,6 +11,9 @@ import type {
   EquityCurvePoint,
   TodaySummary,
   AuthStatus,
+  AnalyticsSummary,
+  EquityCurveData,
+  RiskSummary,
 } from '../types/api';
 
 const API_BASE = '/api';
@@ -63,4 +66,17 @@ export const api = {
     if (params?.kind) query.append('kind', params.kind);
     return fetchApi<LogsResponse>(`/logs?${query.toString()}`);
   },
+  
+  // Analytics
+  getAnalyticsSummary: () => fetchApi<AnalyticsSummary>('/analytics/summary'),
+  getAnalyticsEquityCurve: (params?: { strategy?: string; symbol?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.strategy) query.append('strategy', params.strategy);
+    if (params?.symbol) query.append('symbol', params.symbol);
+    const queryStr = query.toString();
+    return fetchApi<EquityCurveData>(`/analytics/equity_curve${queryStr ? '?' + queryStr : ''}`);
+  },
+  
+  // Risk
+  getRiskSummary: () => fetchApi<RiskSummary>('/risk/summary'),
 };
