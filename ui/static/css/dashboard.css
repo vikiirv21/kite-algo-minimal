@@ -153,7 +153,7 @@ body {
 }
 
 .brand-title {
-  font-size: var(--font-size-xl);
+  font-size: var(--font-size-2xl);
   font-weight: var(--font-weight-semibold);
   color: var(--text-primary);
 }
@@ -485,6 +485,39 @@ td {
 .text-danger { color: var(--danger); }
 
 .font-mono { font-family: 'Courier New', monospace; font-variant-numeric: tabular-nums; }
+
+/* ==================== P&L COLOR CODING ==================== */
+/* Apply to financial values to show positive (green) and negative (red) */
+.value-positive {
+  color: var(--success);
+  font-weight: var(--font-weight-medium);
+}
+
+.value-negative {
+  color: var(--danger);
+  font-weight: var(--font-weight-medium);
+}
+
+.value-neutral {
+  color: var(--text-secondary);
+}
+
+/* Direction badges for BUY/SELL signals */
+.badge-buy {
+  background-color: var(--success-soft);
+  color: var(--success);
+}
+
+.badge-sell {
+  background-color: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* Numeric column alignment */
+.text-numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 
 /* ==================== RESPONSIVE ==================== */
 @media (max-width: 768px) {

@@ -16,7 +16,10 @@ async function fetchAPI(url, options = {}) {
     }
     return await response.json();
   } catch (error) {
-    console.error(`Failed to fetch ${url}:`, error);
+    // Only log non-404 errors to reduce console noise
+    if (!error.message.includes('404')) {
+      console.error(`Failed to fetch ${url}:`, error);
+    }
     throw error;
   }
 }
