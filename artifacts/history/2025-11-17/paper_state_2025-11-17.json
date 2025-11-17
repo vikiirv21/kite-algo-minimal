@@ -1,15 +1,878 @@
 {
-  "timestamp": "2025-11-14T13:14:00.182995+00:00",
+  "timestamp": "2025-11-17T08:40:02.764118",
   "broker": {
-    "orders": [],
-    "positions": []
+    "positions": [],
+    "orders": []
   },
   "meta": {
-    "mode": "paper",
+    "paper_capital": 500000.0,
     "total_realized_pnl": 0.0,
     "total_unrealized_pnl": 0.0,
-    "total_notional": 0.0,
     "equity": 500000.0,
-    "paper_capital": 500000.0
+    "total_notional": 0.0,
+    "free_notional": 500000.0,
+    "market_regime": "UNKNOWN",
+    "regime_snapshot": {
+      "NIFTY": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:59.791109+00:00",
+        "short_ema": 26072.584147257705,
+        "long_ema": 26072.241800291544,
+        "atr": 0.19158527422990235
+      },
+      "RELIANCE": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:00.042025+00:00",
+        "short_ema": 1516.062092132306,
+        "long_ema": 1516.0833736210639,
+        "atr": 0.006209213230585904
+      },
+      "BANKNIFTY": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:59.849646+00:00",
+        "short_ema": 59043.4,
+        "long_ema": 59043.4,
+        "atr": 0.0
+      },
+      "TCS": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:00.113632+00:00",
+        "short_ema": 3108.3,
+        "long_ema": 3108.3,
+        "atr": 0.0
+      },
+      "INFY": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:00.184461+00:00",
+        "short_ema": 1507.6,
+        "long_ema": 1507.6,
+        "atr": 0.0
+      },
+      "HDFCBANK": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:00.255660+00:00",
+        "short_ema": 996.6758157353881,
+        "long_ema": 996.6332527578726,
+        "atr": 0.01241842646117887
+      },
+      "ICICIBANK": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:00.365023+00:00",
+        "short_ema": 1379.262092132306,
+        "long_ema": 1379.2833736210637,
+        "atr": 0.006209213230585904
+      },
+      "SBIN": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:00.450846+00:00",
+        "short_ema": 972.9189539338471,
+        "long_ema": 972.9083131894681,
+        "atr": 0.0031046066153000117
+      },
+      "LT": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:00.537002+00:00",
+        "short_ema": 4025.4411708092466,
+        "long_ema": 4025.249637410426,
+        "atr": 0.05588291907532962
+      },
+      "BHARTIARTL": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:00.698295+00:00",
+        "short_ema": 2108.4620921323058,
+        "long_ema": 2108.483373621064,
+        "atr": 0.006209213230585904
+      },
+      "HINDUNILVR": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:00.786431+00:00",
+        "short_ema": 2423.38953933847,
+        "long_ema": 2423.283131894681,
+        "atr": 0.031046066152957755
+      },
+      "ITC": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:00.881707+00:00",
+        "short_ema": 407.73790786769405,
+        "long_ema": 407.71662637893627,
+        "atr": 0.006209213230592963
+      },
+      "KOTAKBANK": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:00.968994+00:00",
+        "short_ema": 2099.3411708092467,
+        "long_ema": 2099.1496374104263,
+        "atr": 0.05588291907532962
+      },
+      "BAJFINANCE": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:01.050295+00:00",
+        "short_ema": 1029.462092132306,
+        "long_ema": 1029.483373621064,
+        "atr": 0.006209213230585904
+      },
+      "AXISBANK": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:01.117634+00:00",
+        "short_ema": 1250.5241842646117,
+        "long_ema": 1250.5667472421276,
+        "atr": 0.012418426461171809
+      },
+      "ASIANPAINT": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:01.203882+00:00",
+        "short_ema": 2894.686276396918,
+        "long_ema": 2894.7501208631916,
+        "atr": 0.01862763969178595
+      },
+      "MARUTI": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:01.314188+00:00",
+        "short_ema": 15884.620921323058,
+        "long_ema": 15884.833736210638,
+        "atr": 0.06209213230591551
+      },
+      "HCLTECH": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:01.386707+00:00",
+        "short_ema": 1602.9,
+        "long_ema": 1602.9,
+        "atr": 0.0
+      },
+      "WIPRO": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:01.461662+00:00",
+        "short_ema": 244.05,
+        "long_ema": 244.05,
+        "atr": 0.0
+      },
+      "TITAN": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:01.525514+00:00",
+        "short_ema": 3870.0,
+        "long_ema": 3870.0,
+        "atr": 0.0
+      },
+      "ULTRACEMCO": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:01.608739+00:00",
+        "short_ema": 11792.241842646119,
+        "long_ema": 11792.667472421275,
+        "atr": 0.12418426461183102
+      },
+      "SUNPHARMA": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:01.684679+00:00",
+        "short_ema": 1763.5,
+        "long_ema": 1763.5,
+        "atr": 0.0
+      },
+      "TATASTEEL": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:01.772973+00:00",
+        "short_ema": 173.4637907867694,
+        "long_ema": 173.46166263789362,
+        "atr": 0.0006209213230585905
+      },
+      "NESTLEIND": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:01.842129+00:00",
+        "short_ema": 1266.4483685292237,
+        "long_ema": 1266.5334944842548,
+        "atr": 0.02483685292235774
+      },
+      "POWERGRID": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:02.032049+00:00",
+        "short_ema": 273.75,
+        "long_ema": 273.75,
+        "atr": 0.0
+      },
+      "NTPC": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:02.095855+00:00",
+        "short_ema": 330.15,
+        "long_ema": 330.15,
+        "atr": 0.0
+      },
+      "ONGC": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:02.177254+00:00",
+        "short_ema": 247.58790786769407,
+        "long_ema": 247.56662637893623,
+        "atr": 0.0062092132305912
+      },
+      "INDUSINDBK": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:02.278426+00:00",
+        "short_ema": 856.15,
+        "long_ema": 856.15,
+        "atr": 0.0
+      },
+      "BAJAJFINSV": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:02.376671+00:00",
+        "short_ema": 2072.5,
+        "long_ema": 2072.5,
+        "atr": 0.0
+      },
+      "M&M": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:02.504564+00:00",
+        "short_ema": 3751.5588291907534,
+        "long_ema": 3751.750362589574,
+        "atr": 0.05588291907532962
+      },
+      "TECHM": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:02.608228+00:00",
+        "short_ema": 1447.3032629415525,
+        "long_ema": 1447.1330110314898,
+        "atr": 0.0496737058447296
+      },
+      "DRREDDY": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:40:02.724360+00:00",
+        "short_ema": 1244.937907867694,
+        "long_ema": 1244.9166263789361,
+        "atr": 0.006209213230585904
+      },
+      "CIPLA": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:45.779200+00:00",
+        "short_ema": 1536.4,
+        "long_ema": 1536.4,
+        "atr": 0.0
+      },
+      "DIVISLAB": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:45.926095+00:00",
+        "short_ema": 6503.5,
+        "long_ema": 6503.5,
+        "atr": 0.0
+      },
+      "GRASIM": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:46.039408+00:00",
+        "short_ema": 2794.7,
+        "long_ema": 2794.7,
+        "atr": 0.0
+      },
+      "ADANIPORTS": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:46.112995+00:00",
+        "short_ema": 1507.8,
+        "long_ema": 1507.8,
+        "atr": 0.0
+      },
+      "JSWSTEEL": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:46.193871+00:00",
+        "short_ema": 1174.2,
+        "long_ema": 1174.2,
+        "atr": 0.0
+      },
+      "HINDALCO": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:46.327828+00:00",
+        "short_ema": 807.7,
+        "long_ema": 807.7,
+        "atr": 0.0
+      },
+      "COALINDIA": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:46.403609+00:00",
+        "short_ema": 388.6,
+        "long_ema": 388.6,
+        "atr": 0.0
+      },
+      "EICHERMOT": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:46.498099+00:00",
+        "short_ema": 6797.5,
+        "long_ema": 6797.5,
+        "atr": 0.0
+      },
+      "HEROMOTOCO": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:46.578042+00:00",
+        "short_ema": 5763.0,
+        "long_ema": 5763.0,
+        "atr": 0.0
+      },
+      "BRITANNIA": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:46.661736+00:00",
+        "short_ema": 5823.5,
+        "long_ema": 5823.5,
+        "atr": 0.0
+      },
+      "ADANIENT": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:46.743384+00:00",
+        "short_ema": 2451.9,
+        "long_ema": 2451.9,
+        "atr": 0.0
+      },
+      "APOLLOHOSP": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:46.815309+00:00",
+        "short_ema": 7492.0,
+        "long_ema": 7492.0,
+        "atr": 0.0
+      },
+      "SHREECEM": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:46.896296+00:00",
+        "short_ema": 26710.0,
+        "long_ema": 26710.0,
+        "atr": 0.0
+      },
+      "VEDL": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:46.966872+00:00",
+        "short_ema": 521.2,
+        "long_ema": 521.2,
+        "atr": 0.0
+      },
+      "BPCL": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:47.041178+00:00",
+        "short_ema": 375.85,
+        "long_ema": 375.85,
+        "atr": 0.0
+      },
+      "IOC": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:47.123084+00:00",
+        "short_ema": 173.0,
+        "long_ema": 173.0,
+        "atr": 0.0
+      },
+      "TATACONSUM": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:47.207388+00:00",
+        "short_ema": 1178.2,
+        "long_ema": 1178.2,
+        "atr": 0.0
+      },
+      "PIDILITIND": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:47.298263+00:00",
+        "short_ema": 1482.0,
+        "long_ema": 1482.0,
+        "atr": 0.0
+      },
+      "DLF": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:47.402010+00:00",
+        "short_ema": 768.45,
+        "long_ema": 768.45,
+        "atr": 0.0
+      },
+      "GODREJCP": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:47.496639+00:00",
+        "short_ema": 1153.0,
+        "long_ema": 1153.0,
+        "atr": 0.0
+      },
+      "MARICO": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:47.597226+00:00",
+        "short_ema": 759.5,
+        "long_ema": 759.5,
+        "atr": 0.0
+      },
+      "DABUR": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:47.688706+00:00",
+        "short_ema": 525.55,
+        "long_ema": 525.55,
+        "atr": 0.0
+      },
+      "SIEMENS": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:47.793995+00:00",
+        "short_ema": 3201.5,
+        "long_ema": 3201.5,
+        "atr": 0.0
+      },
+      "HAVELLS": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:47.889253+00:00",
+        "short_ema": 1483.3,
+        "long_ema": 1483.3,
+        "atr": 0.0
+      },
+      "VOLTAS": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:47.979904+00:00",
+        "short_ema": 1376.6,
+        "long_ema": 1376.6,
+        "atr": 0.0
+      },
+      "ABB": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:48.058495+00:00",
+        "short_ema": 5014.0,
+        "long_ema": 5014.0,
+        "atr": 0.0
+      },
+      "BOSCHLTD": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:48.142967+00:00",
+        "short_ema": 37450.0,
+        "long_ema": 37450.0,
+        "atr": 0.0
+      },
+      "LUPIN": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:48.227961+00:00",
+        "short_ema": 2050.5,
+        "long_ema": 2050.5,
+        "atr": 0.0
+      },
+      "TORNTPHARM": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:48.314806+00:00",
+        "short_ema": 3820.0,
+        "long_ema": 3820.0,
+        "atr": 0.0
+      },
+      "BIOCON": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:48.410449+00:00",
+        "short_ema": 418.45,
+        "long_ema": 418.45,
+        "atr": 0.0
+      },
+      "GAIL": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:48.491045+00:00",
+        "short_ema": 185.19,
+        "long_ema": 185.19,
+        "atr": 0.0
+      },
+      "NMDC": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:48.625873+00:00",
+        "short_ema": 76.78,
+        "long_ema": 76.78,
+        "atr": 0.0
+      },
+      "SAIL": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:48.716644+00:00",
+        "short_ema": 141.97,
+        "long_ema": 141.97,
+        "atr": 0.0
+      },
+      "PNB": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:48.813347+00:00",
+        "short_ema": 123.63,
+        "long_ema": 123.63,
+        "atr": 0.0
+      },
+      "BANKBARODA": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:48.907673+00:00",
+        "short_ema": 288.5,
+        "long_ema": 288.5,
+        "atr": 0.0
+      },
+      "CANBK": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:49.038426+00:00",
+        "short_ema": 149.36,
+        "long_ema": 149.36,
+        "atr": 0.0
+      },
+      "BEL": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:49.139446+00:00",
+        "short_ema": 424.45,
+        "long_ema": 424.45,
+        "atr": 0.0
+      },
+      "HAL": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:49.236008+00:00",
+        "short_ema": 4759.0,
+        "long_ema": 4759.0,
+        "atr": 0.0
+      },
+      "BHEL": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:49.396996+00:00",
+        "short_ema": 285.95,
+        "long_ema": 285.95,
+        "atr": 0.0
+      },
+      "RECLTD": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:49.475582+00:00",
+        "short_ema": 361.1,
+        "long_ema": 361.1,
+        "atr": 0.0
+      },
+      "PFC": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:49.553429+00:00",
+        "short_ema": 376.0,
+        "long_ema": 376.0,
+        "atr": 0.0
+      },
+      "LICHSGFIN": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:49.631256+00:00",
+        "short_ema": 571.2,
+        "long_ema": 571.2,
+        "atr": 0.0
+      },
+      "SBILIFE": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:49.717373+00:00",
+        "short_ema": 1999.0,
+        "long_ema": 1999.0,
+        "atr": 0.0
+      },
+      "HDFCLIFE": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:49.814969+00:00",
+        "short_ema": 769.6,
+        "long_ema": 769.6,
+        "atr": 0.0
+      },
+      "ICICIPRULI": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:49.937187+00:00",
+        "short_ema": 630.6,
+        "long_ema": 630.6,
+        "atr": 0.0
+      },
+      "MUTHOOTFIN": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:50.045627+00:00",
+        "short_ema": 3746.3,
+        "long_ema": 3746.3,
+        "atr": 0.0
+      },
+      "CHOLAFIN": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:50.161933+00:00",
+        "short_ema": 1701.5,
+        "long_ema": 1701.5,
+        "atr": 0.0
+      },
+      "ESCORTS": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:50.281078+00:00",
+        "short_ema": 3610.2,
+        "long_ema": 3610.2,
+        "atr": 0.0
+      },
+      "TVSMOTOR": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:50.409643+00:00",
+        "short_ema": 3473.2,
+        "long_ema": 3473.2,
+        "atr": 0.0
+      },
+      "ASHOKLEY": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:50.530996+00:00",
+        "short_ema": 148.76,
+        "long_ema": 148.76,
+        "atr": 0.0
+      },
+      "CROMPTON": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:50.648429+00:00",
+        "short_ema": 274.9,
+        "long_ema": 274.9,
+        "atr": 0.0
+      },
+      "BERGEPAINT": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:50.754518+00:00",
+        "short_ema": 575.5,
+        "long_ema": 575.5,
+        "atr": 0.0
+      },
+      "COLPAL": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:50.856131+00:00",
+        "short_ema": 2190.0,
+        "long_ema": 2190.0,
+        "atr": 0.0
+      },
+      "AMBUJACEM": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:51.093038+00:00",
+        "short_ema": 561.5,
+        "long_ema": 561.5,
+        "atr": 0.0
+      },
+      "ACC": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:51.206410+00:00",
+        "short_ema": 1845.7,
+        "long_ema": 1845.7,
+        "atr": 0.0
+      },
+      "RAMCOCEM": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:51.307319+00:00",
+        "short_ema": 995.2,
+        "long_ema": 995.2,
+        "atr": 0.0
+      },
+      "AUROPHARMA": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:51.394836+00:00",
+        "short_ema": 1228.8,
+        "long_ema": 1228.8,
+        "atr": 0.0
+      },
+      "ALKEM": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:51.470580+00:00",
+        "short_ema": 5714.0,
+        "long_ema": 5714.0,
+        "atr": 0.0
+      },
+      "ZYDUSLIFE": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:51.558302+00:00",
+        "short_ema": 935.0,
+        "long_ema": 935.0,
+        "atr": 0.0
+      },
+      "JINDALSTEL": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:51.645259+00:00",
+        "short_ema": 1078.5,
+        "long_ema": 1078.5,
+        "atr": 0.0
+      },
+      "MOTHERSON": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:51.751194+00:00",
+        "short_ema": 110.09,
+        "long_ema": 110.09,
+        "atr": 0.0
+      },
+      "BANDHANBNK": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:51.850320+00:00",
+        "short_ema": 155.18,
+        "long_ema": 155.18,
+        "atr": 0.0
+      },
+      "IDFCFIRSTB": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:51.951311+00:00",
+        "short_ema": 81.3,
+        "long_ema": 81.3,
+        "atr": 0.0
+      },
+      "FEDERALBNK": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:52.030893+00:00",
+        "short_ema": 238.11,
+        "long_ema": 238.11,
+        "atr": 0.0
+      },
+      "TATAPOWER": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:52.294142+00:00",
+        "short_ema": 391.0,
+        "long_ema": 391.0,
+        "atr": 0.0
+      },
+      "ADANIGREEN": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:52.372186+00:00",
+        "short_ema": 1083.5,
+        "long_ema": 1083.5,
+        "atr": 0.0
+      },
+      "DMART": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:52.530572+00:00",
+        "short_ema": 4037.5,
+        "long_ema": 4037.5,
+        "atr": 0.0
+      },
+      "TRENT": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:52.608922+00:00",
+        "short_ema": 4404.7,
+        "long_ema": 4404.7,
+        "atr": 0.0
+      },
+      "INDUSTOWER": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:52.685268+00:00",
+        "short_ema": 409.8,
+        "long_ema": 409.8,
+        "atr": 0.0
+      },
+      "ZEEL": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:52.767338+00:00",
+        "short_ema": 100.43,
+        "long_ema": 100.43,
+        "atr": 0.0
+      },
+      "IDEA": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:52.938177+00:00",
+        "short_ema": 10.96,
+        "long_ema": 10.96,
+        "atr": 0.0
+      },
+      "DIXON": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:53.015406+00:00",
+        "short_ema": 15619.0,
+        "long_ema": 15619.0,
+        "atr": 0.0
+      },
+      "POLYCAB": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:53.106799+00:00",
+        "short_ema": 7696.0,
+        "long_ema": 7696.0,
+        "atr": 0.0
+      },
+      "WHIRLPOOL": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:53.210676+00:00",
+        "short_ema": 1238.8,
+        "long_ema": 1238.8,
+        "atr": 0.0
+      },
+      "PAGEIND": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:53.430701+00:00",
+        "short_ema": 39660.0,
+        "long_ema": 39660.0,
+        "atr": 0.0
+      },
+      "MPHASIS": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:53.584604+00:00",
+        "short_ema": 2701.3,
+        "long_ema": 2701.3,
+        "atr": 0.0
+      },
+      "COFORGE": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:53.737157+00:00",
+        "short_ema": 1802.9,
+        "long_ema": 1802.9,
+        "atr": 0.0
+      },
+      "PERSISTENT": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:53.811346+00:00",
+        "short_ema": 6111.5,
+        "long_ema": 6111.5,
+        "atr": 0.0
+      },
+      "LTTS": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:53.915457+00:00",
+        "short_ema": 4100.0,
+        "long_ema": 4100.0,
+        "atr": 0.0
+      },
+      "LTIM": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:54.041279+00:00",
+        "short_ema": 5840.0,
+        "long_ema": 5840.0,
+        "atr": 0.0
+      },
+      "TATAELXSI": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:54.116064+00:00",
+        "short_ema": 5280.5,
+        "long_ema": 5280.5,
+        "atr": 0.0
+      },
+      "NATIONALUM": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:54.205639+00:00",
+        "short_ema": 261.95,
+        "long_ema": 261.95,
+        "atr": 0.0
+      },
+      "CONCOR": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:54.287000+00:00",
+        "short_ema": 518.5,
+        "long_ema": 518.5,
+        "atr": 0.0
+      },
+      "IRCTC": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:54.392599+00:00",
+        "short_ema": 712.8,
+        "long_ema": 712.8,
+        "atr": 0.0
+      },
+      "IEX": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:54.504659+00:00",
+        "short_ema": 137.73,
+        "long_ema": 137.73,
+        "atr": 0.0
+      },
+      "SBICARD": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:54.617011+00:00",
+        "short_ema": 888.9,
+        "long_ema": 888.9,
+        "atr": 0.0
+      },
+      "NAUKRI": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:54.707137+00:00",
+        "short_ema": 1333.0,
+        "long_ema": 1333.0,
+        "atr": 0.0
+      },
+      "PAYTM": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:54.879272+00:00",
+        "short_ema": 1327.6,
+        "long_ema": 1327.6,
+        "atr": 0.0
+      },
+      "POLICYBZR": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-17T08:39:54.971473+00:00",
+        "short_ema": 1799.8,
+        "long_ema": 1799.8,
+        "atr": 0.0
+      }
+    },
+    "trade_flow": {
+      "signals_total": 0,
+      "signals_actionable": 0,
+      "risk_blocks": 0,
+      "time_blocks": 0,
+      "orders_submitted": 0,
+      "orders_filled": 0,
+      "stop_hits": 0,
+      "target_hits": 0,
+      "last_events": {},
+      "risk_block_reasons": {},
+      "time_block_reasons": {}
+    }
   }
 }
