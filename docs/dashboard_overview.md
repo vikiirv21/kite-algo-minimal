@@ -1,236 +1,355 @@
-# Arthayukti Dashboard - Technical Overview
+# Arthayukti React Dashboard - Overview
 
-## Current Dashboard Implementation
+## Architecture
 
-### Frontend Structure
-- **Main Template**: `ui/templates/index.html` - Single-page dashboard with tabbed layout
-- **JavaScript Modules**:
-  - `static/js/api.js` - API utilities with retry logic
-  - `static/js/arthayukti.js` - Main controller with polling
-  - `static/js/tabs.js` - Tab management
-  - `static/dashboard.js` - Legacy implementation (931 lines)
-- **CSS**: Inline in `index.html` with dark theme CSS variables
-- **Pages**: HTMX-loaded pages in `ui/templates/pages/` (overview, portfolio, engines, etc.)
+The Arthayukti dashboard is a modern React-based HFT (High-Frequency Trading) control panel built with:
 
-### Current Issues & Gaps
-1. **Live Refresh**: Portfolio, positions, and orders tabs need consistent live-refresh restoration
-2. **Architecture**: Mixed inline and external JS - needs centralization
-3. **Analytics**: Backend analytics endpoints exist but frontend charting needs implementation
-4. **Documentation**: API usage patterns scattered across files
+- **React 19** - UI framework
+- **TypeScript** - Type safety
+- **Vite** - Build tool
+- **Tailwind CSS** - Styling (dark theme by default)
+- **React Router** - Client-side routing
+- **React Query** - Data fetching and caching
+- **Recharts** - Charts and visualizations
 
-## Backend API Endpoints
+## Project Structure
 
-### System & Meta
-| Endpoint | Method | Description | Response Keys |
-|----------|--------|-------------|---------------|
-| `/api/system/time` | GET | Current UTC time | `{utc: string}` |
-| `/api/meta` | GET | Market status & metadata | `{now_ist, market_open, market_status, regime}` |
-| `/api/health` | GET | Aggregate health check | `{engine_status, log_health, market_status}` |
-| `/api/config/summary` | GET | Trading configuration | `{mode, fno_universe, paper_capital, risk_profile}` |
-
-### Engines & Execution
-| Endpoint | Method | Description | Response Keys |
-|----------|--------|-------------|---------------|
-| `/api/engines/status` | GET | Engine runtime status | `{engines: [{engine, running, mode, last_checkpoint_ts}]}` |
-| `/api/state` | GET | Full runtime state | Complete state checkpoint |
-| `/api/auth/status` | GET | Kite API authentication | `{is_logged_in, token_valid, user_id}` |
-
-### Portfolio & Positions
-| Endpoint | Method | Description | Response Keys |
-|----------|--------|-------------|---------------|
-| `/api/portfolio/summary` | GET | Portfolio snapshot | `{equity, paper_capital, total_realized_pnl, total_unrealized_pnl, exposure_pct, position_count}` |
-| `/api/positions/open` | GET | Open positions | `[{symbol, side, quantity, avg_price, last_price, unrealized_pnl}]` |
-| `/api/positions_normalized` | GET | Detailed positions with LTP | Enhanced position data with lot sizes |
-| `/api/risk/summary` | GET | Risk metrics | `{mode, per_trade_risk_pct, trading_halted, current_day_pnl}` |
-| `/api/margins` | GET | Margin availability (live mode) | `{available, utilized, span, exposure}` |
-
-### Orders & Trades
-| Endpoint | Method | Description | Response Keys |
-|----------|--------|-------------|---------------|
-| `/api/orders` | GET | Orders list | Array of order objects |
-| `/api/orders/recent` | GET | Recent orders (limit param) | `{orders: [...]}` |
-| `/api/summary/today` | GET | Today's P&L summary | `{realized_pnl, num_trades, win_rate, largest_win/loss}` |
-
-### Signals & Strategies
-| Endpoint | Method | Description | Response Keys |
-|----------|--------|-------------|---------------|
-| `/api/signals` | GET | Signals list | Array of signal objects |
-| `/api/signals/recent` | GET | Recent signals (limit param) | Array of signals |
-| `/api/stats/strategies` | GET | Strategy statistics | Array of strategy metrics |
-| `/api/strategy_performance` | GET | Per-strategy P&L | `[{name, code, pnl, wins, losses}]` |
-| `/api/quality/summary` | GET | Signal quality & throttler | `{total_signals, total_trades_taken, veto_breakdown}` |
-
-### Logs & Monitoring
-| Endpoint | Method | Description | Response Keys |
-|----------|--------|-------------|---------------|
-| `/api/logs` | GET | Engine logs | `{logs: [{timestamp, level, source, message}]}` |
-| `/api/logs/recent` | GET | Recent logs with filters | Supports `level`, `contains`, `kind` params |
-| `/api/pm/log` | GET | PM-specific logs | Same as logs endpoint |
-| `/api/monitor/trade_flow` | GET | Trade funnel metrics | `{signals_seen, trades_allowed, orders_filled}` |
-| `/api/trade_flow` | GET | Enhanced trade flow | Includes funnel and recent hits |
-
-### Analytics & Performance (✅ AVAILABLE)
-| Endpoint | Method | Description | Response Keys |
-|----------|--------|-------------|---------------|
-| `/api/stats/equity` | GET | Equity curve data | `[{ts, equity, realized, unrealized}]` |
-| `/api/analytics/summary` | GET | Combined analytics | `{daily, strategies, symbols}` |
-| `/api/analytics/equity_curve` | GET | Equity curve with drawdown | `{equity_curve, drawdown}` |
-
-### Market Data
-| Endpoint | Method | Description | Response Keys |
-|----------|--------|-------------|---------------|
-| `/api/quotes` | GET | Live quotes cache | Symbol-keyed quote data |
-| `/api/scanner/universe` | GET | Instrument universe | Universe snapshot from MarketScanner |
-| `/api/market_data/window` | GET | Historical candles | `{symbol, timeframe, candles: [...]}` |
-| `/api/market_data/latest_tick` | GET | Latest tick (MDE v2) | `{symbol, ltp, bid, ask, volume}` |
-| `/api/market_data/candles` | GET | Candles from MDE v2 | Enhanced candle data |
-| `/api/market_data/v2/stats` | GET | MDE v2 statistics | Feed stats and symbol count |
-
-### Backtests
-| Endpoint | Method | Description | Response Keys |
-|----------|--------|-------------|---------------|
-| `/api/backtests` | GET | List backtest runs | `{runs: [{run_id, strategy, symbol, net_pnl}]}` |
-| `/api/backtests/{run_id}/summary` | GET | Backtest details | Full backtest result |
-| `/api/backtests/{run_id}/equity_curve` | GET | Backtest equity curve | Time-series equity data |
-
-### Actions
-| Endpoint | Method | Description | Response Keys |
-|----------|--------|-------------|---------------|
-| `/api/resync` | POST | Rebuild state from journal | `{ok: bool, mode, timestamp}` |
-
-## Live-Refresh Mechanisms
-
-### Previous Working Behavior
-The dashboard previously had live-refresh for:
-1. **Portfolio Summary** - polled every ~3-5 seconds
-2. **Open Positions** - polled every ~3-5 seconds  
-3. **Orders** - polled every ~3-5 seconds
-4. **Engine Status** - polled every ~10 seconds
-
-### Implementation Pattern
-```javascript
-// Previous pattern (from arthayukti.js)
-const POLL_INTERVALS = {
-    serverTime: 1000,        // 1 second
-    meta: 5000,              // 5 seconds
-    engines: 10000,          // 10 seconds
-    portfolio: 10000,        // 10 seconds (should be faster)
-    logs: 5000,              // 5 seconds
-    signals: 10000,          // 10 seconds
-};
+```
+ui/frontend/
+├── src/
+│   ├── api/
+│   │   └── client.ts           # API client with all endpoint definitions
+│   ├── components/
+│   │   ├── Card.tsx            # Card component with loading & error states
+│   │   ├── ConnectionStatus.tsx # Connection status indicator
+│   │   ├── Sidebar.tsx         # Main navigation sidebar
+│   │   └── TopBar.tsx          # Top bar with page title & system info
+│   ├── features/
+│   │   ├── analytics/          # Analytics page with charts
+│   │   ├── logs/               # Engine logs viewer
+│   │   ├── overview/           # Dashboard overview
+│   │   ├── portfolio/          # Portfolio & positions
+│   │   ├── risk/               # Risk management dashboard
+│   │   ├── signals/            # Signals & strategies
+│   │   ├── system/             # System info & config
+│   │   └── trading/            # Orders & executions
+│   ├── hooks/
+│   │   └── useApi.ts           # React Query hooks for all APIs
+│   ├── types/
+│   │   └── api.ts              # TypeScript type definitions
+│   ├── utils/
+│   │   └── format.ts           # Formatting utilities (currency, time, P&L)
+│   ├── App.tsx                 # Main app with routes
+│   ├── main.tsx               # App entry point
+│   └── index.css              # Global styles
+├── public/                     # Static assets
+├── package.json               # Dependencies
+├── vite.config.ts             # Vite configuration
+├── tailwind.config.js         # Tailwind theme configuration
+└── tsconfig.json              # TypeScript configuration
 ```
 
-### Recommended Intervals
-Based on data volatility and user needs:
-- **Critical (1-3s)**: Portfolio summary, open positions, orders (during market hours)
-- **Important (5-10s)**: Signals, engine status, logs
-- **Background (30-60s)**: Config, health, strategies
+## Pages & Tabs
 
-## Analytics Implementation Status
+### 1. Overview (`/`)
+The main dashboard showing:
+- **Engines Status** - Running/stopped status, mode (PAPER/LIVE)
+- **Portfolio Snapshot** - Equity, daily P&L, positions count, exposure
+- **Today's Trading** - Realized P&L, trade count, win rate, avg R
+- **Risk Budget** - Max daily loss tracking with progress bar
+- **Recent Signals** - Last 10 signals with direction, price, strategy
 
-### ✅ Backend Ready
-- Equity curve endpoint: `/api/stats/equity`
-- Strategy analytics: `/api/analytics/summary`
-- Drawdown calculation: `/api/analytics/equity_curve`
+**APIs Used:**
+- `GET /api/engines/status`
+- `GET /api/portfolio/summary`
+- `GET /api/summary/today`
+- `GET /api/signals/recent?limit=10`
 
-### 📊 Frontend Needs
-1. **Chart Library**: Need to add lightweight chart library (e.g., Chart.js, uPlot, or Lightweight Charts)
-2. **Analytics Tab**: Wire equity curve and strategy performance charts
-3. **Benchmark Comparison**: If NIFTY/BANKNIFTY index data available, add overlay
+### 2. Trading (`/trading`)
+Order management:
+- **Active Orders** - Open, pending, trigger-pending orders
+- **Recent Orders** - Completed/filled orders with P&L
 
-### Missing Backend Features (for future)
-These would enhance analytics but are NOT blocking:
-- `/api/perf/benchmark` - NIFTY/BANKNIFTY historical data for overlay comparison
-- `/api/perf/sharpe` - Risk-adjusted metrics (Sharpe, Sortino)
-- `/api/perf/monthly` - Monthly P&L breakdown
+**APIs Used:**
+- `GET /api/orders/recent?limit=50`
 
-## Architecture Recommendations
+### 3. Portfolio (`/portfolio`)
+Portfolio details:
+- **Portfolio Summary** - Equity, realized/unrealized P&L, margin, exposure
+- **Open Positions** - Current positions with live P&L
+- **Closed Positions** - Trade history (placeholder - needs API)
 
-### Frontend File Structure (Target)
+**APIs Used:**
+- `GET /api/portfolio/summary`
+- `GET /api/positions/open`
+
+### 4. Signals (`/signals`)
+Signal monitoring and strategy management:
+- **Active Strategies** - Strategy list with win rates, signal counts
+- **Strategy Lab** - Placeholder for strategy controls (enable/disable, parameter adjustment)
+- **Signal Stream** - Scrollable stream of recent signals
+
+**APIs Used:**
+- `GET /api/stats/strategies?days=1`
+- `GET /api/signals/recent?limit=50`
+
+### 5. Analytics (`/analytics`)
+Performance analysis:
+- **Equity Curve** - Line chart of equity over time
+- **Benchmarks** - Placeholder for NIFTY/BANKNIFTY comparison
+- **Strategy Performance** - Placeholder for per-strategy metrics
+
+**APIs Used:**
+- `GET /api/stats/equity?days=1`
+
+**Placeholder APIs Needed:**
 ```
-static/
-  js/
-    api_client.js       # Centralized API calls with error handling
-    state_store.js      # Global state and polling lifecycle
-    dashboard_tabs.js   # Tab switching and per-tab renderers
-    components/
-      card.js           # Reusable card component
-      table.js          # Data table helpers
-      badge.js          # Status badges
-  css/
-    dashboard.css       # Dark theme with CSS variables
-templates/
-  index.html           # Main dashboard template
-  pages/              # HTMX page partials (keep existing)
-```
-
-### State Management Pattern
-```javascript
-// Centralized state
-const state = {
-    meta: {},
-    engines: [],
-    portfolio: {},
-    positions: [],
-    orders: [],
-    signals: [],
-    logs: [],
-    strategies: [],
-    activeTab: 'overview',
-};
-
-// Update and render
-function updateState(key, data) {
-    state[key] = data;
-    renderActiveTab();
-}
+GET /api/benchmarks -> [{ ts, nifty, banknifty }]
+GET /api/analytics/strategies -> [{ strategy, pnl, win_rate, max_drawdown, ... }]
 ```
 
-### Tab-Specific Polling
-```javascript
-// Start polling for active tab only
-function activateTab(tabName) {
-    clearAllIntervals();
-    state.activeTab = tabName;
-    
-    // Common intervals (always active)
-    startInterval('time', 1000);
-    startInterval('meta', 5000);
-    
-    // Tab-specific intervals
-    if (tabName === 'portfolio') {
-        startInterval('portfolio', 3000);
-        startInterval('positions', 3000);
-        startInterval('orders', 3000);
-    } else if (tabName === 'engines') {
-        startInterval('engines', 5000);
-        startInterval('logs', 5000);
-    }
-    // ... etc
-}
+### 6. Risk (`/risk`)
+Risk management dashboard:
+- **Daily Loss Limit** - Max loss tracking with gauge
+- **Exposure Limit** - Current vs max exposure
+- **Position Limit** - Open positions count
+- **Risk Configuration** - Risk profile, risk per trade, capital
+- **Capital at Risk** - Equity, unrealized P&L, free margin
+- **Advanced Metrics** - Placeholder for VaR, drawdown monitoring
+
+**APIs Used:**
+- `GET /api/portfolio/summary`
+- `GET /api/config/summary`
+- `GET /api/summary/today`
+
+**Placeholder APIs Needed:**
+```
+GET /api/risk/limits -> { max_positions, max_daily_loss, ... }
+GET /api/risk/breaches -> [{ type, limit, current, ... }]
+GET /api/risk/var -> { var_95, var_99, ... }
 ```
 
-## Mode Detection
+### 7. System (`/system`)
+System information:
+- **System Info** - Mode, risk profile, auth status
+- **Config Summary** - FNO universe, capital, risk settings
+- **Raw JSON** - Collapsible full config for debugging
 
-Mode is derived from engine status:
-```javascript
-function detectMode(engines) {
-    const hasLive = engines.some(e => e.running && e.mode === 'live');
-    const hasPaper = engines.some(e => e.running && e.mode === 'paper');
-    
-    if (hasLive) return 'LIVE';
-    if (hasPaper) return 'PAPER';
-    return 'IDLE';
-}
+**APIs Used:**
+- `GET /api/config/summary`
+- `GET /api/auth/status`
+
+### 8. Logs (`/logs`)
+Engine logs viewer:
+- **Level Filter** - Filter by DEBUG/INFO/WARNING/ERROR
+- **Auto-follow** - Automatically scroll to new logs
+- **Scrollable Log Window** - 600px fixed height with custom scrollbar
+- **Log Formatting** - Timestamp, level badge, source, message
+
+**APIs Used:**
+- `GET /api/logs?limit=200&level={level}`
+
+## Design System
+
+### Colors
+Defined in `tailwind.config.js`:
+
+**Backgrounds:**
+- `background` - Main background (#0a0e1a)
+- `surface` - Card/component background (#121825)
+- `surface-light` - Hover states (#1a2332)
+- `border` - Borders (#2a3447)
+
+**Status:**
+- `positive` - Gains (#10b981)
+- `negative` - Losses (#ef4444)
+- `warning` - Alerts (#f59e0b)
+- `primary` - Primary actions (#3b82f6)
+
+**Text:**
+- `text-primary` - Main text (#f3f4f6)
+- `text-secondary` - Secondary text (#9ca3af)
+- `text-muted` - De-emphasized text (#6b7280)
+
+### Components
+
+**Card:**
+```tsx
+<Card title="Title" action={<button>Action</button>}>
+  Content
+</Card>
 ```
 
-## Next Steps
+**CardSkeleton:**
+Loading state for cards with animated bars.
 
-1. ✅ Create this documentation
-2. Implement `api_client.js` with all endpoint wrappers
-3. Implement `state_store.js` with polling lifecycle
-4. Implement `dashboard_tabs.js` with tab-specific renderers
-5. Add charting library for analytics tab
-6. Restore live-refresh intervals for portfolio tab
-7. Test end-to-end with running engine
-8. Take screenshots and validate
+**CardError:**
+Error state displaying error message with icon.
+
+### Utilities
+
+**Format Functions** (`utils/format.ts`):
+- `formatTimestamp(ts)` - Format ISO timestamp to IST
+- `formatTime(ts)` - Format to time only (HH:MM:SS)
+- `formatCurrency(value)` - Format as ₹X,XXX.XX
+- `formatNumber(value, decimals)` - Format number with decimals
+- `formatPercent(value)` - Format as percentage
+- `getPnlClass(value)` - Get CSS class for P&L (pnl-positive/pnl-negative)
+- `getPnlPrefix(value)` - Get '+' prefix for positive values
+
+## API Integration
+
+### React Query Configuration
+```typescript
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      retry: 1,
+      staleTime: 1000,
+    },
+  },
+});
+```
+
+### Refetch Intervals
+- Meta/market status: 2s
+- Engines status: 3s
+- Portfolio summary: 3s
+- Open positions: 3s
+- Recent signals: 2s
+- Recent orders: 3s
+- Orders: 5s
+- Logs: 2s
+- Strategy stats: 10s
+- Equity curve: 10s
+
+### Custom Hooks
+All API calls are wrapped in custom hooks in `hooks/useApi.ts`:
+```typescript
+const { data, isLoading, error } = usePortfolioSummary();
+```
+
+## Features
+
+### Connection Status Indicator
+- Shows green pulsing dot when connected
+- Turns red when no successful API calls in 15s
+- Located in TopBar next to mode badge
+
+### Dynamic Page Title
+TopBar shows current page name based on route.
+
+### Auto-scroll Logs
+- Logs auto-scroll when "Follow Logs" is enabled
+- Auto-follow disables on manual scroll up
+- Click "Follow Logs" button to resume
+
+### Responsive Layout
+- Sidebar navigation
+- Fixed TopBar with system info
+- Scrollable content area
+- Grid layouts adapt to screen size
+
+### Error Handling
+All pages gracefully handle:
+- Loading states (skeletons)
+- Error states (error cards)
+- Empty states (friendly messages)
+
+## Development
+
+### Install Dependencies
+```bash
+cd ui/frontend
+npm install
+```
+
+### Development Server
+```bash
+npm run dev
+```
+Runs on `http://localhost:3000` with API proxy to `http://localhost:9000`.
+
+### Build for Production
+```bash
+npm run build
+```
+Output: `ui/static-react/` (served by FastAPI at root)
+
+### Lint
+```bash
+npm run lint
+```
+
+## Future Enhancements
+
+### Planned Features (Placeholders Added)
+1. **Strategy Lab** - Enable/disable strategies, adjust parameters, backtest
+2. **Risk Alerts** - Real-time limit breach notifications
+3. **Advanced Analytics** - Correlation analysis, VaR calculations
+4. **Benchmark Comparison** - Compare equity curve vs NIFTY/BANKNIFTY
+5. **Trade History** - Detailed closed positions with exit analysis
+6. **Keyboard Shortcuts** - Quick navigation (1-8 for tabs, Ctrl+L for logs)
+7. **Command Palette** - Quick search for actions and pages
+
+### Required Backend APIs
+```
+# Analytics
+GET /api/benchmarks
+GET /api/analytics/strategies
+
+# Risk
+GET /api/risk/limits
+GET /api/risk/breaches
+GET /api/risk/var
+
+# Strategies
+POST /api/strategies/{id}/enable
+POST /api/strategies/{id}/disable
+PUT  /api/strategies/{id}/params
+POST /api/strategies/{id}/backtest
+
+# Positions
+GET /api/positions/closed?limit=50
+```
+
+## Deployment
+
+The dashboard is integrated with the FastAPI server:
+1. Build the React app: `npm run build` (or use `build-dashboard.sh`)
+2. Start FastAPI: `python -m uvicorn apps.server:app --host 0.0.0.0 --port 9000`
+3. Access at: `http://localhost:9000`
+
+The server serves the React build at `/` and proxies API calls to `/api/*`.
+
+## Best Practices
+
+1. **Always use TypeScript types** from `types/api.ts`
+2. **Use React Query hooks** from `hooks/useApi.ts` for data fetching
+3. **Handle loading, error, and empty states** in every component
+4. **Format values consistently** using `utils/format.ts`
+5. **Follow Tailwind conventions** - use theme colors, not arbitrary values
+6. **Keep components focused** - one responsibility per component
+7. **Add error boundaries** for production resilience
+
+## Troubleshooting
+
+### Build fails with "Cannot find module"
+- Run `npm install` to ensure dependencies are installed
+- Check that all imports use correct paths
+
+### API calls fail
+- Ensure FastAPI server is running on port 9000
+- Check network tab in browser DevTools
+- Verify CORS settings in FastAPI
+
+### Styling issues
+- Clear browser cache
+- Rebuild: `npm run build`
+- Check Tailwind config for custom colors
+
+### Logs not auto-scrolling
+- Check "Follow Logs" button is enabled
+- Scroll to bottom manually to re-enable auto-follow
+- Verify logs are updating (check timestamp)
