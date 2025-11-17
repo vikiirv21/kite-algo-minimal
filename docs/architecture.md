@@ -8,7 +8,33 @@ This document describes the architecture of the kite-algo-minimal algorithmic tr
 
 ## Changelog (Latest Refinements)
 
-**2025-11-17 – Architecture refinement based on actual runtime behavior:**
+**2025-11-17 – Architecture refinement v2 - All requested improvements completed:**
+
+- **✅ Added "Component Status" section** to clarify which components exist vs. planned/WIP
+  - Verified all major components exist: scripts, engines, core modules, and docs
+  - Explicitly marked live options/equity trading and multi-process architecture as WIP/planned
+- **✅ Added "Current vs Future" subsection** in "Process & Concurrency Model"
+  - CURRENT: All engines run as threads in single process, dashboard as separate uvicorn
+  - FUTURE: Multi-process with message queue/Redis for IPC
+  - Added performance considerations explaining I/O-bound workload and GIL implications
+- **✅ Verified "Data Validation & Fault Tolerance" section** (already complete)
+  - Documents behavior when LTP fetch fails or returns None
+  - Documents behavior when indicators are not ready (insufficient history)
+  - Shows implementation patterns with code examples
+  - References specific TypeError runtime errors now prevented
+  - Confirms analytics layer guardrails (only log signals with valid numeric price)
+- **✅ Verified "Debugging & Observability" section** (already complete)
+  - Documents debugging no-trade scenarios (only HOLD signals)
+  - Documents debugging per-symbol errors
+  - Explains using signals.csv, orders.csv, JSON event logs, and engine logs
+  - Documents optional LOG_REASON_FOR_HOLD flag for deep debugging
+- **✅ Verified "Universe and Instruments" equity section** (already accurate)
+  - Explicitly mentions NIFTY 50 and NIFTY 100 restriction with min_price filter
+  - Documents scanner output structure with equity_universe key
+  - Explains equity engine only loops over filtered universe
+  - Shows actual file naming: artifacts/scanner/YYYY-MM-DD/universe.json
+
+**Previous Updates (2025-11-17):**
 
 - **Step 1**: Validated module existence. All referenced modules exist and are operational.
 - **Step 2**: Added **"Data Validation & Fault Tolerance"** section explaining how system handles None/missing LTP and indicator values.
@@ -19,20 +45,54 @@ This document describes the architecture of the kite-algo-minimal algorithmic tr
 
 ---
 
+## Component Status
+
+All components, scripts, and documentation files referenced in this architecture document are **currently implemented and operational** in the codebase:
+
+**✅ Existing Scripts:**
+- `scripts/run_trader.py` - Main entry point for paper/live trading
+- `scripts/run_day.py` - Engine orchestration and management
+- `scripts/run_all.py` - Convenience script to start all services
+
+**✅ Existing Applications:**
+- `apps/dashboard.py` - Dashboard backend (also `ui/dashboard.py`)
+- All trading engines: `engine/paper_engine.py`, `engine/equity_paper_engine.py`, `engine/options_paper_engine.py`, `engine/live_engine.py`
+
+**✅ Existing Core Modules:**
+- `backtest/engine_v3.py` - Backtest engine v3 (integration into daily workflow is ongoing)
+- All strategy, risk, portfolio, and market data engines
+
+**✅ Existing Documentation:**
+- `docs/Commands.md` - Command reference
+- `docs/Dashboard.md` - Dashboard features and API
+- `docs/Strategies.md` - Strategy development guide
+- `docs/RiskEngine.md` - Risk configuration and guardrails
+
+**⚠️ Partially Implemented / WIP:**
+- **Live Options Trading**: Options engine exists in paper mode only (`engine/options_paper_engine.py`). Live options engine not yet implemented.
+- **Live Equity Trading**: Equity engine exists in paper mode only (`engine/equity_paper_engine.py`). Live equity engine not yet implemented.
+- **Multi-Process Architecture**: Currently single-process with threads. Multi-process separation is planned for future.
+- **Backtest Integration**: `backtest/engine_v3.py` exists but not yet integrated into `run_trader.py` workflow.
+
+**Note**: The "Future Extensions" section at the end of this document describes enhancements that are planned but not yet implemented.
+
+---
+
 ## Table of Contents
 
-1. [High-Level Overview](#high-level-overview)
-2. [Process & Concurrency Model](#process--concurrency-model)
-3. [Engines and Responsibilities](#engines-and-responsibilities)
-4. [Data Validation & Fault Tolerance](#data-validation--fault-tolerance)
-5. [Strategy, Risk, and Portfolio Engines](#strategy-risk-and-portfolio-engines)
-6. [Paper vs Live Modes](#paper-vs-live-modes)
-7. [State, Journals, and Analytics](#state-journals-and-analytics)
-8. [Dashboard Integration](#dashboard-integration)
-9. [Universe and Instruments](#universe-and-instruments)
-10. [Entry Points and Commands](#entry-points-and-commands)
-11. [Debugging & Observability](#debugging--observability)
-12. [Future Extensions](#future-extensions)
+1. [Component Status](#component-status)
+2. [High-Level Overview](#high-level-overview)
+3. [Process & Concurrency Model](#process--concurrency-model)
+4. [Engines and Responsibilities](#engines-and-responsibilities)
+5. [Data Validation & Fault Tolerance](#data-validation--fault-tolerance)
+6. [Strategy, Risk, and Portfolio Engines](#strategy-risk-and-portfolio-engines)
+7. [Paper vs Live Modes](#paper-vs-live-modes)
+8. [State, Journals, and Analytics](#state-journals-and-analytics)
+9. [Dashboard Integration](#dashboard-integration)
+10. [Universe and Instruments](#universe-and-instruments)
+11. [Entry Points and Commands](#entry-points-and-commands)
+12. [Debugging & Observability](#debugging--observability)
+13. [Future Extensions](#future-extensions)
 
 ---
 
@@ -106,6 +166,19 @@ The system currently runs as a **single main process** with **multiple daemon th
 - **All trading engines (FnO, Options, Equity)** run as threads inside a single process started by `scripts/run_day.py` or `scripts/run_trader.py`.
 - **The dashboard runs as a separate uvicorn process** using `uvicorn ui.dashboard:app --port 8765`.
 - Engines communicate via shared in-memory state and file-based journals/checkpoints.
+
+### Current vs Future Architecture
+
+**CURRENT (Multi-Threaded, Single Process):**
+- All trading engines (FnO, Options, Equity) run as threads inside a single process (`scripts/run_trader.py` / `scripts/run_day.py`)
+- Dashboard runs as a separate uvicorn process using `uvicorn ui.dashboard:app --port 8765`
+- Engines communicate via shared in-memory state and file-based journals/checkpoints
+
+**FUTURE (Multi-Process with IPC):**
+- Separate processes per engine (FnO, Options, Equity)
+- Message queue or Redis for inter-process communication (IPC)
+- Each engine can run independently on same or different machines
+- Improved isolation and fault tolerance
 
 ### Performance Considerations
 
