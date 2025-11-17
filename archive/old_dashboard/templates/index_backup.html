@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arthayukti - HFT Control Panel</title>
+    <link rel="stylesheet" href="/static/css/arthayukti.css">
+</head>
+<body>
+    <!-- Main Dashboard Container -->
+    <div class="dashboard-container">
+        
+        <!-- Top Bar -->
+        <header class="topbar">
+            <div class="topbar-left">
+                <div class="brand">
+                    <span class="brand-logo">A</span>
+                    <div class="brand-text">
+                        <h1>Arthayukti</h1>
+                        <span class="brand-subtitle">HFT Control Panel</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="topbar-center">
+                <div class="mode-indicator" id="mode-indicator">
+                    <span class="mode-badge" id="mode-badge">PAPER</span>
+                </div>
+                <div class="status-pills" id="status-pills">
+                    <span class="status-pill" id="market-status-pill">MARKET CLOSED</span>
+                </div>
+            </div>
+            
+            <div class="topbar-right">
+                <div class="server-time">
+                    <span class="time-label">Server Time</span>
+                    <span class="time-value" id="server-time">--:--:--</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            
+            <!-- Mode & Engines Panel -->
+            <section class="panel panel-engines">
+                <div class="panel-header">
+                    <h2>Mode & Engines</h2>
+                    <span class="badge" id="engines-badge">Checking...</span>
+                </div>
+                <div class="panel-body" id="engines-panel-body">
+                    <div class="loading">Loading engine status...</div>
+                </div>
+            </section>
+
+            <!-- Portfolio / Positions Panel -->
+            <section class="panel panel-portfolio">
+                <div class="panel-header">
+                    <h2>Portfolio & Positions</h2>
+                    <span class="badge" id="portfolio-badge">--</span>
+                </div>
+                <div class="panel-body" id="portfolio-panel-body">
+                    <div class="loading">Loading portfolio...</div>
+                </div>
+            </section>
+
+            <!-- Logs / Events Panel -->
+            <section class="panel panel-logs">
+                <div class="panel-header">
+                    <h2>Logs / Events</h2>
+                    <div class="panel-controls">
+                        <select id="log-filter" class="log-filter">
+                            <option value="">All Logs</option>
+                            <option value="engine">Engine</option>
+                            <option value="trades">Trades</option>
+                            <option value="signals">Signals</option>
+                            <option value="system">System</option>
+                        </select>
+                        <button class="btn-icon" id="logs-refresh" title="Refresh logs">↻</button>
+                    </div>
+                </div>
+                <div class="panel-body panel-body-logs" id="logs-panel-body">
+                    <pre class="logs-view" id="logs-view">Loading logs...</pre>
+                </div>
+            </section>
+
+            <!-- Signals / Strategies Panel -->
+            <section class="panel panel-signals">
+                <div class="panel-header">
+                    <h2>Signals & Strategies</h2>
+                    <span class="badge" id="signals-count-badge">0</span>
+                </div>
+                <div class="panel-body" id="signals-panel-body">
+                    <div class="loading">Loading signals...</div>
+                </div>
+            </section>
+
+            <!-- Health / Meta Panel -->
+            <section class="panel panel-meta">
+                <div class="panel-header">
+                    <h2>System Health & Meta</h2>
+                    <span class="badge" id="health-badge">--</span>
+                </div>
+                <div class="panel-body" id="meta-panel-body">
+                    <div class="loading">Loading system info...</div>
+                </div>
+            </section>
+
+        </main>
+
+    </div>
+
+    <!-- Load JavaScript -->
+    <script src="/static/js/arthayukti.js"></script>
+</body>
+</html>
