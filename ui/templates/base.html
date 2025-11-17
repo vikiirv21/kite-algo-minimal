@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arthayukti Algo Dashboard V2</title>
+    
+    <!-- HTMX for dynamic updates -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+</head>
+<body>
+    <div class="dashboard-wrapper">
+        <!-- Top Bar -->
+        {% include 'layout/topbar.html' %}
+        
+        <div class="dashboard-main">
+            <!-- Left Sidebar -->
+            {% include 'layout/sidebar.html' %}
+            
+            <!-- Main Content Area -->
+            <div id="page-content" class="page-content">
+                {% block content %}
+                <!-- Page content will be loaded here -->
+                {% endblock %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Custom JavaScript -->
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

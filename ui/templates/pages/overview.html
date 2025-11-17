@@ -1,0 +1,215 @@
+<div class="page-header">
+    <h2>Overview</h2>
+</div>
+
+<div class="page-grid">
+    <!-- Today's Summary -->
+    <div class="card">
+        <div class="card-header">
+            <h3>Today's Summary</h3>
+        </div>
+        <div class="card-body" 
+             hx-get="/api/summary/today" 
+             hx-trigger="load, every 15s"
+             hx-target="this"
+             hx-swap="innerHTML">
+            <div class="loading">Loading...</div>
+        </div>
+    </div>
+    
+    <!-- Portfolio Summary -->
+    <div class="card">
+        <div class="card-header">
+            <h3>Portfolio</h3>
+        </div>
+        <div class="card-body" 
+             hx-get="/api/portfolio/summary" 
+             hx-trigger="load, every 10s"
+             hx-target="this"
+             hx-swap="innerHTML">
+            <div class="loading">Loading...</div>
+        </div>
+    </div>
+    
+    <!-- Engines Status -->
+    <div class="card">
+        <div class="card-header">
+            <h3>Engines Status</h3>
+        </div>
+        <div class="card-body" 
+             hx-get="/api/engines/status" 
+             hx-trigger="load, every 10s"
+             hx-target="this"
+             hx-swap="innerHTML">
+            <div class="loading">Loading...</div>
+        </div>
+    </div>
+</div>
+
+<!-- Equity Chart (30-day) -->
+<div class="card mt-4">
+    <div class="card-header">
+        <h3>Equity Curve (30 Days)</h3>
+    </div>
+    <div class="card-body" 
+         hx-get="/api/stats/equity?days=30" 
+         hx-trigger="load, every 60s"
+         hx-target="this"
+         hx-swap="innerHTML">
+        <div class="loading">Loading chart...</div>
+    </div>
+</div>
+
+<script>
+// Custom rendering for overview data
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target.closest('.card-body')) {
+        const target = evt.detail.target;
+        try {
+            const data = JSON.parse(evt.detail.xhr.responseText);
+            
+            // Render today's summary
+            if (evt.detail.requestConfig.path === '/api/summary/today') {
+                target.innerHTML = `
+                    <div class="summary-grid">
+                        <div class="summary-item">
+                            <span class="summary-label">Realized PnL</span>
+                            <span class="summary-value ${data.realized_pnl >= 0 ? 'positive' : 'negative'}">
+                                ₹${(data.realized_pnl || 0).toFixed(2)}
+                            </span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-label">Trades</span>
+                            <span class="summary-value">${data.num_trades || 0}</span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-label">Win Rate</span>
+                            <span class="summary-value">${(data.win_rate || 0).toFixed(1)}%</span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-label">Avg R</span>
+                            <span class="summary-value">${(data.avg_r || 0).toFixed(2)}R</span>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Render portfolio summary
+            if (evt.detail.requestConfig.path === '/api/portfolio/summary') {
+                target.innerHTML = `
+                    <div class="summary-grid">
+                        <div class="summary-item">
+                            <span class="summary-label">Equity</span>
+                            <span class="summary-value">₹${(data.equity || 0).toFixed(2)}</span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-label">Unrealized PnL</span>
+                            <span class="summary-value ${data.total_unrealized_pnl >= 0 ? 'positive' : 'negative'}">
+                                ₹${(data.total_unrealized_pnl || 0).toFixed(2)}
+                            </span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-label">Exposure</span>
+                            <span class="summary-value">
+                                ${data.exposure_pct ? (data.exposure_pct * 100).toFixed(1) : 0}%
+                            </span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-label">Positions</span>
+                            <span class="summary-value">${data.position_count || 0}</span>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Render engine status
+            if (evt.detail.requestConfig.path === '/api/engines/status') {
+                const engines = data.engines || [];
+                let html = '<div class="engines-list">';
+                engines.forEach(eng => {
+                    const status = eng.running ? 'running' : 'stopped';
+                    html += `
+                        <div class="engine-item">
+                            <span class="engine-name">${eng.engine || 'Unknown'}</span>
+                            <span class="badge badge-${status}">${status.toUpperCase()}</span>
+                            ${eng.last_checkpoint_ts ? `<span class="engine-time">Last: ${eng.last_checkpoint_ts}</span>` : ''}
+                        </div>
+                    `;
+                });
+                html += '</div>';
+                target.innerHTML = html;
+            }
+            
+            // Render equity chart
+            if (evt.detail.requestConfig.path.startsWith('/api/stats/equity')) {
+                const chartData = Array.isArray(data) ? data : [];
+                if (chartData.length > 0) {
+                    const canvas = document.createElement('canvas');
+                    canvas.id = 'equity-chart';
+                    canvas.width = 800;
+                    canvas.height = 300;
+                    target.innerHTML = '';
+                    target.appendChild(canvas);
+                    renderEquityChart(canvas, chartData);
+                } else {
+                    target.innerHTML = '<p class="no-data">No equity data available</p>';
+                }
+            }
+        } catch (e) {
+            console.error('Error rendering data:', e);
+        }
+    }
+});
+
+function renderEquityChart(canvas, data) {
+    // Simple canvas-based chart rendering
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+    const padding = 40;
+    
+    if (!data || data.length === 0) return;
+    
+    // Extract equity values
+    const equityValues = data.map(d => parseFloat(d.equity || 0));
+    const minEquity = Math.min(...equityValues);
+    const maxEquity = Math.max(...equityValues);
+    const range = maxEquity - minEquity || 1;
+    
+    // Clear canvas
+    ctx.clearRect(0, 0, width, height);
+    
+    // Draw axes
+    ctx.strokeStyle = '#ddd';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padding, padding);
+    ctx.lineTo(padding, height - padding);
+    ctx.lineTo(width - padding, height - padding);
+    ctx.stroke();
+    
+    // Draw equity line
+    ctx.strokeStyle = '#4CAF50';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    
+    data.forEach((point, i) => {
+        const x = padding + (i / (data.length - 1)) * (width - 2 * padding);
+        const y = height - padding - ((point.equity - minEquity) / range) * (height - 2 * padding);
+        
+        if (i === 0) {
+            ctx.moveTo(x, y);
+        } else {
+            ctx.lineTo(x, y);
+        }
+    });
+    
+    ctx.stroke();
+    
+    // Draw labels
+    ctx.fillStyle = '#333';
+    ctx.font = '12px Arial';
+    ctx.fillText(`₹${minEquity.toFixed(0)}`, 5, height - padding + 5);
+    ctx.fillText(`₹${maxEquity.toFixed(0)}`, 5, padding);
+}
+</script>
