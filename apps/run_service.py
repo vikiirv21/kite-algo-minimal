@@ -34,6 +34,7 @@ from services.strategy.service_strategy import StrategyService, ServiceConfig as
 from services.risk_portfolio.service_risk_portfolio import RiskPortfolioService, ServiceConfig as RiskPortfolioConfig
 from services.execution.service_execution import ExecutionService, ServiceConfig as ExecutionConfig
 from services.journal.service_journal import JournalService, ServiceConfig as JournalConfig
+from services.state.service_state import StateService, ServiceConfig as StateConfig
 
 # Configure logging
 logging.basicConfig(
@@ -55,6 +56,7 @@ SERVICE_REGISTRY = {
     "execution": (ExecutionService, ExecutionConfig),
     "exec": (ExecutionService, ExecutionConfig),  # Alias for execution
     "journal": (JournalService, JournalConfig),
+    "state": (StateService, StateConfig),
 }
 
 
@@ -78,10 +80,12 @@ Available services:
   risk_portfolio  - Risk management and portfolio tracking
   execution       - Order execution
   journal         - Trading event logging
+  state           - State / Portfolio tracking service
 
 Examples:
   python -m apps.run_service marketdata
   python -m apps.run_service strategy
+  python -m apps.run_service state
         """
     )
     
@@ -147,6 +151,19 @@ Examples:
         
         logger.info(f"Execution service mode: {mode}")
         service = ExecutionService(bus=event_bus, cfg=exec_cfg, mode=mode)
+    elif service_name == "state":
+        # Special handling for state service
+        mode = args.mode
+        if mode is None:
+            mode = app_cfg.get("trading", {}).get("mode", "paper")
+        
+        # Get state service config
+        state_cfg = app_cfg.get("state", {})
+        state_cfg["trading"] = app_cfg.get("trading", {})
+        state_cfg["checkpoint_interval"] = state_cfg.get("checkpoint_interval", 10)
+        
+        logger.info(f"State service mode: {mode}")
+        service = StateService(bus=event_bus, cfg=state_cfg, mode=mode)
     else:
         # Create standard service config
         config = config_class(name=service_name, enabled=True)
