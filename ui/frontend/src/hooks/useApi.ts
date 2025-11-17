@@ -103,7 +103,7 @@ export function useStrategyStats(days = 1) {
   return useQuery({
     queryKey: queryKeys.strategies(days),
     queryFn: () => api.getStrategyStats(days),
-    refetchInterval: 10000, // 10 seconds
+    refetchInterval: 5000, // 5 seconds
   });
 }
 
@@ -111,7 +111,7 @@ export function useEquityCurve(days = 1) {
   return useQuery({
     queryKey: queryKeys.equityCurve(days),
     queryFn: () => api.getEquityCurve(days),
-    refetchInterval: 10000, // 10 seconds
+    refetchInterval: 5000, // 5 seconds
   });
 }
 
@@ -119,7 +119,7 @@ export function useTodaySummary() {
   return useQuery({
     queryKey: queryKeys.todaySummary,
     queryFn: api.getTodaySummary,
-    refetchInterval: 5000, // 5 seconds
+    refetchInterval: 3000, // 3 seconds
   });
 }
 
@@ -127,6 +127,30 @@ export function useLogs(params?: { limit?: number; level?: string; contains?: st
   return useQuery({
     queryKey: queryKeys.logs(params),
     queryFn: () => api.getLogs(params),
-    refetchInterval: 2000, // 2 seconds
+    refetchInterval: 2000, // 2 seconds for polling
   });
+}
+
+export function useSystemTime() {
+  return useQuery({
+    queryKey: ['systemTime'] as const,
+    queryFn: api.getSystemTime,
+    refetchInterval: 1000, // 1 second
+  });
+}
+
+// Derived hook for connection status
+export function useConnectionStatus() {
+  const { isSuccess, isError, dataUpdatedAt } = useSystemTime();
+  const now = Date.now();
+  const timeSinceUpdate = now - dataUpdatedAt;
+  
+  // Consider disconnected if no update in 15 seconds
+  const isConnected = isSuccess && timeSinceUpdate < 15000;
+  
+  return {
+    isConnected,
+    isDisconnected: isError || timeSinceUpdate >= 15000,
+    timeSinceUpdate,
+  };
 }
