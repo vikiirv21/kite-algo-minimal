@@ -192,3 +192,73 @@ export function formatShortTime(isoString) {
     return '—';
   }
 }
+
+/**
+ * Format datetime (for tables with date + time)
+ */
+export function formatDateTime(isoString) {
+  if (!isoString) return '—';
+  try {
+    const date = new Date(isoString);
+    return new Intl.DateTimeFormat('en-IN', {
+      dateStyle: 'short',
+      timeStyle: 'medium',
+      timeZone: 'Asia/Kolkata'
+    }).format(date);
+  } catch (error) {
+    return '—';
+  }
+}
+
+/**
+ * Apply color class to P&L value
+ * Returns an object with html property for table cell rendering
+ */
+export function coloredPnL(value, decimals = 2) {
+  if (value === null || value === undefined || isNaN(value)) {
+    return { html: '<span class="value-neutral">—</span>' };
+  }
+  
+  const formatted = formatCurrency(value, decimals);
+  let colorClass = 'value-neutral';
+  
+  if (value > 0) {
+    colorClass = 'value-positive';
+  } else if (value < 0) {
+    colorClass = 'value-negative';
+  }
+  
+  return { html: `<span class="${colorClass}">${formatted}</span>` };
+}
+
+/**
+ * Apply color class to percentage value
+ */
+export function coloredPercent(value, decimals = 2) {
+  if (value === null || value === undefined || isNaN(value)) {
+    return { html: '<span class="value-neutral">—</span>' };
+  }
+  
+  const formatted = formatPercent(value, decimals);
+  let colorClass = 'value-neutral';
+  
+  if (value > 0) {
+    colorClass = 'value-positive';
+  } else if (value < 0) {
+    colorClass = 'value-negative';
+  }
+  
+  return { html: `<span class="${colorClass}">${formatted}</span>` };
+}
+
+/**
+ * Create a direction badge for BUY/SELL signals
+ */
+export function directionBadge(direction) {
+  if (!direction) return '—';
+  const dir = direction.toUpperCase();
+  const badgeClass = dir === 'BUY' || dir === 'LONG' ? 'badge-buy' : 
+                     dir === 'SELL' || dir === 'SHORT' ? 'badge-sell' : 
+                     'badge-muted';
+  return { html: `<span class="badge ${badgeClass}">${dir}</span>` };
+}
