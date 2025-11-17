@@ -2704,7 +2704,20 @@ def api_equity_curve(
         })
 
 if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    # Mount static files with caching headers
+    from starlette.staticfiles import StaticFiles as StarletteStaticFiles
+    from starlette.responses import Response
+    from starlette.types import Scope
+    
+    class CachedStaticFiles(StarletteStaticFiles):
+        async def get_response(self, path: str, scope: Scope) -> Response:
+            response = await super().get_response(path, scope)
+            # Add cache headers for static assets (1 day cache)
+            if path.endswith(('.css', '.js')):
+                response.headers["Cache-Control"] = "public, max-age=86400"
+            return response
+    
+    app.mount("/static", CachedStaticFiles(directory=STATIC_DIR), name="static")
 
 app.include_router(router)
 

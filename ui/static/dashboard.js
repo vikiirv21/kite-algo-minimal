@@ -1124,38 +1124,38 @@ document.addEventListener("DOMContentLoaded", () => {
   setupTabs();
   setupLogsTabs();
   refreshMeta();
-  setInterval(refreshMeta, 5000);
+  setInterval(refreshMeta, 10000); // Reduced from 5s to 10s
   refreshServerTime();
-  setInterval(refreshServerTime, 5000);
+  setInterval(refreshServerTime, 10000); // Reduced from 5s to 10s
   refreshEngines();
-  setInterval(refreshEngines, 5000);
+  setInterval(refreshEngines, 15000); // Reduced from 5s to 15s
   fetchPortfolioSummary();
-  setInterval(fetchPortfolioSummary, 7000);
+  setInterval(fetchPortfolioSummary, 15000); // Reduced from 7s to 15s
   fetchRecentSignals();
-  setInterval(fetchRecentSignals, 8000);
+  setInterval(fetchRecentSignals, 20000); // Reduced from 8s to 20s
   fetchOpenPositions();
   fetchRecentOrders();
-  setInterval(fetchOpenPositions, 9000);
-  setInterval(fetchRecentOrders, 9000);
+  setInterval(fetchOpenPositions, 20000); // Reduced from 9s to 20s
+  setInterval(fetchRecentOrders, 20000); // Reduced from 9s to 20s
   fetchHealth();
   fetchRecentLogs();
   fetchStrategyStats();
   fetchEquityCurve();
   fetchConfigSummary();
   fetchTodaySummary();
-  setInterval(fetchHealth, 15000);
-  setInterval(fetchRecentLogs, 15000);
-  setInterval(fetchStrategyStats, 15000);
-  setInterval(fetchEquityCurve, 20000);
-  setInterval(fetchConfigSummary, 30000);
-  setInterval(fetchTodaySummary, 30000);
+  setInterval(fetchHealth, 30000); // Reduced from 15s to 30s
+  setInterval(fetchRecentLogs, 30000); // Reduced from 15s to 30s
+  setInterval(fetchStrategyStats, 30000); // Reduced from 15s to 30s
+  setInterval(fetchEquityCurve, 60000); // Reduced from 20s to 60s
+  setInterval(fetchConfigSummary, 60000); // Reduced from 30s to 60s
+  setInterval(fetchTodaySummary, 60000); // Reduced from 30s to 60s
 
   // Backtests tab initialization
   fetchBacktestRuns();
 
-  // state polling every 3s (tune as you like)
+  // state polling every 10s (reduced from 3s)
   refreshState();
-  setInterval(refreshState, 3000);
+  setInterval(refreshState, 10000);
 });
 
 // ===== Backtests Tab =====
@@ -1739,7 +1739,7 @@ async function refreshAll() {
 // Setup periodic refresh
 function startPeriodicRefresh() {
   refreshAll();
-  setInterval(refreshAll, 5000); // Refresh every 5 seconds
+  setInterval(refreshAll, 15000); // Refresh every 15 seconds (reduced from 5s)
 
   // Refresh logs less frequently
   if (document.querySelector('.tab[data-tab="logs"]')?.classList.contains('active')) {
@@ -1749,7 +1749,7 @@ function startPeriodicRefresh() {
     if (document.querySelector('.tab[data-tab="logs"]')?.classList.contains('active')) {
       refreshLogs();
     }
-  }, 10000);
+  }, 20000); // Reduced from 10s to 20s
 
   // Refresh analytics and trades on their tabs
   setInterval(() => {
@@ -1762,7 +1762,7 @@ function startPeriodicRefresh() {
     if (document.querySelector('.tab[data-tab="monitor"]')?.classList.contains('active')) {
       refreshTradeFlow();
     }
-  }, 8000);
+  }, 15000); // Reduced from 8s to 15s
 }
 
 // Initialize enhanced UI
