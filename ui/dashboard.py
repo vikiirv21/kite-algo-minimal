@@ -2720,7 +2720,7 @@ def api_equity_curve(
             "error": str(exc),
         })
 
-# Mount React static assets
+# Mount React static assets (only if the build directory and assets subdirectory exist)
 if REACT_BUILD_DIR.exists():
     from starlette.staticfiles import StaticFiles as StarletteStaticFiles
     from starlette.responses import Response
@@ -2734,7 +2734,13 @@ if REACT_BUILD_DIR.exists():
                 response.headers["Cache-Control"] = "public, max-age=86400"
             return response
     
-    app.mount("/assets", CachedStaticFiles(directory=REACT_BUILD_DIR / "assets"), name="react-assets")
+    # Only mount /assets if the assets subdirectory exists
+    react_assets_dir = REACT_BUILD_DIR / "assets"
+    if react_assets_dir.exists():
+        app.mount("/assets", CachedStaticFiles(directory=react_assets_dir), name="react-assets")
+        logger.info("React assets mounted at /assets from %s", react_assets_dir)
+    else:
+        logger.warning("React assets directory not found at %s - skipping mount", react_assets_dir)
 
 # Mount old static files (for backwards compatibility during transition)
 if STATIC_DIR.exists():
