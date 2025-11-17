@@ -247,18 +247,12 @@ REACT_BUILD_DIR = BASE_DIR / "ui" / "static-react"
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
-    """Render the main Arthayukti dashboard (React SPA)"""
+    """Render the main Arthayukti dashboard"""
     try:
-        # Serve the React app's index.html
-        react_index = REACT_BUILD_DIR / "index.html"
-        if react_index.exists():
-            return HTMLResponse(content=react_index.read_text(encoding="utf-8"))
-        else:
-            # Fallback to old dashboard if React build doesn't exist
-            logger.warning("React build not found at %s, falling back to old dashboard", REACT_BUILD_DIR)
-            return templates.TemplateResponse("dashboard.html", {
-                "request": request,
-            })
+        # Serve the template-based dashboard with static assets
+        return templates.TemplateResponse("dashboard.html", {
+            "request": request,
+        })
     except Exception as exc:
         logger.error("Failed to render dashboard: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -2720,32 +2714,16 @@ def api_equity_curve(
             "error": str(exc),
         })
 
-# Mount React static assets (only if the build directory and assets subdirectory exist)
-if REACT_BUILD_DIR.exists():
-    from starlette.staticfiles import StaticFiles as StarletteStaticFiles
-    from starlette.responses import Response
-    from starlette.types import Scope
-    
-    class CachedStaticFiles(StarletteStaticFiles):
-        async def get_response(self, path: str, scope: Scope) -> Response:
-            response = await super().get_response(path, scope)
-            # Add cache headers for static assets (1 day cache)
-            if path.endswith(('.css', '.js', '.svg', '.png', '.jpg', '.ico')):
-                response.headers["Cache-Control"] = "public, max-age=86400"
-            return response
-    
-    # Only mount /assets if the assets subdirectory exists
-    react_assets_dir = REACT_BUILD_DIR / "assets"
-    if react_assets_dir.exists():
-        app.mount("/assets", CachedStaticFiles(directory=react_assets_dir), name="react-assets")
-        logger.info("React assets mounted at /assets from %s", react_assets_dir)
-    else:
-        logger.warning("React assets directory not found at %s - skipping mount", react_assets_dir)
+# Note: React build assets (/assets) are not mounted as they don't exist
+# Dashboard now uses template-based approach with /static assets
 
-# Mount old static files (for backwards compatibility during transition)
+# Mount static files for dashboard assets (CSS, JS, images, etc.)
 if STATIC_DIR.exists():
     from starlette.staticfiles import StaticFiles as StarletteStaticFilesLegacy
     app.mount("/static", StarletteStaticFilesLegacy(directory=STATIC_DIR), name="static")
+    logger.info("Static files mounted at /static from %s", STATIC_DIR)
+else:
+    logger.warning("Static directory not found at %s", STATIC_DIR)
 
 app.include_router(router)
 
