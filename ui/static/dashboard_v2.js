@@ -577,8 +577,7 @@ async function fetchStrategyStats() {
     const data = await res.json();
     const strategies = data.strategies || [];
 
-    // Try both possible IDs for strategy table
-    const tbody = document.getElementById("strategy-stats-body") || document.getElementById("strategy-tbody");
+    const tbody = document.getElementById("strategy-stats-body");
     if (!tbody) return;
 
     if (strategies.length === 0) {
@@ -696,10 +695,9 @@ function renderEquityCurve(svg, curve) {
 
 // ===== Logs =====
 
-async function fetchRecentLogs(kind = '') {
+async function fetchRecentLogs() {
   try {
-    const url = kind ? `/api/logs/recent?limit=50&kind=${kind}` : '/api/logs/recent?limit=50';
-    const res = await fetchWithRetry(url);
+    const res = await fetchWithRetry("/api/logs/recent?limit=50");
     if (!res.ok) {
       console.warn("Failed to fetch logs:", res.status);
       return;
@@ -707,20 +705,18 @@ async function fetchRecentLogs(kind = '') {
     const data = await res.json();
     const logs = data.logs || [];
 
-    // Try multiple possible IDs for logs container
-    const container = document.getElementById("logs-content") || 
-                     document.getElementById("logs-stream") || 
-                     document.getElementById("logs-body");
+    const container = document.getElementById("logs-content");
     if (!container) return;
 
     if (logs.length === 0) {
-      container.textContent = 'No recent logs.';
+      container.innerHTML = '<div class="log-empty">No recent logs.</div>';
       return;
     }
 
-    container.textContent = logs.map(log => {
-      return `[${log.timestamp || ''}] [${log.level || 'INFO'}] ${log.message || ''}`;
-    }).join('\n');
+    container.innerHTML = logs.map(log => {
+      const levelClass = `log-${(log.level || 'info').toLowerCase()}`;
+      return `<div class="log-line ${levelClass}">[${log.timestamp || ''}] [${log.level || 'INFO'}] ${escapeHtml(log.message || '')}</div>`;
+    }).join('');
   } catch (err) {
     console.error("Failed to fetch logs:", err);
   }
@@ -884,12 +880,12 @@ async function refreshTradesTable() {
 // ===== Logs Tabs Setup =====
 
 function setupLogsTabs() {
-  const logTabs = document.querySelectorAll('.logs-tabs .logs-tab, .logs-tabs .log-tab');
+  const logTabs = document.querySelectorAll('.logs-tabs .log-tab');
   logTabs.forEach(tab => {
     tab.addEventListener('click', () => {
       logTabs.forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
-      const kind = tab.dataset.logKind || tab.dataset.kind || '';
+      const kind = tab.dataset.kind;
       fetchRecentLogs(kind);
     });
   });
