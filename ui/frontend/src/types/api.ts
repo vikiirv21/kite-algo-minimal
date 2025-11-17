@@ -88,10 +88,13 @@ export interface Position {
 }
 
 export interface LogEntry {
-  timestamp: string;
+  timestamp?: string;
+  ts?: string;
   level: string;
-  source: string;
-  message: string;
+  source?: string;
+  logger?: string;
+  message?: string;
+  raw?: string;
 }
 
 export interface LogsResponse {
