@@ -645,11 +645,56 @@ class PaperEngine:
                 logger.warning("Failed to initialize PortfolioEngine v1: %s", exc, exc_info=True)
                 self.portfolio_engine = None
         
-        # Initialize Strategy Engine (v1 or v2 based on config)
+        # Initialize Strategy Engine (v1, v2, or v3 based on config)
         strategy_engine_config = self.cfg.raw.get("strategy_engine", {})
         strategy_engine_version = strategy_engine_config.get("version", 1)
+        strategy_engine_mode = strategy_engine_config.get("mode", "").lower()  # Can be "v3" to force v3
         
-        if strategy_engine_version == 2 and STRATEGY_ENGINE_V2_AVAILABLE:
+        # Check if v3 mode is explicitly requested
+        use_v3 = (strategy_engine_mode == "v3") or (strategy_engine_version == 3)
+        
+        if use_v3:
+            # Initialize Strategy Engine v3
+            try:
+                from core.strategy_engine_v3 import StrategyEngineV3
+                from services.common.event_bus import InMemoryEventBus
+                
+                logger.info("Initializing Strategy Engine v3")
+                
+                # Load v3 configuration
+                v3_config = self.cfg.raw.get("strategy_engine_v3", {})
+                if not v3_config:
+                    logger.warning("strategy_engine_v3 config not found, using defaults")
+                    v3_config = {
+                        "primary_tf": "5m",
+                        "secondary_tf": "15m",
+                        "strategies": []
+                    }
+                
+                # Create EventBus if not provided
+                event_bus = InMemoryEventBus()
+                event_bus.start()
+                
+                self.strategy_engine_v3 = StrategyEngineV3(v3_config, bus=event_bus)
+                self.strategy_engine_v2 = None
+                self.strategy_runner = None
+                
+                logger.info(
+                    "Strategy Engine v3 initialized with %d strategies",
+                    len(self.strategy_engine_v3.strategies)
+                )
+                
+            except ImportError as e:
+                logger.error("Failed to import Strategy Engine v3: %s", e)
+                logger.info("Falling back to v1")
+                use_v3 = False
+            except Exception as e:
+                logger.error("Failed to initialize Strategy Engine v3: %s", e, exc_info=True)
+                logger.info("Falling back to v1")
+                use_v3 = False
+        
+        if not use_v3:
+            if strategy_engine_version == 2 and STRATEGY_ENGINE_V2_AVAILABLE:
             # Initialize Strategy Engine v2
             logger.info("Initializing Strategy Engine v2")
             v2_config = {
@@ -715,6 +760,7 @@ class PaperEngine:
                 market_data_engine=self.market_data_engine,
             )
             self.strategy_engine_v2 = None
+            self.strategy_engine_v3 = None
         
         risk_config = self.cfg.risk or {}
         self.risk_engine = RiskEngine(risk_config, self.state_store.load_checkpoint() or {}, logger)
@@ -882,8 +928,96 @@ class PaperEngine:
                     except Exception as exc:  # noqa: BLE001
                         logger.debug("MDE v2 tick processing failed for %s: %s", symbol, exc)
 
-        # Run strategy engine (v1 or v2 based on initialization)
-        if self.strategy_engine_v2:
+        # Run strategy engine (v1, v2, or v3 based on initialization)
+        if hasattr(self, 'strategy_engine_v3') and self.strategy_engine_v3:
+            # Use Strategy Engine v3
+            for symbol in self.universe:
+                logical = self.logical_alias.get(symbol, symbol)
+                ltp = ticks.get(symbol, {}).get("close")
+                
+                if ltp is None:
+                    continue
+                
+                # Prepare market data for v3
+                # Get primary and secondary timeframe series
+                primary_tf = self.strategy_engine_v3.primary_tf
+                secondary_tf = self.strategy_engine_v3.secondary_tf
+                
+                # Fetch primary series
+                primary_window = self.market_data_engine.get_window(symbol, primary_tf, 200)
+                primary_series = {}
+                if primary_window and len(primary_window) >= 20:
+                    primary_series = {
+                        "open": [c["open"] for c in primary_window],
+                        "high": [c["high"] for c in primary_window],
+                        "low": [c["low"] for c in primary_window],
+                        "close": [c["close"] for c in primary_window],
+                        "volume": [c.get("volume", 0) for c in primary_window],
+                    }
+                
+                # Fetch secondary series
+                secondary_window = self.market_data_engine.get_window(symbol, secondary_tf, 200)
+                secondary_series = {}
+                if secondary_window and len(secondary_window) >= 20:
+                    secondary_series = {
+                        "open": [c["open"] for c in secondary_window],
+                        "high": [c["high"] for c in secondary_window],
+                        "low": [c["low"] for c in secondary_window],
+                        "close": [c["close"] for c in secondary_window],
+                        "volume": [c.get("volume", 0) for c in secondary_window],
+                    }
+                
+                # Prepare market data dict
+                md = {
+                    "primary_series": primary_series,
+                    "secondary_series": secondary_series,
+                }
+                
+                # Evaluate v3 engine
+                try:
+                    from datetime import datetime, timezone
+                    ts = datetime.now(timezone.utc).isoformat()
+                    
+                    intent = self.strategy_engine_v3.evaluate(symbol, ts, ltp, md)
+                    
+                    # Process intent if not HOLD
+                    if intent and intent.action != "HOLD":
+                        # Extract metadata for logging
+                        metadata = intent.metadata or {}
+                        indicators = metadata.get("indicators", {})
+                        
+                        # Log the fused signal
+                        self.recorder.log_fused_signal(
+                            symbol=symbol,
+                            price=ltp,
+                            action=intent.action,
+                            confidence=intent.confidence,
+                            setup=metadata.get("setup", ""),
+                            fuse_reason=metadata.get("fuse_reason", ""),
+                            multi_tf_status=metadata.get("multi_tf_status", ""),
+                            num_strategies=metadata.get("num_strategies", 0),
+                            strategy_codes=metadata.get("strategy_codes", []),
+                            indicators=indicators,
+                        )
+                        
+                        # Call _handle_signal to execute the trade
+                        self._handle_signal(
+                            symbol=symbol,
+                            signal=intent.action,
+                            price=ltp,
+                            logical=logical,
+                            tf=primary_tf,
+                            strategy_name=intent.strategy_code,
+                            strategy_code=intent.strategy_code,
+                            confidence=intent.confidence,
+                            reason=intent.reason,
+                            indicators=indicators,
+                            playbook=metadata.get("setup", ""),
+                        )
+                except Exception as e:
+                    logger.error("Strategy Engine v3 evaluation failed for %s: %s", symbol, e, exc_info=True)
+        
+        elif self.strategy_engine_v2:
             # Use Strategy Engine v2
             # Note: When MDE v2 is active, strategies are triggered by candle_close events
             # Otherwise, use the manual run() method
