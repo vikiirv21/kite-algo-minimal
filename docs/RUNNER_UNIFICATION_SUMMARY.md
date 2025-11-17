@@ -90,7 +90,7 @@ python scripts/run_paper_equity.py
 2. **tests/test_run_trader.py**: Automated tests
 
 ### Modified Files
-1. **docs/Commands.md**: Updated with canonical commands and hierarchy
+1. **Commands.md**: Updated with canonical commands and hierarchy
 
 ### Unchanged Files
 - **scripts/run_day.py**: No changes (all flags preserved)
@@ -174,7 +174,7 @@ You can start using the new canonical commands when ready.
 
 ## Documentation
 
-Full documentation updated in `docs/Commands.md`:
+Full documentation updated in `Commands.md`:
 - Canonical commands section (primary)
 - Token management explanation
 - Command hierarchy

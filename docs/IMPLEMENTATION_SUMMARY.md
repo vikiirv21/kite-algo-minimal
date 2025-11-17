@@ -62,7 +62,7 @@ data:
 
 ### Documentation ✅
 
-**Created: `docs/MARKET_DATA_ENGINE_V2.md`**
+**Created: `MARKET_DATA_ENGINE_V2.md`**
 
 - ✅ Complete usage guide
 - ✅ API reference

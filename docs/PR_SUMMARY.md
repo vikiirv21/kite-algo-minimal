@@ -30,7 +30,7 @@ Implement a full LIVE trading engine that places **real orders** via Kite, runni
    - Safety guardrails (login, market hours, risk checks)
    - State management and journaling
 
-3. **`docs/Live.md`** (251 lines)
+3. **`Live.md`** (251 lines)
    - Complete LIVE mode documentation
    - Architecture overview
    - Configuration requirements
@@ -38,7 +38,7 @@ Implement a full LIVE trading engine that places **real orders** via Kite, runni
    - Safety features
    - Troubleshooting guide
 
-4. **`docs/Paper.md`** (385 lines)
+4. **`Paper.md`** (385 lines)
    - Complete PAPER mode documentation
    - Feature overview
    - Configuration options
@@ -278,8 +278,8 @@ CodeQL Analysis: 0 alerts ✅
 
 ### Complete Guides
 
-- ✅ `docs/Live.md`: LIVE mode guide
-- ✅ `docs/Paper.md`: PAPER mode guide  
+- ✅ `Live.md`: LIVE mode guide
+- ✅ `Paper.md`: PAPER mode guide  
 - ✅ `IMPLEMENTATION_LIVE.md`: Technical summary
 
 ### Coverage
@@ -358,7 +358,7 @@ python -m scripts.run_day --login --mode live --engines none
 1. Check logs: `artifacts/logs/events.jsonl`
 2. Review state: `artifacts/checkpoints/live_state_latest.json`
 3. Run smoke tests: `python tests/smoke_test_live.py`
-4. Review docs: `docs/Live.md`
+4. Review docs: `Live.md`
 
 ### Common Issues
 
@@ -402,4 +402,4 @@ python -m scripts.run_day --login --mode live --engines none
 **Status**: ✅ COMPLETE AND TESTED  
 **Next Steps**: Extended testing → Live testing → Production
 
-**Questions or Issues?** See `docs/Live.md` or `IMPLEMENTATION_LIVE.md`
+**Questions or Issues?** See `Live.md` or `IMPLEMENTATION_LIVE.md`

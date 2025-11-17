@@ -23,7 +23,7 @@ Main live trading orchestrator:
 - Safety guardrails (login checks, market hours, risk blocks)
 - State management and journaling
 
-### 3. `docs/Live.md` (294 lines)
+### 3. `Live.md` (294 lines)
 
 Complete documentation covering:
 - Architecture and components
@@ -34,7 +34,7 @@ Complete documentation covering:
 - Troubleshooting guide
 - Best practices
 
-### 4. `docs/Paper.md` (409 lines)
+### 4. `Paper.md` (409 lines)
 
 Comprehensive paper mode documentation:
 - Architecture overview
@@ -346,7 +346,7 @@ python -m scripts.login_kite
 ## Contact
 
 For questions or issues:
-- Review documentation in `docs/Live.md` and `docs/Paper.md`
+- Review documentation in `Live.md` and `Paper.md`
 - Check logs in `artifacts/logs/`
 - Review smoke test results
 - Consult risk engine configuration
