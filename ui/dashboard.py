@@ -248,7 +248,7 @@ DASHBOARD_TEMPLATE_NAME = _resolve_dashboard_template_name()
 async def index(request: Request) -> HTMLResponse:
     """Render the main Arthayukti dashboard"""
     try:
-        return templates.TemplateResponse("index.html", {
+        return templates.TemplateResponse("dashboard.html", {
             "request": request,
         })
     except Exception as exc:
