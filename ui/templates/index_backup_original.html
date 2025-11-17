@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arthayukti - HFT Control Panel</title>
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+    <style>
+        /* Enhanced Dark Theme */
+        :root {
+            --bg-main: #0a0e12;
+            --bg-card: #161b22;
+            --bg-elevated: #1c2128;
+            --bg-hover: #21262d;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --text-muted: #6e7681;
+            --accent: #2f81f7;
+            --accent-soft: #1f6feb;
+            --border-subtle: #30363d;
+            --success: #3fb950;
+            --warning: #d29922;
+            --danger: #f85149;
+            
+            --navbar-height: 60px;
+            --tabs-height: 48px;
+            --border-radius: 6px;
+            --spacing: 16px;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+            background: var(--bg-main);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+        
+        /* Navbar */
+        .navbar {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            height: var(--navbar-height);
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 var(--spacing);
+        }
+        
+        .brand {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--accent);
+        }
+        
+        .navbar-center {
+            display: flex;
+            gap: var(--spacing);
+            align-items: center;
+        }
+        
+        .mode-badge {
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 13px;
+        }
+        
+        .mode-paper { background: var(--accent); color: white; }
+        .mode-live { background: var(--danger); color: white; }
+        .mode-idle { background: var(--text-muted); color: white; }
+        
+        .server-time {
+            color: var(--text-secondary);
+            font-family: monospace;
+        }
+        
+        /* Tabs */
+        .tabs {
+            position: sticky;
+            top: var(--navbar-height);
+            z-index: 99;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            gap: 4px;
+            padding: 0 var(--spacing);
+            height: var(--tabs-height);
+        }
+        
+        .tab-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            padding: 12px 20px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        
+        .tab-btn:hover {
+            color: var(--text-primary);
+            background: var(--bg-hover);
+        }
+        
+        .tab-btn.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+        
+        /* Main Content */
+        .main-content {
+            padding: var(--spacing);
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--border-radius);
+            margin-bottom: var(--spacing);
+            padding: var(--spacing);
+        }
+        
+        .card-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: var(--text-primary);
+        }
+        
+        .card-subtitle {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-left: 8px;
+        }
+        
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: var(--spacing);
+        }
+        
+        .stat-box {
+            text-align: center;
+            padding: var(--spacing);
+            background: var(--bg-elevated);
+            border-radius: var(--border-radius);
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        /* Tables */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        
+        .data-table th {
+            text-align: left;
+            padding: 12px;
+            background: var(--bg-elevated);
+            color: var(--text-secondary);
+            font-weight: 600;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        
+        .data-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        
+        .data-table tr:hover {
+            background: var(--bg-hover);
+        }
+        
+        /* Value colors */
+        .positive { color: var(--success); }
+        .negative { color: var(--danger); }
+        
+        /* Badges */
+        .signal-badge, .side-badge, .status-badge {
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        
+        .signal-buy { background: var(--success); color: white; }
+        .signal-sell { background: var(--danger); color: white; }
+        .signal-hold, .signal-exit { background: var(--text-muted); color: white; }
+        
+        .side-long { background: var(--success); color: white; }
+        .side-short { background: var(--danger); color: white; }
+        
+        .status-filled { background: var(--success); color: white; }
+        .status-pending { background: var(--warning); color: white; }
+        .status-rejected { background: var(--danger); color: white; }
+        
+        /* Logs */
+        .log-time { font-family: monospace; font-size: 11px; color: var(--text-muted); }
+        .log-level { font-weight: 600; }
+        .log-message { font-family: monospace; font-size: 12px; }
+        
+        .level-error { color: var(--danger); }
+        .level-warning { color: var(--warning); }
+        .level-info { color: var(--accent); }
+        
+        /* Placeholders */
+        .placeholder-text {
+            color: var(--text-muted);
+            font-style: italic;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        .info-box {
+            background: var(--bg-elevated);
+            border-left: 3px solid var(--accent);
+            padding: 12px;
+            margin-top: 12px;
+            border-radius: 4px;
+        }
+        
+        .info-box ul {
+            margin-left: 20px;
+            margin-top: 8px;
+        }
+        
+        .info-box code {
+            background: var(--bg-main);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar">
+        <div class="navbar-left">
+            <div class="brand">Arthayukti</div>
+            <span class="subtitle">HFT Control Panel</span>
+        </div>
+        <div class="navbar-center">
+            <div id="mode-badge" class="mode-badge mode-idle">IDLE</div>
+        </div>
+        <div class="navbar-right">
+            <div id="server-time" class="server-time">--:--:--</div>
+        </div>
+    </nav>
+    
+    <!-- Tabs -->
+    <div class="tabs">
+        <button class="tab-btn active" data-tab="overview">Overview</button>
+        <button class="tab-btn" data-tab="engines">Engines & Logs</button>
+        <button class="tab-btn" data-tab="portfolio">Portfolio</button>
+        <button class="tab-btn" data-tab="signals">Signals & Strategies</button>
+        <button class="tab-btn" data-tab="analytics">Analytics</button>
+        <button class="tab-btn" data-tab="system">System</button>
+    </div>
+    
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Overview Tab -->
+        <div id="tab-overview" class="tab-content active">
+            <div class="card">
+                <h3 class="card-title">Mode & Status</h3>
+                <div class="stats-grid">
+                    <div class="stat-box">
+                        <div class="stat-label">Mode</div>
+                        <div id="overview-mode" class="stat-value mode-badge mode-idle">IDLE</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Running Engines</div>
+                        <div id="overview-engines-count" class="stat-value">0</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3 class="card-title">Portfolio Snapshot</h3>
+                <div class="stats-grid">
+                    <div class="stat-box">
+                        <div class="stat-label">Equity</div>
+                        <div id="overview-equity" class="stat-value">—</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Day P&L</div>
+                        <div id="overview-pnl" class="stat-value">—</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Exposure</div>
+                        <div id="overview-exposure" class="stat-value">—</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Open Positions</div>
+                        <div id="overview-positions" class="stat-value">0</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3 class="card-title">Today's Trading</h3>
+                <div class="stats-grid">
+                    <div class="stat-box">
+                        <div class="stat-label">Trades</div>
+                        <div id="overview-trades" class="stat-value">0</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Win Rate</div>
+                        <div id="overview-win-rate" class="stat-value">—</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Realized P&L</div>
+                        <div id="overview-realized-pnl" class="stat-value">—</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3 class="card-title">Recent Signals</h3>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Symbol</th>
+                            <th>Signal</th>
+                            <th>Strategy</th>
+                        </tr>
+                    </thead>
+                    <tbody id="overview-signals-body">
+                        <tr><td colspan="4" class="placeholder-text">No recent signals</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Engines & Logs Tab -->
+        <div id="tab-engines" class="tab-content">
+            <div class="card">
+                <h3 class="card-title">Engine Status</h3>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Engine</th>
+                            <th>Mode</th>
+                            <th>Status</th>
+                            <th>Last Update</th>
+                            <th>Age</th>
+                        </tr>
+                    </thead>
+                    <tbody id="engines-table-body">
+                        <tr><td colspan="5" class="placeholder-text">No engines</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="card">
+                <h3 class="card-title">Engine Logs <span class="card-subtitle">Live updates</span></h3>
+                <div style="max-height: 500px; overflow-y: auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 100px;">Time</th>
+                                <th style="width: 80px;">Level</th>
+                                <th style="width: 150px;">Source</th>
+                                <th>Message</th>
+                            </tr>
+                        </thead>
+                        <tbody id="logs-table-body">
+                            <tr><td colspan="4" class="placeholder-text">No logs</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Portfolio Tab (LIVE REFRESH) -->
+        <div id="tab-portfolio" class="tab-content">
+            <div class="card">
+                <h3 class="card-title">Portfolio Summary <span class="card-subtitle">Live updating every 3s</span></h3>
+                <div class="stats-grid">
+                    <div class="stat-box">
+                        <div class="stat-label">Equity</div>
+                        <div id="portfolio-equity" class="stat-value">—</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Capital</div>
+                        <div id="portfolio-capital" class="stat-value">—</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Realized P&L</div>
+                        <div id="portfolio-realized" class="stat-value">—</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Unrealized P&L</div>
+                        <div id="portfolio-unrealized" class="stat-value">—</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Exposure</div>
+                        <div id="portfolio-exposure" class="stat-value">—</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3 class="card-title">Today's Performance</h3>
+                <div class="stats-grid">
+                    <div class="stat-box">
+                        <div class="stat-label">Today P&L</div>
+                        <div id="portfolio-today-pnl" class="stat-value">—</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Trades</div>
+                        <div id="portfolio-today-trades" class="stat-value">0</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Win Rate</div>
+                        <div id="portfolio-today-winrate" class="stat-value">—</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3 class="card-title">Open Positions <span class="card-subtitle">Live updating every 3s</span></h3>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Symbol</th>
+                            <th>Side</th>
+                            <th>Quantity</th>
+                            <th>Avg Price</th>
+                            <th>LTP</th>
+                            <th>P&L</th>
+                            <th>P&L %</th>
+                        </tr>
+                    </thead>
+                    <tbody id="positions-table-body">
+                        <tr><td colspan="7" class="placeholder-text">No open positions</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="card">
+                <h3 class="card-title">Recent Orders <span class="card-subtitle">Live updating every 3s</span></h3>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Symbol</th>
+                            <th>Side</th>
+                            <th>Quantity</th>
+                            <th>Price</th>
+                            <th>Status</th>
+                            <th>Order ID</th>
+                        </tr>
+                    </thead>
+                    <tbody id="orders-table-body">
+                        <tr><td colspan="7" class="placeholder-text">No orders</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Signals & Strategies Tab -->
+        <div id="tab-signals" class="tab-content">
+            <div class="card">
+                <h3 class="card-title">Strategy Statistics</h3>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Strategy</th>
+                            <th>Symbol</th>
+                            <th>Timeframe</th>
+                            <th>Buy Signals</th>
+                            <th>Sell Signals</th>
+                            <th>Exits</th>
+                            <th>Last Update</th>
+                            <th>Last Signal</th>
+                        </tr>
+                    </thead>
+                    <tbody id="strategies-table-body">
+                        <tr><td colspan="8" class="placeholder-text">No strategy data</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="card">
+                <h3 class="card-title">Recent Signals</h3>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Symbol</th>
+                            <th>Signal</th>
+                            <th>Strategy</th>
+                            <th>Timeframe</th>
+                            <th>Price</th>
+                        </tr>
+                    </thead>
+                    <tbody id="signals-table-body">
+                        <tr><td colspan="6" class="placeholder-text">No signals</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Analytics Tab -->
+        <div id="tab-analytics" class="tab-content">
+            <div class="card">
+                <h3 class="card-title">Equity Curve</h3>
+                <div id="analytics-equity-chart" style="min-height: 300px;">
+                    <p class="placeholder-text">Loading equity curve...</p>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3 class="card-title">Performance Metrics</h3>
+                <div id="analytics-placeholder">
+                    <div class="stats-grid">
+                        <div class="stat-box">
+                            <div class="stat-label">Realized P&L</div>
+                            <div id="analytics-realized-pnl" class="stat-value">—</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-label">Total Trades</div>
+                            <div id="analytics-trades" class="stat-value">0</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-label">Win Rate</div>
+                            <div id="analytics-winrate" class="stat-value">—</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-label">Avg Win</div>
+                            <div id="analytics-avg-win" class="stat-value">—</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-label">Avg Loss</div>
+                            <div id="analytics-avg-loss" class="stat-value">—</div>
+                        </div>
+                    </div>
+                </div>
+                <div id="analytics-notes"></div>
+            </div>
+        </div>
+        
+        <!-- System Tab -->
+        <div id="tab-system" class="tab-content">
+            <div class="card">
+                <h3 class="card-title">System Information</h3>
+                <table class="data-table">
+                    <tbody>
+                        <tr>
+                            <td><strong>Server Time</strong></td>
+                            <td id="system-time">—</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Market Status</strong></td>
+                            <td id="system-market-status">—</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="card">
+                <h3 class="card-title">Configuration</h3>
+                <table class="data-table">
+                    <tbody>
+                        <tr>
+                            <td><strong>Mode</strong></td>
+                            <td id="config-mode">—</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Universe</strong></td>
+                            <td id="config-universe">—</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Paper Capital</strong></td>
+                            <td id="config-capital">—</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Risk Profile</strong></td>
+                            <td id="config-risk-profile">—</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Risk Per Trade</strong></td>
+                            <td id="config-risk-per-trade">—</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Max Exposure</strong></td>
+                            <td id="config-max-exposure">—</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="card">
+                <h3 class="card-title">Health Metrics</h3>
+                <div class="stats-grid">
+                    <div class="stat-box">
+                        <div class="stat-label">Recent Errors</div>
+                        <div id="health-errors" class="stat-value">0</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Recent Warnings</div>
+                        <div id="health-warnings" class="stat-value">0</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Scripts -->
+    <script src="/static/js/components/helpers.js"></script>
+    <script src="/static/js/api_client.js"></script>
+    <script src="/static/js/state_store.js"></script>
+    <script src="/static/js/dashboard_tabs.js"></script>
+    <script>
+        // Initialize dashboard on load
+        document.addEventListener('DOMContentLoaded', async () => {
+            console.log('Initializing Arthayukti Dashboard...');
+            
+            // Initialize state store (starts polling)
+            await StateStore.init();
+            
+            // Initialize tab system
+            DashboardTabs.init();
+            
+            // Update server time every second in navbar
+            setInterval(async () => {
+                const state = StateStore.getState();
+                if (state.serverTime) {
+                    try {
+                        const date = new Date(state.serverTime);
+                        const istTime = date.toLocaleTimeString('en-IN', {
+                            timeZone: 'Asia/Kolkata',
+                            hour12: false
+                        });
+                        document.getElementById('server-time').textContent = istTime;
+                    } catch (error) {
+                        console.error('Error formatting time:', error);
+                    }
+                }
+                
+                // Update mode badge
+                const modeBadge = document.getElementById('mode-badge');
+                modeBadge.textContent = state.mode;
+                modeBadge.className = `mode-badge mode-${state.mode.toLowerCase()}`;
+            }, 1000);
+            
+            console.log('Dashboard initialized successfully');
+        });
+    </script>
+</body>
+</html>
