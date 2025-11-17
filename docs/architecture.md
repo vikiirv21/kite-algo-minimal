@@ -6,18 +6,33 @@ This document describes the architecture of the kite-algo-minimal algorithmic tr
 
 ---
 
+## Changelog (Latest Refinements)
+
+**2025-11-17 – Architecture refinement based on actual runtime behavior:**
+
+- **Step 1**: Validated module existence. All referenced modules exist and are operational.
+- **Step 2**: Added **"Data Validation & Fault Tolerance"** section explaining how system handles None/missing LTP and indicator values.
+- **Step 3**: Clarified **Process & Concurrency Model** – dashboard runs as separate uvicorn process on port 8765, not in-process.
+- **Step 4**: Tightened **"Universe and Instruments"** section with explicit NIFTY 50/100 filtering logic and scanner output structure.
+- **Step 5**: Added **"Debugging & Observability"** section with guidance on using signals.csv, orders.csv, and logs for troubleshooting.
+- **Step 6**: Removed speculative "Planned / Future Work" items that were not explicitly requested; kept only validated, existing architecture.
+
+---
+
 ## Table of Contents
 
 1. [High-Level Overview](#high-level-overview)
 2. [Process & Concurrency Model](#process--concurrency-model)
 3. [Engines and Responsibilities](#engines-and-responsibilities)
-4. [Strategy, Risk, and Portfolio Engines](#strategy-risk-and-portfolio-engines)
-5. [Paper vs Live Modes](#paper-vs-live-modes)
-6. [State, Journals, and Analytics](#state-journals-and-analytics)
-7. [Dashboard Integration](#dashboard-integration)
-8. [Universe and Instruments](#universe-and-instruments)
-9. [Entry Points and Commands](#entry-points-and-commands)
-10. [Future Extensions](#future-extensions)
+4. [Data Validation & Fault Tolerance](#data-validation--fault-tolerance)
+5. [Strategy, Risk, and Portfolio Engines](#strategy-risk-and-portfolio-engines)
+6. [Paper vs Live Modes](#paper-vs-live-modes)
+7. [State, Journals, and Analytics](#state-journals-and-analytics)
+8. [Dashboard Integration](#dashboard-integration)
+9. [Universe and Instruments](#universe-and-instruments)
+10. [Entry Points and Commands](#entry-points-and-commands)
+11. [Debugging & Observability](#debugging--observability)
+12. [Future Extensions](#future-extensions)
 
 ---
 
@@ -79,23 +94,31 @@ The system currently runs as a **single main process** with **multiple daemon th
 │              Dashboard Process (Separate uvicorn)                │
 │                                                                   │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │          FastAPI App (apps/dashboard.py)                 │   │
+│  │          FastAPI App (ui/dashboard.py)                   │   │
+│  │  Started via: uvicorn ui.dashboard:app --port 8765      │   │
 │  │  Reads: checkpoints, journals, logs                      │   │
 │  │  Serves: Web UI on http://localhost:8765                 │   │
 │  └──────────────────────────────────────────────────────────┘   │
 └───────────────────────────────────────────────────────────────────┘
 ```
 
-**Why Multi-Threading Today:**
-- **IO-bound operations**: Most time is spent waiting on broker API calls, websocket data, and market data fetches
-- **Shared memory**: Threads can share runtime state, checkpoints, and configuration easily
-- **Simplicity**: Single process is easier to deploy and monitor during development
+**Today's Architecture:**
+- **All trading engines (FnO, Options, Equity)** run as threads inside a single process started by `scripts/run_day.py` or `scripts/run_trader.py`.
+- **The dashboard runs as a separate uvicorn process** using `uvicorn ui.dashboard:app --port 8765`.
+- Engines communicate via shared in-memory state and file-based journals/checkpoints.
 
-**Why Multi-Process Later:**
-- **Isolation**: Each engine can crash independently without bringing down others
-- **CPU-bound backtests**: Multi-process allows parallel backtests using multiple cores
-- **Scaling**: Easier to deploy engines across multiple machines or containers
-- **Resource limits**: Can set per-engine memory/CPU limits
+### Performance Considerations
+
+**For now, most work is IO-bound** on broker API calls and data fetches, so multi-threading is sufficient:
+- Threads wait on network I/O (Kite API, WebSocket) without blocking each other
+- Python's GIL (Global Interpreter Lock) is not a bottleneck for I/O-heavy workloads
+- Shared memory allows fast access to checkpoints, state, and configuration
+
+**Multi-process separation is planned mainly for:**
+- **Live vs paper isolation**: Run live and paper engines in separate processes to prevent accidental interference
+- **Heavy backtests**: CPU-intensive backtests can run in parallel using multiple cores
+- **Resilience**: One engine crash doesn't kill others
+- **Resource limits**: Set per-engine memory/CPU caps
 
 ---
 
@@ -186,6 +209,96 @@ RiskEngine → PaperBroker → TradeRecorder → orders.csv, signals.csv
 ```
 
 **Note**: Live equity trading is not yet implemented. The equity engine currently only runs in paper mode.
+
+---
+
+## Data Validation & Fault Tolerance
+
+The system is designed to handle missing or invalid market data gracefully without crashing. This is critical for production reliability.
+
+### Common Runtime Issues (Now Prevented)
+
+Previously, the system encountered runtime errors like:
+- `TypeError: float() argument must be a string or a real number, not 'NoneType'`
+- `TypeError: '>' not supported between instances of 'NoneType' and 'NoneType'`
+
+These occurred when:
+1. **LTP fetch fails or returns None** (e.g., `KeyError` in `data.broker_feed`, symbol not found in Kite response)
+2. **Indicators like ema20, ema50 are not ready yet** (insufficient historical data for calculation)
+
+### Design Principles
+
+**Engines must skip processing for a symbol/timeframe when:**
+- `price is None` (LTP fetch failed)
+- Required indicators are `None` (not enough history)
+
+**Instead of crashing, the system must:**
+1. **Log the reason** (structured event: `ltp_missing`, `indicators_not_ready`)
+2. **Skip the symbol for this tick** (continue processing other symbols)
+3. **Return early** from the strategy evaluation loop
+
+### Implementation Pattern
+
+**In Market Data Layer (`data/broker_feed.py`):**
+- `get_ltp()` returns `None` when symbol not found or API fails
+- Logs warning once per symbol to avoid log spam
+- Does not raise exceptions (graceful degradation)
+
+**In Engine Layer (e.g., `engine/equity_paper_engine.py`):**
+```python
+ltp = self.broker_feed.get_ltp(symbol, exchange="NSE")
+if ltp is None:
+    logger.warning("Skipping %s: LTP not available (ltp_missing)", symbol)
+    continue  # Skip to next symbol
+```
+
+**In Strategy Layer (`core/strategy_engine_v2.py`):**
+```python
+indicators = self.get_indicators(symbol, timeframe)
+if indicators.get("ema20") is None or indicators.get("ema50") is None:
+    logger.debug("Skipping %s: Indicators not ready (indicators_not_ready)", symbol)
+    return OrderIntent(signal="HOLD", reason="indicators_not_ready")
+```
+
+### Analytics Layer Guardrails
+
+**`analytics/trade_recorder.log_signal()` and `log_order()` must only be called with valid numeric price:**
+
+```python
+# Before logging signal
+if price is None:
+    logger.warning("Cannot log signal for %s: price is None", symbol)
+    return  # Do not log
+
+# Log signal
+recorder.log_signal(
+    symbol=symbol,
+    price=float(price),  # Guaranteed non-None here
+    signal="LONG",
+    # ... other fields
+)
+```
+
+### Structured Event Logging
+
+The system uses structured JSON event logging (`core/json_log.py`, `core/event_logging.py`) to record:
+- `ltp_fetch_error`: When LTP fetch fails for a symbol
+- `indicators_not_ready`: When indicators are insufficient
+- `risk_blocked`: When risk engine rejects a trade
+- `hold_decision`: When strategy decides to HOLD with reason
+
+**Example JSON event:**
+```json
+{
+  "timestamp": "2025-11-17T09:30:00Z",
+  "event": "ltp_fetch_error",
+  "symbol": "RELIANCE",
+  "exchange": "NSE",
+  "reason": "symbol_not_found_in_kite_response"
+}
+```
+
+These events are written to `artifacts/logs/events.jsonl` and can be queried for debugging.
 
 ---
 
@@ -500,10 +613,12 @@ The dashboard provides real-time monitoring of the trading system via a web UI.
 uvicorn ui.dashboard:app --reload --port 8765
 ```
 
-Or, if using the `apps/dashboard.py` wrapper:
+Or, using the convenience script:
 ```bash
-python -m uvicorn apps.dashboard:app --reload --port 8765
+python -m scripts.run_dashboard
 ```
+
+**Note**: The dashboard runs as a **separate process** from trading engines. It does not need engines to be running; it reads from checkpoints and journals on disk.
 
 ---
 
@@ -535,16 +650,57 @@ The system trades a **constrained universe** to ensure quality and liquidity.
 
 **Config**: `configs/dev.yaml` → `trading.equity_universe_config`
 
-**Default**: NIFTY 50 and NIFTY 100 stocks (no penny stocks)
+**Default Configuration**: NIFTY 50 and NIFTY 100 stocks (excluding penny stocks)
 
-**Constraints:**
-- `min_price: 100` (exclude low-priced stocks)
-- `max_symbols: 120` (soft cap)
-- `include_indices: ["NIFTY50", "NIFTY100"]`
+```yaml
+equity_universe_config:
+  mode: "nifty_lists"              # "nifty_lists" or "all" (fallback to CSV)
+  include_indices: ["NIFTY50", "NIFTY100"]
+  max_symbols: 120                 # soft cap
+  min_price: 100                   # exclude stocks below 100 rupees
+```
 
-**Loading**: `core/universe_builder.py` loads equity universe from:
-- `config/universe_equity.csv`
-- Kite instruments master (filtered)
+**Filtering Process:**
+
+1. **Scanner / Universe Builder** (`core/scanner.py`, `core/universe_builder.py`):
+   - Loads NSE instruments from Kite
+   - Filters by index membership (NIFTY 50 or NIFTY 100)
+   - Applies `min_price` filter (≥ 100 rupees) using batch LTP fetch
+   - Applies `max_symbols` cap if configured
+
+2. **Scanner Output**:
+   - Writes final filtered list to `artifacts/scanner/YYYY-MM-DD/universe.json`
+   - File structure:
+   ```json
+   {
+     "date": "2025-11-17",
+     "asof": "2025-11-17T08:00:00Z",
+     "fno": ["NIFTY", "BANKNIFTY"],
+     "equity_universe": ["RELIANCE", "TCS", "INFY", ...],
+     "meta": {
+       "RELIANCE": {
+         "tradingsymbol": "RELIANCE",
+         "instrument_token": 738561,
+         "exchange": "NSE",
+         "lot_size": 1,
+         "tick_size": 0.05
+       }
+     }
+   }
+   ```
+
+3. **Equity Engine** (`engine/equity_paper_engine.py`):
+   - On startup, loads universe from scanner output (`equity_universe` key)
+   - Falls back to `artifacts/equity_universe.json` or `config/universe_equity.csv` if scanner output unavailable
+   - Only loops over this filtered universe during trading
+
+**Why NIFTY 50/100 Only?**
+- **Liquidity**: High trading volume ensures tight bid-ask spreads
+- **Quality**: Blue-chip stocks with established businesses
+- **Volatility**: Sufficient intraday moves for trend-following strategies
+- **No penny stocks**: Eliminates illiquid, low-quality stocks (min_price filter)
+
+**Actual File Naming**: `artifacts/scanner/YYYY-MM-DD/universe.json` (date-stamped for each trading day)
 
 ---
 
@@ -554,7 +710,7 @@ The system trades a **constrained universe** to ensure quality and liquidity.
 
 **Default**: `["NIFTY", "BANKNIFTY", "FINNIFTY"]`
 
-**Resolution**: `data/instruments.py` → `resolve_fno_symbols()` maps logical symbols (e.g., "NIFTY") to current month futures (e.g., "NIFTY25JANFUT")
+**Resolution**: `data/instruments.py` → `resolve_fno_symbols()` maps logical symbols (e.g., "NIFTY") to current month futures (e.g., "NIFTY25NOVFUT")
 
 ---
 
@@ -667,6 +823,181 @@ python -m scripts.run_day --login --engines none
 1. Opens interactive browser login to Kite
 2. Saves access token to `secrets/kite_tokens.env`
 3. Does not start engines (use `--engines all` to start after login)
+
+---
+
+## Debugging & Observability
+
+The system provides comprehensive observability tools for debugging issues where trades are not happening or symbols consistently fail.
+
+### Common Debugging Scenarios
+
+#### 1. No Trades Happening (Only HOLD Signals)
+
+**Symptoms:**
+- Dashboard shows no orders
+- `artifacts/signals.csv` shows only `HOLD` signals
+- No position changes in state
+
+**How to Debug:**
+
+1. **Check signals.csv** (`artifacts/signals.csv` or `artifacts/replay_YYYY-MM-DD/<engine>/signals.csv`):
+   ```csv
+   timestamp,signal_id,logical,symbol,price,signal,tf,reason,profile,mode,...
+   2025-11-17T09:30:00Z,abc123,NIFTY,NIFTY25NOVFUT,24500,HOLD,5m,ema20<ema50,INTRADAY,paper,...
+   ```
+   - **Look at the `reason` column**: Explains why strategy decided to HOLD
+   - Common reasons: `ema20<ema50`, `rsi_neutral`, `no_trend`, `indicators_not_ready`, `ltp_missing`
+
+2. **Check indicator columns** (ema20, ema50, rsi14, atr):
+   - If indicators are `null` or `None`, insufficient history exists yet
+   - Wait for system to accumulate enough data (typically 50-200 candles depending on strategy)
+
+3. **Check strategy configuration** (`configs/dev.yaml` → `strategy_engine`):
+   - Ensure strategies are enabled: `enabled: true`
+   - For v2 engine: Check `strategies_v2` list includes desired strategies
+
+4. **Check risk limits** (dashboard "Health" tab or `artifacts/checkpoints/runtime_state_latest.json`):
+   - Daily PnL might have hit `max_daily_loss` (circuit breaker triggered)
+   - Per-symbol loss might have hit `per_symbol_max_loss` (kill switch)
+
+#### 2. Some Symbols Consistently Produce Errors
+
+**Symptoms:**
+- Specific symbols show `ltp_fetch_error` or `KeyError` in logs
+- Symbols skipped repeatedly
+
+**How to Debug:**
+
+1. **Check JSON event logs** (`artifacts/logs/events.jsonl`):
+   ```bash
+   cat artifacts/logs/events.jsonl | grep ltp_fetch_error
+   ```
+   Example output:
+   ```json
+   {"timestamp": "2025-11-17T09:30:00Z", "event": "ltp_fetch_error", "symbol": "RELIANCE", "reason": "symbol_not_found"}
+   ```
+
+2. **Check symbol resolution**:
+   - For FnO: Ensure symbol maps to valid futures contract (e.g., "NIFTY" → "NIFTY25NOVFUT")
+   - For Options: Ensure ATM strike resolution works for current expiry
+   - For Equity: Ensure symbol exists in Kite instruments and is tradable
+
+3. **Check broker feed logs** (`logs/kite_algo_*.log`):
+   - Look for Kite API errors (token expiry, rate limits, invalid symbols)
+   - Kite may reject symbols not in your subscription or with corporate actions
+
+### Key Files for Troubleshooting
+
+#### signals.csv
+
+**Location**: `artifacts/signals.csv` or `artifacts/replay_YYYY-MM-DD/<engine>/signals.csv`
+
+**Purpose**: Per-symbol, per-timeframe strategy decisions with reasons and indicator snapshots
+
+**Columns**:
+- `timestamp`: When signal was generated
+- `signal`: `LONG`, `SHORT`, `EXIT`, or `HOLD`
+- `reason`: Human-readable explanation (e.g., "ema20>ema50", "indicators_not_ready")
+- `ema20`, `ema50`, `rsi14`, `atr`: Indicator values at signal time
+- `confidence`: Strategy confidence score (0.0-1.0)
+- `strategy`: Strategy ID (e.g., "ema20_50_intraday")
+
+**How to Use**:
+```bash
+# See all HOLD signals and their reasons
+cat artifacts/signals.csv | grep HOLD | cut -d',' -f1,4,7,8
+
+# Count signals by reason
+cat artifacts/signals.csv | cut -d',' -f8 | sort | uniq -c
+```
+
+#### orders.csv
+
+**Location**: `artifacts/orders.csv` or `artifacts/replay_YYYY-MM-DD/<engine>/orders.csv`
+
+**Purpose**: Actual trades placed (or attempted) by engines
+
+**Columns**:
+- `timestamp`: When order was placed
+- `symbol`: Trading symbol (e.g., "NIFTY25NOVFUT", "RELIANCE")
+- `side`: `BUY` or `SELL`
+- `quantity`: Lot size or share count
+- `price`: Order price (LTP at order time)
+- `status`: `FILLED`, `PENDING`, `REJECTED`, `CANCELLED`
+- `strategy`: Strategy that triggered order
+- `parent_signal_timestamp`: Link back to signal in signals.csv
+
+**How to Use**:
+```bash
+# See all orders with status
+cat artifacts/orders.csv | cut -d',' -f1,2,3,6,9
+
+# Count orders by status
+cat artifacts/orders.csv | tail -n +2 | cut -d',' -f6 | sort | uniq -c
+```
+
+#### JSON Event Logs
+
+**Location**: `artifacts/logs/events.jsonl`
+
+**Purpose**: Structured event log for errors, warnings, and debug events
+
+**Event Types**:
+- `ltp_fetch_error`: LTP fetch failed for symbol
+- `indicators_not_ready`: Insufficient history for indicators
+- `risk_blocked`: Risk engine rejected trade
+- `hold_decision`: Strategy decided to HOLD with reason
+- `order_placed`: Order submitted to broker
+- `order_filled`: Order confirmed filled
+
+**How to Use**:
+```bash
+# Find all LTP fetch errors
+cat artifacts/logs/events.jsonl | jq 'select(.event=="ltp_fetch_error")'
+
+# Count events by type
+cat artifacts/logs/events.jsonl | jq -r '.event' | sort | uniq -c
+```
+
+#### Engine Logs (Text)
+
+**Location**: `logs/kite_algo_*.log`
+
+**Purpose**: Human-readable log stream from engines (INFO, WARNING, ERROR levels)
+
+**How to Use**:
+```bash
+# Watch live logs
+tail -f logs/kite_algo_*.log
+
+# Find errors
+grep ERROR logs/kite_algo_*.log
+
+# Find specific symbol issues
+grep "RELIANCE" logs/kite_algo_*.log
+```
+
+### Optional: LOG_REASON_FOR_HOLD Flag
+
+For deep debugging, a `LOG_REASON_FOR_HOLD` flag can be enabled in engine code to log structured reasons when engines decide to HOLD or skip a symbol:
+
+```python
+# In engine main loop
+if price is None:
+    logger.info("HOLD: %s (reason=ltp_missing)", symbol)
+    continue
+
+if ema20 is None or ema50 is None:
+    logger.info("HOLD: %s (reason=indicators_not_ready)", symbol)
+    continue
+```
+
+This produces log entries like:
+```
+2025-11-17 09:30:00 INFO HOLD: RELIANCE (reason=ltp_missing)
+2025-11-17 09:30:05 INFO HOLD: TCS (reason=indicators_not_ready)
+```
 
 ---
 
