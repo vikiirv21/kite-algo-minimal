@@ -298,8 +298,8 @@ def _write_csv(path: Path, rows: Iterable[dict], fieldnames: Sequence[str]) -> N
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Backtest / Replay engine runner.")
     parser.add_argument("--config", default="configs/dev.yaml", help="Path to config file.")
-    parser.add_argument("--from-date", required=True, help="Start date (YYYY-MM-DD).")
-    parser.add_argument("--to-date", required=True, help="End date (YYYY-MM-DD).")
+    parser.add_argument("--from-date", required=False, help="Start date (YYYY-MM-DD).")
+    parser.add_argument("--to-date", required=False, help="End date (YYYY-MM-DD).")
     parser.add_argument(
         "--symbols",
         default="",
@@ -327,6 +327,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional override for historical data root.",
     )
+    parser.add_argument(
+        "--preset-ema2050-nifty",
+        action="store_true",
+        help="Use preset: EMA_20_50 on NIFTY from 2024-01-01 to 2024-11-15 with capital=500000 and qty=50.",
+    )
     return parser.parse_args()
 
 
@@ -336,6 +341,30 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     args = parse_args()
+    
+    # Apply preset defaults if --preset-ema2050-nifty is used
+    if args.preset_ema2050_nifty:
+        if args.from_date is None:
+            args.from_date = "2024-01-01"
+        if args.to_date is None:
+            args.to_date = "2024-11-15"
+        if not args.symbols:
+            args.symbols = "NIFTY"
+        if not args.strategies:
+            args.strategies = "EMA_20_50"
+        if args.capital == 1_000_000.0:  # Check if it's still the default
+            args.capital = 500000.0
+        if args.qty == 1:  # Check if it's still the default
+            args.qty = 50
+    
+    # Validate required arguments
+    if args.from_date is None:
+        logger.error("--from-date is required (or use --preset-ema2050-nifty)")
+        return
+    if args.to_date is None:
+        logger.error("--to-date is required (or use --preset-ema2050-nifty)")
+        return
+    
     cfg = load_config(args.config)
     start = datetime.strptime(args.from_date, "%Y-%m-%d").date()
     end = datetime.strptime(args.to_date, "%Y-%m-%d").date()
