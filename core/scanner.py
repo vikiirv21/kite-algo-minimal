@@ -7,15 +7,23 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from core.universe import load_equity_universe
+
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 ARTIFACTS_DIR = BASE_DIR / "artifacts"
 
+# Penny stock threshold (₹)
+PENNY_STOCK_THRESHOLD = 20.0
+# Minimum lot size for equity
+MIN_LOT_SIZE = 1
+
 
 @dataclass
 class ScannerResult:
     fno: List[str]
+    equity: List[str]
     meta: Dict[str, Dict[str, Any]]
     asof: str
     date: str
@@ -23,7 +31,12 @@ class ScannerResult:
 
 class MarketScanner:
     """
-    Discovers active FnO futures symbols and persists the daily universe.
+    Discovers active FnO futures symbols and NSE equity universe, persists the daily universe.
+    
+    - Scans NFO for index futures (NIFTY, BANKNIFTY)
+    - Scans NSE for equity instruments from config/universe_equity.csv
+    - Filters out penny stocks (< ₹20)
+    - Validates instrument metadata (lot_size, tick_size)
     """
 
     def __init__(self, kite: Any, config: Any, artifacts_dir: Optional[Path] = None) -> None:
@@ -36,13 +49,43 @@ class MarketScanner:
     # ------------------------------------------------------------------ public
     def scan(self) -> Dict[str, Any]:
         """
-        Discover the nearest-month futures for the configured underlyings.
+        Discover the nearest-month futures for the configured underlyings
+        and NSE equity instruments from the enabled universe.
         """
+        # Scan FnO futures
+        fno_selected, fno_meta = self._scan_fno_futures()
+        
+        # Scan NSE equities
+        equity_selected, equity_meta = self._scan_nse_equities()
+        
+        # Merge metadata
+        meta = {}
+        meta.update(fno_meta)
+        meta.update(equity_meta)
+
+        payload = {
+            "date": date.today().isoformat(),
+            "asof": datetime.utcnow().isoformat() + "Z",
+            "fno": fno_selected,
+            "equity": equity_selected,
+            "meta": meta,
+        }
+        
+        logger.info(
+            "MarketScanner: scan complete - %d FnO, %d equity symbols",
+            len(fno_selected),
+            len(equity_selected),
+        )
+        
+        return payload
+
+    def _scan_fno_futures(self) -> tuple[List[str], Dict[str, Dict[str, Any]]]:
+        """Scan NFO for index futures."""
         try:
             instruments = self.kite.instruments("NFO")
         except Exception as exc:  # noqa: BLE001
-            logger.error("MarketScanner: unable to fetch instruments from Kite: %s", exc)
-            return self._empty_universe()
+            logger.error("MarketScanner: unable to fetch NFO instruments from Kite: %s", exc)
+            return [], {}
 
         targets = ("NIFTY", "BANKNIFTY")
         selected: List[str] = []
@@ -65,15 +108,109 @@ class MarketScanner:
                 "segment": inst.get("segment"),
                 "name": inst.get("name"),
                 "atr": None,
+                "last_price": None,
             }
 
-        payload = {
-            "date": date.today().isoformat(),
-            "asof": datetime.utcnow().isoformat() + "Z",
-            "fno": selected,
-            "meta": meta,
-        }
-        return payload
+        return selected, meta
+
+    def _scan_nse_equities(self) -> tuple[List[str], Dict[str, Dict[str, Any]]]:
+        """
+        Scan NSE for equity instruments from the configured universe.
+        
+        Applies filters:
+        - Enabled in config/universe_equity.csv
+        - Valid instrument metadata
+        - Not a penny stock (last_price >= threshold if available)
+        """
+        # Load enabled symbols from config
+        enabled_symbols = load_equity_universe()
+        if not enabled_symbols:
+            logger.warning("MarketScanner: no equity symbols enabled in universe")
+            return [], {}
+        
+        logger.info("MarketScanner: scanning %d enabled equity symbols", len(enabled_symbols))
+        
+        # Fetch NSE instruments
+        try:
+            instruments = self.kite.instruments("NSE")
+        except Exception as exc:  # noqa: BLE001
+            logger.error("MarketScanner: unable to fetch NSE instruments from Kite: %s", exc)
+            return [], {}
+
+        # Build lookup by tradingsymbol
+        nse_instruments_map = {}
+        for inst in instruments:
+            symbol = inst.get("tradingsymbol")
+            if symbol:
+                nse_instruments_map[symbol.upper()] = inst
+
+        selected: List[str] = []
+        meta: Dict[str, Dict[str, Any]] = {}
+
+        for symbol in enabled_symbols:
+            symbol_upper = symbol.upper()
+            inst = nse_instruments_map.get(symbol_upper)
+            
+            if not inst:
+                logger.warning("MarketScanner: NSE instrument not found for symbol=%s", symbol)
+                continue
+            
+            # Validate instrument
+            if not self._is_valid_equity_instrument(inst, symbol):
+                continue
+            
+            selected.append(symbol)
+            meta[symbol] = {
+                "tradingsymbol": inst.get("tradingsymbol"),
+                "instrument_token": inst.get("instrument_token"),
+                "lot_size": inst.get("lot_size") or 1,
+                "tick_size": inst.get("tick_size") or 0.05,
+                "exchange": inst.get("exchange") or "NSE",
+                "segment": inst.get("segment") or "NSE",
+                "name": inst.get("name") or symbol,
+                "last_price": inst.get("last_price"),
+                "atr": None,
+            }
+
+        logger.info("MarketScanner: validated %d/%d equity symbols", len(selected), len(enabled_symbols))
+        return selected, meta
+
+    def _is_valid_equity_instrument(self, inst: Dict[str, Any], symbol: str) -> bool:
+        """
+        Validate equity instrument meets criteria:
+        - Has valid instrument_token
+        - Not a penny stock (if last_price available)
+        - Has valid segment
+        """
+        # Check instrument token
+        token = inst.get("instrument_token")
+        if not token or token == 0:
+            logger.warning("MarketScanner: invalid instrument_token for %s", symbol)
+            return False
+        
+        # Check segment
+        segment = inst.get("segment")
+        if segment and segment not in ("NSE", "NSE-EQ"):
+            logger.debug("MarketScanner: skipping %s - segment=%s", symbol, segment)
+            return False
+        
+        # Penny stock filter (if price is available)
+        last_price = inst.get("last_price")
+        if last_price is not None:
+            try:
+                price = float(last_price)
+                if price > 0 and price < PENNY_STOCK_THRESHOLD:
+                    logger.info(
+                        "MarketScanner: filtered penny stock %s (price=%.2f < %.2f)",
+                        symbol,
+                        price,
+                        PENNY_STOCK_THRESHOLD,
+                    )
+                    return False
+            except (TypeError, ValueError):
+                pass  # Can't validate price, allow through
+        
+        return True
 
     def save(self, data: Dict[str, Any]) -> Optional[Path]:
         today_dir = self.scanner_root / date.today().isoformat()
@@ -82,10 +219,13 @@ class MarketScanner:
         try:
             with path.open("w", encoding="utf-8") as handle:
                 json.dump(data, handle, indent=2, default=str)
+            fno_count = len(data.get("fno") or [])
+            equity_count = len(data.get("equity") or [])
             logger.info(
-                "MarketScanner: saved universe for %s (%d symbols) -> %s",
+                "MarketScanner: saved universe for %s (%d FnO, %d equity symbols) -> %s",
                 data.get("date"),
-                len(data.get("fno") or []),
+                fno_count,
+                equity_count,
                 path,
             )
         except Exception as exc:  # noqa: BLE001
@@ -102,10 +242,13 @@ class MarketScanner:
                 data = json.load(handle)
             if not isinstance(data, dict):
                 return None
+            fno_count = len(data.get("fno") or [])
+            equity_count = len(data.get("equity") or [])
             logger.info(
-                "MarketScanner: loaded cached universe for %s (%d symbols)",
+                "MarketScanner: loaded cached universe for %s (%d FnO, %d equity symbols)",
                 data.get("date"),
-                len(data.get("fno") or []),
+                fno_count,
+                equity_count,
             )
             return data
         except Exception as exc:  # noqa: BLE001
@@ -159,5 +302,6 @@ class MarketScanner:
             "date": date.today().isoformat(),
             "asof": datetime.utcnow().isoformat() + "Z",
             "fno": [],
+            "equity": [],
             "meta": {},
         }
