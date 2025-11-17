@@ -193,7 +193,11 @@ export function AnalyticsPage() {
         </Card>
       ) : null}
       
-      {/* Benchmarks Placeholder */}
+      {/* Benchmarks Placeholder 
+          TODO: Implement GET /api/benchmarks endpoint
+          Expected response: Array of { ts: string, nifty?: number, banknifty?: number, finnifty?: number }
+          See docs/ANALYTICS_RISK_API_GAPS.md for implementation details
+      */}
       <Card title="Benchmarks">
         <div className="text-center text-text-secondary py-12">
           <p className="font-semibold">Benchmark Comparison Coming Soon</p>
@@ -201,13 +205,16 @@ export function AnalyticsPage() {
             To enable this feature, add the following API endpoint:
           </p>
           <pre className="mt-4 text-left inline-block bg-surface-light p-4 rounded text-xs">
-{`GET /api/benchmarks
+{`GET /api/benchmarks?days=1
 Returns:
 [
-  { ts: "2024-11-17T10:00:00+00:00", nifty: 19500, banknifty: 45000 },
+  { ts: "2024-11-17T10:00:00+00:00", nifty: 19500, banknifty: 45000, finnifty: 20456 },
   ...
 ]`}
           </pre>
+          <p className="text-xs mt-4 text-text-secondary">
+            📝 See <code>docs/ANALYTICS_RISK_API_GAPS.md</code> for implementation details
+          </p>
         </div>
       </Card>
     </div>
