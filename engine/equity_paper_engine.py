@@ -51,6 +51,19 @@ from core.trade_throttler import (
     build_throttler_config,
 )
 
+# Strategy Engine v2 (optional - fallback if not available)
+try:
+    from core.strategy_engine_v2 import StrategyEngineV2, StrategyState
+    from strategies.ema20_50_intraday_v2 import EMA2050IntradayV2
+    from core.market_data_engine import MarketDataEngine
+    STRATEGY_ENGINE_V2_AVAILABLE = True
+except ImportError:
+    STRATEGY_ENGINE_V2_AVAILABLE = False
+    StrategyEngineV2 = None
+    StrategyState = None
+    EMA2050IntradayV2 = None
+    MarketDataEngine = None
+
 logger = logging.getLogger("engine.equity_paper_engine")
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -243,6 +256,47 @@ class EquityPaperEngine:
             config=throttler_config,
             capital=self.paper_capital,
         )
+        
+        # Initialize MarketDataEngine (for v2 strategies)
+        self.market_data_engine = None
+        if STRATEGY_ENGINE_V2_AVAILABLE and MarketDataEngine and self.kite:
+            try:
+                cache_dir = self.artifacts_dir / "market_data"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                universe_snapshot = {}  # Can be populated from universe
+                self.market_data_engine = MarketDataEngine(
+                    self.kite,
+                    universe_snapshot,
+                    cache_dir=cache_dir
+                )
+            except Exception as exc:
+                logger.warning("Failed to initialize MarketDataEngine: %s", exc)
+                self.market_data_engine = None
+        
+        # Initialize Strategy Engine v2 (optional, based on config)
+        strategy_engine_config = self.cfg.raw.get("strategy_engine", {})
+        strategy_engine_version = strategy_engine_config.get("version", 1)
+        self.strategy_engine_v2 = None
+        
+        if strategy_engine_version == 2 and STRATEGY_ENGINE_V2_AVAILABLE:
+            logger.info("Initializing Strategy Engine v2 for equity trading")
+            try:
+                self.strategy_engine_v2 = StrategyEngineV2.from_config(self.cfg.raw, logger)
+                
+                # Set engines
+                if self.market_data_engine:
+                    self.strategy_engine_v2.mde = self.market_data_engine
+                    self.strategy_engine_v2.market_data = self.market_data_engine
+                    self.strategy_engine_v2.market_data_engine = self.market_data_engine
+                self.strategy_engine_v2.regime_engine = self.regime_detector
+                
+                logger.info(
+                    "Strategy Engine v2 initialized for equity with %d strategies",
+                    len(self.strategy_engine_v2.strategies)
+                )
+            except Exception as exc:
+                logger.error("Failed to initialize Strategy Engine v2 for equity: %s", exc, exc_info=True)
+                self.strategy_engine_v2 = None
 
     def _build_strategy_instances(self) -> List[FnoIntradayTrendStrategy]:
         instances: List[FnoIntradayTrendStrategy] = []
@@ -338,144 +392,259 @@ class EquityPaperEngine:
                 self.last_prices[symbol] = price
             return price_cache[symbol]
 
-        for strat in self.strategy_instances:
-            symbol = getattr(strat, "logical", "")
-            if not symbol:
-                continue
+        # If Strategy Engine v2 is available, use it
+        if self.strategy_engine_v2 and self.market_data_engine:
+            for symbol in self.universe:
+                if symbol in self.banned_symbols:
+                    logger.info("Equity %s is banned for this session due to per-symbol loss limit; skipping.", symbol)
+                    continue
 
-            if symbol in self.banned_symbols:
-                logger.info("Equity %s is banned for this session due to per-symbol loss limit; skipping.", symbol)
-                continue
+                if not self._meta_allows_trade(symbol, self.allowed_equity_styles):
+                    logger.debug("Meta engine filtered equity %s for mismatched style/confidence.", symbol)
+                    continue
 
-            if not self._meta_allows_trade(symbol, self.allowed_equity_styles):
-                logger.debug("Meta engine filtered equity %s for mismatched style/confidence.", symbol)
-                continue
-
-            try:
-                price = _ltp(symbol)
-                if price is not None:
+                try:
+                    price = _ltp(symbol)
+                    if price is None:
+                        continue
+                    
                     self._record_regime_sample(symbol, price)
-
-                tf_label = self._resolve_timeframe(getattr(strat, "timeframe", None))
-                bar = {"close": price, "tf": tf_label}
-                raw_decision = strat.on_bar(symbol, bar)
-                decision = self._ensure_decision(strat, raw_decision)
-                signal = decision.action
-                mode_label = decision.mode or getattr(strat, "mode", self.strategy_mode)
-
-                logical_base = f"EQ_{symbol}"
-                strategy_label = getattr(strat, "name", self.strategy_name)
-                logical_tagged = f"{logical_base}|{strategy_label}"
-
-                logger.info(
-                    "Equity logical=%s tf=%s mode=%s strategy=%s price=%s signal=%s",
-                    logical_base,
-                    tf_label,
-                    mode_label,
-                    strategy_label,
-                    f"{price:.2f}" if price is not None else "None",
-                    signal,
-                )
-
-                indicators = strat.get_latest_indicators(symbol) or {}
-                regime = strat.get_latest_regime(symbol)
-                market_regime = (
-                    self.regime_detector.current_regime(symbol)
-                    if self.regime_detector
-                    else Regime.UNKNOWN.value
-                )
-                if (
-                    strategy_label == "EMA_TREND"
-                    and signal in {"BUY", "SELL"}
-                    and market_regime in {Regime.CHOP.value, Regime.UNKNOWN.value}
-                ):
-                    logger.warning(
-                        "[QUALITY_VETO] EMA_TREND blocked due to regime=%s equity=%s",
-                        market_regime,
-                        symbol,
+                    
+                    logical_base = f"EQ_{symbol}"
+                    tf = self.default_timeframe
+                    
+                    # Update market data cache
+                    try:
+                        self.market_data_engine.update_cache(symbol, tf)
+                    except Exception as exc:
+                        logger.debug("Market data cache update failed for %s: %s", symbol, exc)
+                    
+                    # Fetch candle window
+                    window = self.market_data_engine.get_window(symbol, tf, 200)
+                    
+                    if not window or len(window) < 20:
+                        logger.debug("Insufficient candles for %s/%s: %d", symbol, tf, len(window) if window else 0)
+                        continue
+                    
+                    # Build series
+                    series = {
+                        "open": [c["open"] for c in window],
+                        "high": [c["high"] for c in window],
+                        "low": [c["low"] for c in window],
+                        "close": [c["close"] for c in window],
+                        "volume": [c.get("volume", 0) for c in window],
+                    }
+                    
+                    # Get current candle
+                    current_candle = window[-1]
+                    
+                    # Compute indicators
+                    indicators = self.strategy_engine_v2.compute_indicators(series)
+                    
+                    # Safety check
+                    if not current_candle or current_candle.get("close") is None:
+                        logger.debug("Invalid candle for %s, skipping", symbol)
+                        continue
+                    
+                    if not indicators or indicators.get("ema20") is None:
+                        logger.debug("Indicators not ready for %s, skipping", symbol)
+                        continue
+                    
+                    # Call evaluate
+                    intent, debug = self.strategy_engine_v2.evaluate(
+                        logical=logical_base,
+                        symbol=symbol,
+                        timeframe=tf,
+                        candle=current_candle,
+                        indicators=indicators,
+                        mode=self.mode.value,
+                        profile="EQUITY_INTRADAY",
+                        context={"ltp": price},
                     )
-                    decision = Decision(
-                        action="HOLD",
-                        reason=f"regime_block_{market_regime.lower()}",
-                        mode=decision.mode,
-                        confidence=decision.confidence,
+                    
+                    # Always log the signal
+                    signal_ts = self.recorder.log_signal(
+                        logical=f"{logical_base}|{intent.strategy_id}",
+                        symbol=symbol,
+                        price=price,
+                        signal=intent.signal,
+                        tf=tf,
+                        reason=intent.reason,
+                        profile="EQUITY_INTRADAY",
+                        mode=self.mode.value,
+                        confidence=intent.confidence,
+                        strategy=intent.strategy_id,
+                        ema20=debug.get("indicators", {}).get("ema20"),
+                        ema50=debug.get("indicators", {}).get("ema50"),
+                        ema100=debug.get("indicators", {}).get("ema100"),
+                        ema200=debug.get("indicators", {}).get("ema200"),
+                        rsi14=debug.get("indicators", {}).get("rsi14"),
+                        atr=debug.get("indicators", {}).get("atr"),
                     )
-                    signal = decision.action
-                meta_decision = self._last_meta_decisions.get(symbol)
-                profile = _profile_from_tf(tf_label)
-                pattern_ok, pattern_reason = should_trade_trend(
-                    logical=logical_tagged,
-                    symbol=symbol,
-                    tf=tf_label,
-                    indicators=indicators,
-                    price=price,
-                )
-                base_reason = build_reason(price, indicators, regime, signal)
-                final_signal = signal
-                if signal in ("BUY", "SELL"):
-                    if not pattern_ok:
-                        final_signal = "HOLD"
-                        reason = pattern_reason or decision.reason or "pattern_filter_block"
-                    else:
-                        reason_parts = [decision.reason, pattern_reason, base_reason]
-                        reason = "|".join(part for part in reason_parts if part)
-                else:
-                    reason_parts = [pattern_reason, decision.reason, base_reason]
-                    reason = "|".join(part for part in reason_parts if part)
-
-                trend_context = regime or ""
-                vol_spike_flag = bool(indicators.get("vol_spike")) if indicators else False
-                vol_regime = "HIGH" if vol_spike_flag else ("NORMAL" if indicators else "")
-                htf_trend = meta_decision.timeframe if meta_decision else ""
-                playbook = pattern_reason or ""
-                adx_value = indicators.get("adx14") if indicators else None
-
-                signal_ts = self.recorder.log_signal(
-                    logical=logical_tagged,
-                    symbol=symbol,
-                    price=price,
-                    signal=final_signal,
-                    tf=tf_label,
-                    reason=reason,
-                    profile=profile,
-                    mode=mode_label,
-                    confidence=round(decision.confidence, 4),
-                    trend_context=trend_context,
-                    vol_regime=vol_regime,
-                    htf_trend=htf_trend,
-                    playbook=playbook,
-                    ema20=indicators.get("ema20"),
-                    ema50=indicators.get("ema50"),
-                    ema100=indicators.get("ema100"),
-                    ema200=indicators.get("ema200"),
-                    rsi14=indicators.get("rsi14"),
-                    atr=indicators.get("atr"),
-                    adx14=indicators.get("adx14"),
-                    adx=adx_value,
-                    vwap=indicators.get("vwap"),
-                    vol_spike=indicators.get("vol_spike"),
-                    strategy=strategy_label,
-                )
-
-                if final_signal in ("BUY", "SELL"):
+                    
+                    # If HOLD, skip order placement
+                    if intent.signal == "HOLD":
+                        continue
+                    
+                    # Process non-HOLD signals
                     record_strategy_signal(self.primary_strategy_code, timestamp=signal_ts)
                     self._handle_signal(
                         symbol,
-                        final_signal,
+                        intent.signal,
                         price,
                         logical_base,
-                        tf=tf_label,
-                        profile=profile,
-                        mode=mode_label,
-                        strategy_name=strategy_label,
+                        tf=tf,
+                        profile="EQUITY_INTRADAY",
+                        mode=self.mode.value,
+                        strategy_name=intent.strategy_id,
                         strategy_code=self.primary_strategy_code,
-                        confidence=decision.confidence,
-                        playbook=playbook,
-                        reason=reason,
+                        confidence=intent.confidence,
+                        reason=intent.reason,
                         signal_timestamp=signal_ts,
                     )
-            except Exception as exc:  # noqa: BLE001
-                logger.exception("Error processing equity symbol=%s: %s", symbol, exc)
+                    
+                except Exception as exc:
+                    logger.exception("Error processing equity symbol=%s with v2 engine: %s", symbol, exc)
+        else:
+            # Use legacy strategy instances
+            for strat in self.strategy_instances:
+                symbol = getattr(strat, "logical", "")
+                if not symbol:
+                    continue
+
+                if symbol in self.banned_symbols:
+                    logger.info("Equity %s is banned for this session due to per-symbol loss limit; skipping.", symbol)
+                    continue
+
+                if not self._meta_allows_trade(symbol, self.allowed_equity_styles):
+                    logger.debug("Meta engine filtered equity %s for mismatched style/confidence.", symbol)
+                    continue
+
+                try:
+                    price = _ltp(symbol)
+                    if price is not None:
+                        self._record_regime_sample(symbol, price)
+
+                    tf_label = self._resolve_timeframe(getattr(strat, "timeframe", None))
+                    bar = {"close": price, "tf": tf_label}
+                    raw_decision = strat.on_bar(symbol, bar)
+                    decision = self._ensure_decision(strat, raw_decision)
+                    signal = decision.action
+                    mode_label = decision.mode or getattr(strat, "mode", self.strategy_mode)
+
+                    logical_base = f"EQ_{symbol}"
+                    strategy_label = getattr(strat, "name", self.strategy_name)
+                    logical_tagged = f"{logical_base}|{strategy_label}"
+
+                    logger.info(
+                        "Equity logical=%s tf=%s mode=%s strategy=%s price=%s signal=%s",
+                        logical_base,
+                        tf_label,
+                        mode_label,
+                        strategy_label,
+                        f"{price:.2f}" if price is not None else "None",
+                        signal,
+                    )
+
+                    indicators = strat.get_latest_indicators(symbol) or {}
+                    regime = strat.get_latest_regime(symbol)
+                    market_regime = (
+                        self.regime_detector.current_regime(symbol)
+                        if self.regime_detector
+                        else Regime.UNKNOWN.value
+                    )
+                    if (
+                        strategy_label == "EMA_TREND"
+                        and signal in {"BUY", "SELL"}
+                        and market_regime in {Regime.CHOP.value, Regime.UNKNOWN.value}
+                    ):
+                        logger.warning(
+                            "[QUALITY_VETO] EMA_TREND blocked due to regime=%s equity=%s",
+                            market_regime,
+                            symbol,
+                        )
+                        decision = Decision(
+                            action="HOLD",
+                            reason=f"regime_block_{market_regime.lower()}",
+                            mode=decision.mode,
+                            confidence=decision.confidence,
+                        )
+                        signal = decision.action
+                    meta_decision = self._last_meta_decisions.get(symbol)
+                    profile = _profile_from_tf(tf_label)
+                    pattern_ok, pattern_reason = should_trade_trend(
+                        logical=logical_tagged,
+                        symbol=symbol,
+                        tf=tf_label,
+                        indicators=indicators,
+                        price=price,
+                    )
+                    base_reason = build_reason(price, indicators, regime, signal)
+                    final_signal = signal
+                    if signal in ("BUY", "SELL"):
+                        if not pattern_ok:
+                            final_signal = "HOLD"
+                            reason = pattern_reason or decision.reason or "pattern_filter_block"
+                        else:
+                            reason_parts = [decision.reason, pattern_reason, base_reason]
+                            reason = "|".join(part for part in reason_parts if part)
+                    else:
+                        reason_parts = [pattern_reason, decision.reason, base_reason]
+                        reason = "|".join(part for part in reason_parts if part)
+
+                    trend_context = regime or ""
+                    vol_spike_flag = bool(indicators.get("vol_spike")) if indicators else False
+                    vol_regime = "HIGH" if vol_spike_flag else ("NORMAL" if indicators else "")
+                    htf_trend = meta_decision.timeframe if meta_decision else ""
+                    playbook = pattern_reason or ""
+                    adx_value = indicators.get("adx14") if indicators else None
+
+                    signal_ts = self.recorder.log_signal(
+                        logical=logical_tagged,
+                        symbol=symbol,
+                        price=price,
+                        signal=final_signal,
+                        tf=tf_label,
+                        reason=reason,
+                        profile=profile,
+                        mode=mode_label,
+                        confidence=round(decision.confidence, 4),
+                        trend_context=trend_context,
+                        vol_regime=vol_regime,
+                        htf_trend=htf_trend,
+                        playbook=playbook,
+                        ema20=indicators.get("ema20"),
+                        ema50=indicators.get("ema50"),
+                        ema100=indicators.get("ema100"),
+                        ema200=indicators.get("ema200"),
+                        rsi14=indicators.get("rsi14"),
+                        atr=indicators.get("atr"),
+                        adx14=indicators.get("adx14"),
+                        adx=adx_value,
+                        vwap=indicators.get("vwap"),
+                        vol_spike=indicators.get("vol_spike"),
+                        strategy=strategy_label,
+                    )
+
+                    if final_signal in ("BUY", "SELL"):
+                        record_strategy_signal(self.primary_strategy_code, timestamp=signal_ts)
+                        self._handle_signal(
+                            symbol,
+                            final_signal,
+                            price,
+                            logical_base,
+                            tf=tf_label,
+                            profile=profile,
+                            mode=mode_label,
+                            strategy_name=strategy_label,
+                            strategy_code=self.primary_strategy_code,
+                            confidence=decision.confidence,
+                            playbook=playbook,
+                            reason=reason,
+                            signal_timestamp=signal_ts,
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("Error processing equity symbol=%s: %s", symbol, exc)
 
         # Per-trade stop-loss on open equity positions
         self._enforce_per_trade_stop()
