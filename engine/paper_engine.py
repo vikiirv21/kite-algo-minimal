@@ -72,6 +72,13 @@ from strategies.fno_intraday_trend import (
 from analytics.trade_recorder import TradeRecorder
 from analytics.trade_journal import finalize_trade, TRADE_JOURNAL_FIELDS
 from analytics.multi_timeframe_engine import MultiTimeframeEngine
+from analytics.telemetry_bus import (
+    publish_engine_health,
+    publish_signal_event,
+    publish_order_event,
+    publish_position_event,
+    publish_decision_trace,
+)
 from core.strategy_engine import StrategyRunner
 
 # Strategy Engine v2 (optional - fallback to v1 if not available)
@@ -850,6 +857,11 @@ class PaperEngine:
             logger.error(
                 "No resolved FnO symbols to trade. Check config and instrument permissions."
             )
+            publish_engine_health(
+                "paper_engine",
+                "error",
+                {"mode": self.mode.value, "error": "no_universe"}
+            )
             return
 
         logger.info(
@@ -857,16 +869,43 @@ class PaperEngine:
             self.universe,
             self.mode.value,
         )
-        while self.running:
-            if not is_market_open():
-                logger.info(
-                    "Market appears closed (PaperEngine); sleeping..."
-                )
-                time.sleep(self.sleep_sec)
-                continue
+        # Publish engine startup telemetry
+        publish_engine_health(
+            "paper_engine",
+            "starting",
+            {
+                "mode": self.mode.value,
+                "universe_size": len(self.universe),
+                "strategy_name": self.strategy_name,
+            }
+        )
+        
+        try:
+            while self.running:
+                if not is_market_open():
+                    logger.info(
+                        "Market appears closed (PaperEngine); sleeping..."
+                    )
+                    time.sleep(self.sleep_sec)
+                    continue
 
-            self._loop_once()
-            time.sleep(self.sleep_sec)
+                self._loop_once()
+                time.sleep(self.sleep_sec)
+        except Exception as exc:
+            logger.error("PaperEngine error: %s", exc, exc_info=True)
+            publish_engine_health(
+                "paper_engine",
+                "error",
+                {"mode": self.mode.value, "error": str(exc)}
+            )
+            raise
+        finally:
+            # Publish engine shutdown telemetry
+            publish_engine_health(
+                "paper_engine",
+                "stopped",
+                {"mode": self.mode.value}
+            )
 
     def _loop_once(self) -> None:
         self._loop_counter += 1
@@ -1398,6 +1437,33 @@ class PaperEngine:
         extra_payload["expected_edge_rupees"] = expected_edge_rupees
 
         trade_monitor.increment("entries_allowed")
+        
+        # Publish decision trace telemetry
+        publish_decision_trace(
+            strategy_name=strategy_label,
+            symbol=symbol,
+            decision=signal,
+            trace_data={
+                "confidence": confidence_value,
+                "playbook": playbook_value,
+                "reason": reason_value,
+                "tf": tf,
+                "profile": profile,
+                "indicators": indicators or {},
+            }
+        )
+        
+        # Publish signal event telemetry
+        publish_signal_event(
+            symbol=symbol,
+            strategy_name=strategy_label,
+            signal=signal,
+            confidence=confidence_value,
+            timeframe=tf,
+            price=price,
+            logical=logical_name,
+        )
+        
         atr_meta = self._compute_sl_tp_for_order(
             symbol=symbol,
             side=side,
@@ -1513,8 +1579,22 @@ class PaperEngine:
                 realized_pnl=0.0,
             )
         logger.info("Order executed (mode=%s): %s", self.mode.value, order)
-        self.signal_quality.record_execution(strategy_label, symbol, quality_score.score)
+        
+        # Publish order event telemetry
+        order_id = getattr(order, "order_id", "")
         status = str(getattr(order, "status", "FILLED") or "FILLED").upper()
+        publish_order_event(
+            order_id=order_id or f"paper-{symbol}-{int(time.time())}",
+            symbol=symbol,
+            side=side,
+            status=status,
+            quantity=qty,
+            price=price,
+            strategy=strategy_label,
+            mode=mode_label,
+        )
+        
+        self.signal_quality.record_execution(strategy_label, symbol, quality_score.score)
         if status in FILLED_ORDER_STATUSES:
             trade_monitor.increment("orders_filled")
             self._record_trade_flow_event("orders_filled")
@@ -2063,6 +2143,28 @@ class PaperEngine:
             "broker": self.paper_broker.to_state_dict(last_prices=self.last_prices),
             "meta": meta_payload,
         }
+        
+        # Publish position snapshot telemetry periodically
+        if reason in ("loop_tick", "order_fill"):
+            positions = []
+            for symbol, pos in self.paper_broker.get_all_positions().items():
+                if pos.quantity != 0:
+                    positions.append({
+                        "symbol": symbol,
+                        "quantity": pos.quantity,
+                        "avg_price": pos.avg_price,
+                        "realized_pnl": pos.realized_pnl,
+                        "last_price": self.last_prices.get(symbol),
+                    })
+            if positions:
+                publish_position_event(
+                    symbol="portfolio",
+                    position_size=len(positions),
+                    positions=positions,
+                    equity=meta_payload.get("equity", 0.0),
+                    total_notional=meta_payload.get("total_notional", 0.0),
+                )
+        
         try:
             self.state_store.save_checkpoint(state_payload)
             logger.info(
