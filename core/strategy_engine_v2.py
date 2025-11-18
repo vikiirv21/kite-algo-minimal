@@ -72,14 +72,18 @@ class OrderIntent:
     Represents a trading intent from a strategy before risk checks.
     All trading decisions flow through this standardized format.
     """
-    signal: str  # "BUY", "SELL", "EXIT", "HOLD"
-    side: str  # "LONG", "SHORT", "FLAT"
-    logical: str  # Logical symbol identifier (e.g., "NIFTY", "EQ_RELIANCE")
-    symbol: str  # Actual trading symbol
-    timeframe: str  # Timeframe (e.g., "5m", "15m")
-    strategy_id: str  # Strategy identifier
-    confidence: float  # Confidence score (0.0 to 1.0)
+    # Core fields - provide defaults for backward compatibility
+    symbol: str = ""
+    signal: str = "HOLD"  # "BUY", "SELL", "EXIT", "HOLD"
+    side: str = "FLAT"  # "LONG", "SHORT", "FLAT"
+    logical: str = ""  # Logical symbol identifier (e.g., "NIFTY", "EQ_RELIANCE")
+    timeframe: str = ""  # Timeframe (e.g., "5m", "15m")
+    strategy_id: str = ""  # Strategy identifier
+    confidence: float = 0.0  # Confidence score (0.0 to 1.0)
+    
+    # Optional fields
     qty_hint: Optional[int] = None  # Optional quantity hint
+    qty: Optional[int] = None  # Legacy field for quantity
     reason: str = ""  # Entry/signal reason
     exit_reason: str = ""  # Exit reason (if applicable)
     extra: Dict[str, Any] = field(default_factory=dict)  # Additional metadata
@@ -91,7 +95,20 @@ class OrderIntent:
     
     def __post_init__(self):
         """Ensure signal is uppercase and legacy fields are synchronized."""
-        self.signal = self.signal.upper()
+        # If action is provided, use it to set signal
+        if self.action and not self.signal:
+            self.signal = self.action.upper()
+        else:
+            self.signal = self.signal.upper()
+        
+        # If strategy_code is provided, use it
+        if self.strategy_code and not self.strategy_id:
+            self.strategy_id = self.strategy_code
+        
+        # If symbol is provided but not logical, set logical = symbol
+        if self.symbol and not self.logical:
+            self.logical = self.symbol
+        
         # Sync legacy fields
         if self.action is None:
             self.action = self.signal
@@ -99,6 +116,12 @@ class OrderIntent:
             self.strategy_code = self.strategy_id
         if self.metadata is None:
             self.metadata = self.extra
+        
+        # Set side based on signal/action if not set
+        if self.side == "FLAT" and self.signal in ["BUY", "LONG"]:
+            self.side = "LONG"
+        elif self.side == "FLAT" and self.signal in ["SELL", "SHORT"]:
+            self.side = "SHORT"
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -110,9 +133,14 @@ class OrderIntent:
             "strategy_id": self.strategy_id,
             "confidence": self.confidence,
             "qty_hint": self.qty_hint,
+            "qty": self.qty,
             "reason": self.reason,
             "exit_reason": self.exit_reason,
             "extra": self.extra,
+            # Include legacy fields for backward compatibility
+            "action": self.action,
+            "strategy_code": self.strategy_code,
+            "metadata": self.metadata,
         }
 
 
@@ -293,40 +321,43 @@ class StrategyEngineV2:
     
     def __init__(
         self,
-        config: Dict[str, Any],
+        config: dict,
         market_data_engine=None,
-        mde: Optional[MarketDataEngine] = None,
-        portfolio_engine: Optional[Any] = None,
-        analytics_engine: Optional[Any] = None,
-        regime_engine: Optional[Any] = None,
-        logger: Optional[logging.Logger] = None,
-        risk_engine: Optional[Any] = None,
-        logger_instance: Optional[logging.Logger] = None,
-        market_data_engine_v2: Optional[Any] = None,
-        state_store: Optional[Any] = None,
-        analytics: Optional[Any] = None,
+        state_store=None,
+        analytics=None,
+        regime_engine=None,
         **kwargs,
     ):
-        # Backward compatibility: accept market_data_engine or mde
-        if market_data_engine is None and mde is not None:
-            market_data_engine = mde
-        elif market_data_engine is None and "market_data_engine_v2" in kwargs:
+        # Backward compatibility: accept market_data_engine_v2 via kwargs
+        if market_data_engine is None and "market_data_engine_v2" in kwargs:
             market_data_engine = kwargs["market_data_engine_v2"]
         
-        self.config = config or {}
-        self.mde = market_data_engine or mde
-        self.portfolio_engine = portfolio_engine
-        self.analytics_engine = analytics_engine or analytics
-        self.regime_engine = regime_engine
-        self.logger = logger_instance or logger or logging.getLogger(__name__)
+        # Also accept 'mde' as alias
+        if market_data_engine is None and "mde" in kwargs:
+            market_data_engine = kwargs["mde"]
         
-        # Backward compatibility aliases
-        self.market_data = self.mde
-        self.market_data_engine = self.mde
-        self.market_data_v2 = market_data_engine_v2  # Optional MDE v2 instance
-        self.risk_engine = risk_engine
+        # Support other legacy kwargs
+        portfolio_engine = kwargs.get("portfolio_engine", None)
+        analytics_engine = kwargs.get("analytics_engine", None)
+        logger = kwargs.get("logger", None)
+        logger_instance = kwargs.get("logger_instance", None)
+        risk_engine = kwargs.get("risk_engine", None)
+        market_data_engine_v2 = kwargs.get("market_data_engine_v2", None)
+        
+        self.config = config or {}
+        self.market_data_engine = market_data_engine
         self.state_store = state_store
         self.analytics = analytics
+        self.regime_engine = regime_engine
+        
+        # Backward compatibility aliases
+        self.mde = self.market_data_engine
+        self.market_data = self.market_data_engine
+        self.market_data_v2 = market_data_engine_v2  # Optional MDE v2 instance
+        self.portfolio_engine = portfolio_engine
+        self.analytics_engine = analytics_engine or analytics
+        self.logger = logger_instance or logger or logging.getLogger(__name__)
+        self.risk_engine = risk_engine
         
         # Strategy registry
         self.strategies: Dict[str, BaseStrategy] = {}
@@ -642,10 +673,16 @@ class StrategyEngineV2:
             return
         
         try:
+            # StrategyOrchestrator expects full config with strategy_orchestrator key
+            # Create a config dict with the orchestrator config nested
+            full_config = {
+                "strategy_orchestrator": cfg
+            }
             self.orchestrator = StrategyOrchestrator(
-                health_scoring_window=cfg.get("health_scoring_window", 50),
-                loss_streak_disable=cfg.get("loss_streak_disable", 3),
-                enforce_regimes=cfg.get("enforce_regimes", False),
+                config=full_config,
+                state_store=self.state_store,
+                analytics=self.analytics,
+                logger_instance=self.logger,
             )
             self.logger.info("StrategyOrchestrator initialized successfully")
         except Exception as e:
@@ -1009,7 +1046,7 @@ class StrategyEngineV2:
             (allowed, reason)
         """
         # Check symbol validity first (before market checks)
-        if not signal.symbol or signal.symbol.strip() == "":
+        if not getattr(signal, "symbol", None):
             return False, "invalid_symbol"
         
         # Check if market is open (simplified - can be enhanced)
