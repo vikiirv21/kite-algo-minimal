@@ -17,7 +17,7 @@ from datetime import datetime, date, time as dtime, timezone, timedelta  # keep 
 from kiteconnect import KiteConnect, exceptions as kite_exceptions
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -25,6 +25,14 @@ from fastapi.staticfiles import StaticFiles
 from analytics.strategy_performance import (
     load_strategy_performance,
     aggregate_by_strategy,
+)
+from analytics.telemetry_bus import get_telemetry_bus
+from analytics.benchmarks import get_benchmarks
+from analytics.risk_service import (
+    load_risk_limits,
+    save_risk_limits,
+    compute_breaches,
+    compute_var,
 )
 from broker.live_broker import LiveBroker
 from core.config import AppConfig, load_config
@@ -2790,6 +2798,242 @@ async def api_performance() -> JSONResponse:
         # Log error but return default structure
         logger.error("Failed to load performance metrics: %s", exc)
         return JSONResponse(default_metrics)
+
+
+# ============================================================================
+# Telemetry SSE Streaming Endpoint
+# ============================================================================
+
+@router.get("/api/telemetry/stream")
+async def api_telemetry_stream(
+    event_type: Optional[str] = Query(None, description="Filter by event type")
+) -> StreamingResponse:
+    """
+    Stream telemetry events via Server-Sent Events (SSE).
+    
+    This endpoint provides real-time streaming of telemetry events from the
+    TelemetryBus. Clients can optionally filter by event type.
+    
+    Args:
+        event_type: Optional filter for specific event types
+        
+    Returns:
+        StreamingResponse with text/event-stream content type
+    """
+    bus = get_telemetry_bus()
+    
+    async def event_generator():
+        """Generate SSE events from telemetry bus."""
+        last_index = 0
+        
+        # Get current buffer size to start streaming from
+        last_index = len(bus.buffer)
+        
+        # Send initial heartbeat
+        heartbeat = {
+            "type": "heartbeat",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "payload": {"status": "connected", "event_type_filter": event_type}
+        }
+        yield f"data: {json.dumps(heartbeat, default=str)}\n\n"
+        
+        try:
+            while True:
+                # Get new events since last check
+                new_events = []
+                current_size = len(bus.buffer)
+                
+                if current_size > last_index:
+                    # Get new events
+                    events_to_send = list(bus.buffer)[last_index:]
+                    if event_type:
+                        events_to_send = [e for e in events_to_send if e.get("type") == event_type]
+                    new_events = events_to_send
+                    last_index = current_size
+                elif current_size < last_index:
+                    # Buffer wrapped around, reset
+                    last_index = 0
+                
+                # Send new events
+                for event in new_events:
+                    yield f"data: {json.dumps(event, default=str)}\n\n"
+                
+                # Send heartbeat to keep connection alive (every 5 seconds when no events)
+                if not new_events:
+                    heartbeat = {
+                        "type": "heartbeat",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "payload": {}
+                    }
+                    yield f"data: {json.dumps(heartbeat, default=str)}\n\n"
+                
+                # Poll every 0.5 seconds
+                await asyncio.sleep(0.5)
+        
+        except asyncio.CancelledError:
+            logger.info("SSE stream cancelled for event_type=%s", event_type)
+            raise
+        except Exception as exc:
+            logger.error("Error in SSE stream: %s", exc, exc_info=True)
+            raise
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        }
+    )
+
+
+# ============================================================================
+# Benchmarks API Endpoints
+# ============================================================================
+
+@router.get("/api/benchmarks")
+async def api_benchmarks(
+    days: int = Query(1, ge=1, le=365, description="Number of days to look back")
+) -> JSONResponse:
+    """
+    Get benchmark index prices for the specified time window.
+    
+    Args:
+        days: Number of days to look back (1-365)
+        
+    Returns:
+        List of benchmark datapoints with NIFTY, BANKNIFTY, FINNIFTY prices
+    """
+    try:
+        benchmarks = get_benchmarks(days=days)
+        return JSONResponse(benchmarks)
+    except Exception as exc:
+        logger.error("Failed to load benchmarks: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to load benchmarks: {str(exc)}"
+        ) from exc
+
+
+# ============================================================================
+# Risk API Endpoints
+# ============================================================================
+
+@router.get("/api/risk/limits")
+async def api_risk_limits() -> JSONResponse:
+    """
+    Get current risk limits configuration.
+    
+    Returns:
+        RiskLimits configuration with all limit values
+    """
+    try:
+        limits = load_risk_limits()
+        return JSONResponse({
+            "max_daily_loss_rupees": limits.max_daily_loss_rupees,
+            "max_daily_drawdown_pct": limits.max_daily_drawdown_pct,
+            "max_trades_per_day": limits.max_trades_per_day,
+            "max_trades_per_symbol_per_day": limits.max_trades_per_symbol_per_day,
+            "max_loss_streak": limits.max_loss_streak,
+        })
+    except Exception as exc:
+        logger.error("Failed to load risk limits: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to load risk limits: {str(exc)}"
+        ) from exc
+
+
+@router.post("/api/risk/limits")
+async def api_risk_limits_update(request: Request) -> JSONResponse:
+    """
+    Update risk limits configuration.
+    
+    Request body should contain risk limit fields to update:
+    - max_daily_loss_rupees: float
+    - max_daily_drawdown_pct: float
+    - max_trades_per_day: int
+    - max_trades_per_symbol_per_day: int
+    - max_loss_streak: int
+    
+    Returns:
+        Updated RiskLimits configuration
+    """
+    try:
+        body = await request.json()
+        save_risk_limits(body)
+        
+        # Return updated limits
+        limits = load_risk_limits()
+        return JSONResponse({
+            "max_daily_loss_rupees": limits.max_daily_loss_rupees,
+            "max_daily_drawdown_pct": limits.max_daily_drawdown_pct,
+            "max_trades_per_day": limits.max_trades_per_day,
+            "max_trades_per_symbol_per_day": limits.max_trades_per_symbol_per_day,
+            "max_loss_streak": limits.max_loss_streak,
+            "message": "Risk limits updated successfully",
+        })
+    except Exception as exc:
+        logger.error("Failed to update risk limits: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update risk limits: {str(exc)}"
+        ) from exc
+
+
+@router.get("/api/risk/breaches")
+async def api_risk_breaches() -> JSONResponse:
+    """
+    Get list of active risk limit breaches.
+    
+    Returns:
+        List of breach objects, each containing:
+        - type: Breach type (e.g., "max_daily_loss")
+        - limit: The limit value
+        - current: The current value
+        - timestamp: When the breach was detected
+    """
+    try:
+        breaches = compute_breaches()
+        return JSONResponse(breaches)
+    except Exception as exc:
+        logger.error("Failed to compute risk breaches: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to compute risk breaches: {str(exc)}"
+        ) from exc
+
+
+@router.get("/api/risk/var")
+async def api_risk_var(
+    days: int = Query(30, ge=1, le=365, description="Number of days to look back"),
+    confidence: float = Query(0.95, ge=0.5, le=0.99, description="Confidence level (0.5-0.99)")
+) -> JSONResponse:
+    """
+    Compute Value at Risk (VaR) from historical data.
+    
+    Args:
+        days: Number of days to look back (1-365)
+        confidence: Confidence level (0.5-0.99, default 0.95 for 95%)
+        
+    Returns:
+        VaR computation results with:
+        - var: Value at Risk in rupees
+        - days: Number of days used
+        - confidence: Confidence level
+        - observations: Number of data points used
+        - percentile: Percentile used for calculation
+    """
+    try:
+        var_result = compute_var(days=days, confidence=confidence)
+        return JSONResponse(var_result)
+    except Exception as exc:
+        logger.error("Failed to compute VaR: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to compute VaR: {str(exc)}"
+        ) from exc
 
 
 # Mount old static files (for backwards compatibility during transition)
