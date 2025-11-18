@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import logging
 import importlib
+import threading
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from analytics.telemetry_bus import publish_engine_health, publish_decision_trace, publish_signal_event, publish_indicator_event
 from core import indicators
 from core.market_data_engine import MarketDataEngine
 from core.risk_engine import RiskAction, RiskConfig, RiskDecision, TradeContext
@@ -382,6 +385,12 @@ class StrategyEngineV2:
         # Strategy Orchestrator v3 (optional)
         self.orchestrator = None
         self._init_orchestrator()
+        
+        # Telemetry support
+        self._enable_telemetry = True
+        self._telemetry_thread: Optional[threading.Thread] = None
+        self._telemetry_stop = threading.Event()
+        self._start_telemetry_thread()
         
         self.logger.info("StrategyEngineV2 initialized with %d strategies", len(self.enabled_strategies))
         if self.regime_engine:
@@ -829,6 +838,15 @@ class StrategyEngineV2:
             # Compute indicators
             ind = self.compute_indicators(series)
             
+            # Publish indicator event to telemetry
+            if self._enable_telemetry:
+                publish_indicator_event(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    indicators={k: v for k, v in ind.items() if isinstance(v, (int, float, str, bool))},
+                    strategy=strategy_code
+                )
+            
             # Get regime snapshot if RegimeEngine is available
             if self.regime_engine:
                 try:
@@ -845,6 +863,20 @@ class StrategyEngineV2:
             # Generate signal
             decision = strategy.generate_signal(current_candle, series, ind)
             
+            # Publish decision trace to telemetry
+            if self._enable_telemetry and decision:
+                publish_decision_trace(
+                    strategy_name=strategy_code,
+                    symbol=symbol,
+                    decision=decision.action if hasattr(decision, 'action') else str(decision),
+                    trace_data={
+                        "reason": decision.reason if hasattr(decision, 'reason') else "",
+                        "confidence": decision.confidence if hasattr(decision, 'confidence') else 0.0,
+                        "timeframe": timeframe,
+                        "close_price": current_candle.get("close", 0.0),
+                    }
+                )
+            
             # Convert decision to order intents
             intents = []
             
@@ -859,6 +891,17 @@ class StrategyEngineV2:
                     metadata={"timeframe": timeframe}
                 )
                 intents.append(intent)
+                
+                # Publish signal event to telemetry
+                if self._enable_telemetry:
+                    publish_signal_event(
+                        symbol=symbol,
+                        strategy_name=strategy_code,
+                        signal=decision.action,
+                        confidence=getattr(decision, "confidence", 0.0),
+                        reason=decision.reason,
+                        timeframe=timeframe,
+                    )
             
             # Also get any pending intents from strategy helper methods
             pending = strategy.get_pending_intents()
@@ -1351,3 +1394,84 @@ class StrategyEngineV2:
                     strategy_code,
                     exc,
                 )
+    
+    def _start_telemetry_thread(self) -> None:
+        """Start background thread for publishing strategy health."""
+        self._telemetry_stop.clear()
+        self._telemetry_thread = threading.Thread(
+            target=self._telemetry_loop,
+            name="strategy-telemetry",
+            daemon=True
+        )
+        self._telemetry_thread.start()
+        self.logger.debug("StrategyEngineV2 telemetry thread started")
+    
+    def _telemetry_loop(self) -> None:
+        """Background loop to publish strategy health every 5 seconds."""
+        try:
+            while not self._telemetry_stop.wait(5.0):
+                self._publish_health()
+        except Exception as exc:
+            self.logger.error("Strategy telemetry loop error: %s", exc, exc_info=True)
+    
+    def _publish_health(self) -> None:
+        """Publish strategy health metrics to telemetry bus."""
+        try:
+            # Aggregate strategy states
+            total_win_rate = 0.0
+            total_loss_streak = 0
+            total_confidence = 0.0
+            strategy_count = len(self.strategy_states)
+            
+            for state in self.strategy_states.values():
+                # Calculate win rate
+                total_trades = state.win_count + state.loss_count
+                if total_trades > 0:
+                    total_win_rate += state.win_count / total_trades
+                total_loss_streak = max(total_loss_streak, state.loss_streak)
+                # Estimate confidence based on recent performance
+                if total_trades > 0:
+                    total_confidence += state.win_count / total_trades
+            
+            # Average metrics
+            avg_win_rate = total_win_rate / strategy_count if strategy_count > 0 else 0.0
+            avg_confidence = total_confidence / strategy_count if strategy_count > 0 else 0.0
+            
+            metrics = {
+                "total_strategies": strategy_count,
+                "avg_win_rate": avg_win_rate,
+                "max_loss_streak": total_loss_streak,
+                "avg_confidence": avg_confidence,
+            }
+            
+            # Add per-strategy metrics
+            strategy_metrics = {}
+            for strategy_code, state in self.strategy_states.items():
+                total_trades = state.win_count + state.loss_count
+                win_rate = state.win_count / total_trades if total_trades > 0 else 0.0
+                strategy_metrics[strategy_code] = {
+                    "win_count": state.win_count,
+                    "loss_count": state.loss_count,
+                    "win_rate": win_rate,
+                    "loss_streak": state.loss_streak,
+                    "win_streak": state.win_streak,
+                    "open_positions": len(state.positions),
+                }
+            
+            metrics["strategies"] = strategy_metrics
+            
+            publish_engine_health(
+                engine_name="StrategyEngineV2",
+                status="active",
+                metrics=metrics
+            )
+        
+        except Exception as exc:
+            self.logger.error("Failed to publish strategy health: %s", exc, exc_info=True)
+    
+    def stop_telemetry(self) -> None:
+        """Stop the telemetry thread."""
+        if self._telemetry_thread and self._telemetry_thread.is_alive():
+            self._telemetry_stop.set()
+            self._telemetry_thread.join(timeout=5.0)
+            self.logger.debug("StrategyEngineV2 telemetry thread stopped")
