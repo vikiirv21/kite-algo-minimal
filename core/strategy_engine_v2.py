@@ -159,6 +159,8 @@ class StrategyState:
         self.trades_today: int = 0
         self.win_streak: int = 0
         self.loss_streak: int = 0
+        self.win_count: int = 0
+        self.loss_count: int = 0
         self.recent_pnl: float = 0.0
         self.last_signal_time: Optional[datetime] = None
         self.recent_decisions: List[Dict[str, Any]] = []  # Last N signal decisions
@@ -206,9 +208,11 @@ class StrategyState:
         if pnl_delta > 0:
             self.win_streak += 1
             self.loss_streak = 0
+            self.win_count += 1
         elif pnl_delta < 0:
             self.loss_streak += 1
             self.win_streak = 0
+            self.loss_count += 1
 
 
 class BaseStrategy(ABC):
@@ -1424,14 +1428,16 @@ class StrategyEngineV2:
             strategy_count = len(self.strategy_states)
             
             for state in self.strategy_states.values():
-                # Calculate win rate
-                total_trades = state.win_count + state.loss_count
+                # Calculate win rate using getattr for robustness
+                wins = getattr(state, "win_count", 0)
+                losses = getattr(state, "loss_count", 0)
+                total_trades = wins + losses
                 if total_trades > 0:
-                    total_win_rate += state.win_count / total_trades
+                    total_win_rate += wins / total_trades
                 total_loss_streak = max(total_loss_streak, state.loss_streak)
                 # Estimate confidence based on recent performance
                 if total_trades > 0:
-                    total_confidence += state.win_count / total_trades
+                    total_confidence += wins / total_trades
             
             # Average metrics
             avg_win_rate = total_win_rate / strategy_count if strategy_count > 0 else 0.0
@@ -1447,11 +1453,13 @@ class StrategyEngineV2:
             # Add per-strategy metrics
             strategy_metrics = {}
             for strategy_code, state in self.strategy_states.items():
-                total_trades = state.win_count + state.loss_count
-                win_rate = state.win_count / total_trades if total_trades > 0 else 0.0
+                wins = getattr(state, "win_count", 0)
+                losses = getattr(state, "loss_count", 0)
+                total_trades = wins + losses
+                win_rate = wins / total_trades if total_trades > 0 else 0.0
                 strategy_metrics[strategy_code] = {
-                    "win_count": state.win_count,
-                    "loss_count": state.loss_count,
+                    "win_count": wins,
+                    "loss_count": losses,
                     "win_rate": win_rate,
                     "loss_streak": state.loss_streak,
                     "win_streak": state.win_streak,
