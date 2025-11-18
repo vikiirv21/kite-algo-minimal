@@ -30,34 +30,69 @@ DAILY_METRICS_DIR = ARTIFACTS_DIR / "analytics" / "daily"
 class RiskLimits:
     """Risk limits configuration."""
     max_daily_loss_rupees: float = 5000.0
-    max_daily_drawdown_pct: float = 5.0
-    max_trades_per_day: int = 20
+    max_daily_drawdown_pct: float = 0.02  # 2% as decimal (not percentage)
+    max_trades_per_day: int = 100
     max_trades_per_symbol_per_day: int = 5
-    max_loss_streak: int = 3
+    max_loss_streak: int = 5
 
 
-def load_risk_limits() -> RiskLimits:
+def load_risk_limits(
+    config_path: str = str(DEV_CONFIG_PATH),
+    overrides_path: str = str(RISK_OVERRIDES_PATH)
+) -> tuple[RiskLimits, Dict[str, Any]]:
     """
     Load risk limits from config files.
     
     Reads from configs/dev.yaml and applies overrides from configs/risk_overrides.yaml.
     
+    Args:
+        config_path: Path to base config file (default: configs/dev.yaml)
+        overrides_path: Path to overrides file (default: configs/risk_overrides.yaml)
+    
     Returns:
-        RiskLimits dataclass with merged configuration
+        Tuple of (RiskLimits dataclass, metadata dict with updated_at timestamp)
     """
     limits = RiskLimits()
+    config_path_obj = Path(config_path)
+    overrides_path_obj = Path(overrides_path)
+    updated_at = None
     
     # Load base config from dev.yaml
     try:
-        if DEV_CONFIG_PATH.exists():
-            with DEV_CONFIG_PATH.open("r", encoding="utf-8") as f:
+        if config_path_obj.exists():
+            with config_path_obj.open("r", encoding="utf-8") as f:
                 dev_config = yaml.safe_load(f) or {}
             
-            # Extract risk section
+            # Extract risk section (check multiple locations)
             risk_section = dev_config.get("risk", {})
+            execution = dev_config.get("execution", {})
+            circuit_breakers = execution.get("circuit_breakers", {})
             
+            # Try circuit_breakers first, then risk section
+            if isinstance(circuit_breakers, dict):
+                if "max_daily_loss_rupees" in circuit_breakers:
+                    limits.max_daily_loss_rupees = float(circuit_breakers["max_daily_loss_rupees"])
+                
+                if "max_daily_drawdown_pct" in circuit_breakers:
+                    limits.max_daily_drawdown_pct = float(circuit_breakers["max_daily_drawdown_pct"])
+                
+                if "max_trades_per_day" in circuit_breakers:
+                    limits.max_trades_per_day = int(circuit_breakers["max_trades_per_day"])
+                
+                if "max_trades_per_strategy_per_day" in circuit_breakers:
+                    limits.max_trades_per_symbol_per_day = int(circuit_breakers["max_trades_per_strategy_per_day"])
+                
+                if "max_loss_streak" in circuit_breakers:
+                    limits.max_loss_streak = int(circuit_breakers["max_loss_streak"])
+            
+            # Also check risk.quality section for per-symbol limit
             if isinstance(risk_section, dict):
-                # Map config keys to RiskLimits fields
+                quality = risk_section.get("quality", {})
+                if isinstance(quality, dict):
+                    if "max_trades_per_symbol_per_day" in quality:
+                        limits.max_trades_per_symbol_per_day = int(quality["max_trades_per_symbol_per_day"])
+                
+                # Also check top-level risk keys
                 if "max_daily_loss_abs" in risk_section:
                     limits.max_daily_loss_rupees = float(risk_section["max_daily_loss_abs"])
                 elif "max_daily_loss" in risk_section:
@@ -65,22 +100,13 @@ def load_risk_limits() -> RiskLimits:
                 
                 if "max_daily_drawdown_pct" in risk_section:
                     limits.max_daily_drawdown_pct = float(risk_section["max_daily_drawdown_pct"])
-                
-                if "max_trades_per_day" in risk_section:
-                    limits.max_trades_per_day = int(risk_section["max_trades_per_day"])
-                
-                if "max_trades_per_symbol_per_day" in risk_section:
-                    limits.max_trades_per_symbol_per_day = int(risk_section["max_trades_per_symbol_per_day"])
-                
-                if "max_loss_streak" in risk_section:
-                    limits.max_loss_streak = int(risk_section["max_loss_streak"])
     except Exception as exc:
-        logger.warning("Failed to load base config from %s: %s", DEV_CONFIG_PATH, exc)
+        logger.warning("Failed to load base config from %s: %s", config_path_obj, exc)
     
     # Apply overrides from risk_overrides.yaml
     try:
-        if RISK_OVERRIDES_PATH.exists():
-            with RISK_OVERRIDES_PATH.open("r", encoding="utf-8") as f:
+        if overrides_path_obj.exists():
+            with overrides_path_obj.open("r", encoding="utf-8") as f:
                 overrides = yaml.safe_load(f) or {}
             
             if isinstance(overrides, dict):
@@ -98,59 +124,86 @@ def load_risk_limits() -> RiskLimits:
                 
                 if "max_loss_streak" in overrides:
                     limits.max_loss_streak = int(overrides["max_loss_streak"])
+                
+                # Get file modification time as updated_at
+                stat = overrides_path_obj.stat()
+                updated_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
     except Exception as exc:
-        logger.debug("No risk overrides found at %s: %s", RISK_OVERRIDES_PATH, exc)
+        logger.debug("No risk overrides found at %s: %s", overrides_path_obj, exc)
     
-    return limits
+    metadata = {
+        "updated_at": updated_at,
+        "source": {
+            "base_config": str(config_path),
+            "overrides": str(overrides_path)
+        }
+    }
+    
+    return limits, metadata
 
 
-def save_risk_limits(patch_dict: Dict[str, Any]) -> None:
+def save_risk_limits(
+    patch: Dict[str, Any],
+    overrides_path: str = str(RISK_OVERRIDES_PATH)
+) -> RiskLimits:
     """
     Save risk limit overrides to configs/risk_overrides.yaml.
     
     Args:
-        patch_dict: Dictionary of risk limit overrides to save
+        patch: Dictionary of risk limit overrides to save
+        overrides_path: Path to overrides file (default: configs/risk_overrides.yaml)
+    
+    Returns:
+        Updated RiskLimits instance after applying patch
     """
+    overrides_path_obj = Path(overrides_path)
+    
     # Ensure configs directory exists
-    CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
+    overrides_path_obj.parent.mkdir(parents=True, exist_ok=True)
     
     # Load existing overrides
     existing = {}
     try:
-        if RISK_OVERRIDES_PATH.exists():
-            with RISK_OVERRIDES_PATH.open("r", encoding="utf-8") as f:
+        if overrides_path_obj.exists():
+            with overrides_path_obj.open("r", encoding="utf-8") as f:
                 existing = yaml.safe_load(f) or {}
     except Exception as exc:
         logger.warning("Failed to load existing overrides: %s", exc)
     
     # Merge with new values
-    existing.update(patch_dict)
+    existing.update(patch)
     
     # Save to file
     try:
-        with RISK_OVERRIDES_PATH.open("w", encoding="utf-8") as f:
+        with overrides_path_obj.open("w", encoding="utf-8") as f:
             yaml.safe_dump(existing, f, default_flow_style=False)
-        logger.info("Risk overrides saved to %s", RISK_OVERRIDES_PATH)
+        logger.info("Risk overrides saved to %s", overrides_path_obj)
     except Exception as exc:
         logger.error("Failed to save risk overrides: %s", exc)
         raise
+    
+    # Reload and return updated limits
+    limits, _ = load_risk_limits(overrides_path=str(overrides_path_obj))
+    return limits
 
 
-def compute_breaches() -> List[Dict[str, Any]]:
+def compute_breaches(limits: RiskLimits) -> List[Dict[str, Any]]:
     """
     Compute active risk limit breaches based on current runtime metrics.
     
+    Args:
+        limits: RiskLimits instance with configured limits
+    
     Returns:
         List of active breach dictionaries, each containing:
-        - type: Breach type (e.g., "max_daily_loss", "max_trades_per_day")
-        - limit: The limit value
-        - current: The current value
-        - timestamp: When the breach was detected
+        - code: Breach code (e.g., "MAX_DAILY_LOSS", "MAX_DRAWDOWN")
+        - severity: "warning" or "critical"
+        - message: Human-readable message
+        - metric: Dict with current, limit, and unit
+        - symbol: Trading symbol (or null for global breaches)
+        - since: ISO timestamp when breach was first detected (or null)
     """
     breaches = []
-    
-    # Load risk limits
-    limits = load_risk_limits()
     
     # Load runtime metrics
     try:
@@ -166,53 +219,111 @@ def compute_breaches() -> List[Dict[str, Any]]:
     
     timestamp = datetime.now(timezone.utc).isoformat()
     
-    # Check max daily loss
+    # Check max daily loss - look for realized_pnl or net_pnl in equity section or overall section
+    equity = metrics.get("equity", {})
     overall = metrics.get("overall", {})
-    net_pnl = float(overall.get("net_pnl", 0.0))
+    
+    # Try multiple locations for PnL
+    net_pnl = float(equity.get("realized_pnl", overall.get("net_pnl", 0.0)))
+    
     if net_pnl < -limits.max_daily_loss_rupees:
         breaches.append({
-            "type": "max_daily_loss",
-            "limit": limits.max_daily_loss_rupees,
-            "current": abs(net_pnl),
-            "timestamp": timestamp,
+            "code": "MAX_DAILY_LOSS",
+            "severity": "critical",
+            "message": f"Daily loss of ₹{abs(net_pnl):,.2f} exceeds limit of ₹{limits.max_daily_loss_rupees:,.2f}",
+            "metric": {
+                "current": abs(net_pnl),
+                "limit": limits.max_daily_loss_rupees,
+                "unit": "rupees"
+            },
+            "symbol": None,
+            "since": timestamp,
         })
     
-    # Check max daily drawdown
-    equity = metrics.get("equity", {})
+    # Check max daily drawdown - could be negative decimal or percentage
+    max_drawdown = float(equity.get("max_drawdown", 0.0))
     max_equity = float(equity.get("max_equity", 0.0))
     current_equity = float(equity.get("current_equity", 0.0))
     
-    if max_equity > 0:
+    # Calculate drawdown percentage
+    if max_drawdown != 0.0:
+        # max_drawdown is already calculated (could be negative decimal like -0.025)
+        drawdown_pct = abs(max_drawdown) * 100.0 if abs(max_drawdown) < 1.0 else abs(max_drawdown)
+    elif max_equity > 0:
+        # Calculate from max and current equity
         drawdown_pct = ((max_equity - current_equity) / max_equity) * 100.0
-        if drawdown_pct > limits.max_daily_drawdown_pct:
-            breaches.append({
-                "type": "max_daily_drawdown_pct",
-                "limit": limits.max_daily_drawdown_pct,
+    else:
+        drawdown_pct = 0.0
+    
+    # Convert limit to percentage if needed (handle both decimal and percentage formats)
+    limit_pct = limits.max_daily_drawdown_pct * 100.0 if limits.max_daily_drawdown_pct < 1.0 else limits.max_daily_drawdown_pct
+    
+    if drawdown_pct > limit_pct:
+        breaches.append({
+            "code": "MAX_DRAWDOWN",
+            "severity": "critical",
+            "message": f"Daily drawdown of {drawdown_pct:.2f}% exceeds limit of {limit_pct:.2f}%",
+            "metric": {
                 "current": drawdown_pct,
-                "timestamp": timestamp,
-            })
+                "limit": limit_pct,
+                "unit": "percent"
+            },
+            "symbol": None,
+            "since": timestamp,
+        })
     
     # Check max trades per day
     total_trades = int(overall.get("total_trades", 0))
     if total_trades > limits.max_trades_per_day:
         breaches.append({
-            "type": "max_trades_per_day",
-            "limit": limits.max_trades_per_day,
-            "current": total_trades,
-            "timestamp": timestamp,
+            "code": "MAX_TRADES_PER_DAY",
+            "severity": "warning",
+            "message": f"Total trades ({total_trades}) exceeds daily limit of {limits.max_trades_per_day}",
+            "metric": {
+                "current": total_trades,
+                "limit": limits.max_trades_per_day,
+                "unit": "trades"
+            },
+            "symbol": None,
+            "since": timestamp,
         })
     
-    # Check max loss streak
-    # This would require tracking consecutive losing trades
-    # For now, we can check if there's a loss_streak field in metrics
-    loss_streak = int(metrics.get("loss_streak", 0))
+    # Check max loss streak (can be at top level or in overall section)
+    loss_streak = int(metrics.get("loss_streak", overall.get("loss_streak", 0)))
     if loss_streak > limits.max_loss_streak:
         breaches.append({
-            "type": "max_loss_streak",
-            "limit": limits.max_loss_streak,
-            "current": loss_streak,
-            "timestamp": timestamp,
+            "code": "MAX_LOSS_STREAK",
+            "severity": "critical",
+            "message": f"Loss streak of {loss_streak} exceeds limit of {limits.max_loss_streak}",
+            "metric": {
+                "current": loss_streak,
+                "limit": limits.max_loss_streak,
+                "unit": "trades"
+            },
+            "symbol": None,
+            "since": timestamp,
         })
+    
+    # Check max trades per symbol
+    per_symbol = metrics.get("per_symbol", {})
+    if isinstance(per_symbol, dict):
+        for symbol, symbol_metrics in per_symbol.items():
+            if not isinstance(symbol_metrics, dict):
+                continue
+            symbol_trades = int(symbol_metrics.get("total_trades", 0))
+            if symbol_trades > limits.max_trades_per_symbol_per_day:
+                breaches.append({
+                    "code": "MAX_TRADES_PER_SYMBOL",
+                    "severity": "warning",
+                    "message": f"Trades for {symbol} ({symbol_trades}) exceeds per-symbol limit of {limits.max_trades_per_symbol_per_day}",
+                    "metric": {
+                        "current": symbol_trades,
+                        "limit": limits.max_trades_per_symbol_per_day,
+                        "unit": "trades"
+                    },
+                    "symbol": symbol,
+                    "since": timestamp,
+                })
     
     return breaches
 
@@ -227,26 +338,28 @@ def compute_var(days: int = 30, confidence: float = 0.95) -> Dict[str, Any]:
         
     Returns:
         Dictionary with VaR computation results:
-        - var: Value at Risk in rupees
         - days: Number of days used
         - confidence: Confidence level
-        - observations: Number of data points used
-        - percentile: Percentile used for calculation
+        - method: "historical"
+        - var_rupees: Value at Risk in rupees
+        - var_pct: Value at Risk as percentage of capital
+        - sample_size: Number of data points used
     """
     if not DAILY_METRICS_DIR.exists():
         logger.warning("Daily metrics directory not found: %s", DAILY_METRICS_DIR)
         return {
-            "var": None,
             "days": days,
             "confidence": confidence,
-            "observations": 0,
-            "percentile": (1.0 - confidence) * 100.0,
-            "error": "No daily metrics available",
+            "method": "historical",
+            "var_rupees": 0.0,
+            "var_pct": 0.0,
+            "sample_size": 0,
         }
     
     # Load daily PnL values
     daily_pnls: List[float] = []
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    starting_capital = None
     
     try:
         for metrics_file in sorted(DAILY_METRICS_DIR.glob("*-metrics.json")):
@@ -261,32 +374,50 @@ def compute_var(days: int = 30, confidence: float = 0.95) -> Dict[str, Any]:
                 with metrics_file.open("r", encoding="utf-8") as f:
                     data = json.load(f)
                 
-                # Extract net PnL
+                # Extract net PnL - try multiple locations
+                equity = data.get("equity", {})
                 overall = data.get("overall", {})
-                net_pnl = float(overall.get("net_pnl", 0.0))
+                
+                # Try equity.realized_pnl first (used by tests), then overall.net_pnl
+                net_pnl = float(equity.get("realized_pnl", overall.get("net_pnl", 0.0)))
                 daily_pnls.append(net_pnl)
+                
+                # Get starting capital if available
+                if starting_capital is None:
+                    starting_capital = float(equity.get("starting_capital", 0.0))
             except Exception as exc:
                 logger.debug("Failed to load daily metrics from %s: %s", metrics_file, exc)
                 continue
     except Exception as exc:
         logger.error("Failed to load daily metrics: %s", exc)
         return {
-            "var": None,
             "days": days,
             "confidence": confidence,
-            "observations": 0,
-            "percentile": (1.0 - confidence) * 100.0,
-            "error": str(exc),
+            "method": "historical",
+            "var_rupees": 0.0,
+            "var_pct": 0.0,
+            "sample_size": 0,
         }
+    
+    # Try to get starting capital from runtime metrics if not found
+    if starting_capital is None or starting_capital == 0.0:
+        try:
+            if RUNTIME_METRICS_PATH.exists():
+                with RUNTIME_METRICS_PATH.open("r", encoding="utf-8") as f:
+                    runtime_data = json.load(f)
+                equity = runtime_data.get("equity", {})
+                starting_capital = float(equity.get("starting_capital", 500000.0))
+        except Exception:
+            starting_capital = 500000.0  # Default fallback
     
     if not daily_pnls:
         return {
-            "var": None,
             "days": days,
             "confidence": confidence,
-            "observations": 0,
-            "percentile": (1.0 - confidence) * 100.0,
-            "error": "No observations in the time window",
+            "method": "historical",
+            "var_rupees": 0.0,
+            "var_pct": 0.0,
+            "sample_size": 0,
         }
     
     # Sort PnLs (ascending order, worst losses first)
@@ -295,18 +426,17 @@ def compute_var(days: int = 30, confidence: float = 0.95) -> Dict[str, Any]:
     # Calculate VaR at the specified confidence level
     # VaR is the (1-confidence) percentile of losses
     # e.g., at 95% confidence, VaR is the 5th percentile
-    percentile = (1.0 - confidence) * 100.0
     index = int((len(daily_pnls) * (1.0 - confidence)))
     index = max(0, min(index, len(daily_pnls) - 1))
     
-    var_value = abs(daily_pnls[index])  # VaR is expressed as positive number
+    var_rupees = abs(daily_pnls[index])  # VaR is expressed as positive number
+    var_pct = (var_rupees / starting_capital) * 100.0 if starting_capital > 0 else 0.0
     
     return {
-        "var": var_value,
         "days": days,
         "confidence": confidence,
-        "observations": len(daily_pnls),
-        "percentile": percentile,
-        "worst_loss": abs(min(daily_pnls)),
-        "best_gain": max(daily_pnls),
+        "method": "historical",
+        "var_rupees": var_rupees,
+        "var_pct": var_pct,
+        "sample_size": len(daily_pnls),
     }
