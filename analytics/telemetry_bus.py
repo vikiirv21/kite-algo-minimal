@@ -13,6 +13,8 @@ Event Types:
 - decision_trace: Strategy decision traces
 - universe_scan: Universe scanning results
 - performance_update: Performance metrics updates
+- mde_status: Market data engine status updates
+- universe_summary: Universe summary events
 """
 
 from __future__ import annotations
@@ -22,11 +24,20 @@ import json
 import logging
 import time
 from collections import deque
+from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from threading import Lock
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class TelemetryEvent:
+    """Structured telemetry event with timestamp, type, and payload."""
+    ts: str
+    type: str
+    payload: Dict[str, Any]
 
 
 class TelemetryBus:
@@ -51,12 +62,12 @@ class TelemetryBus:
                     cls._instance = super().__new__(cls)
         return cls._instance
     
-    def __init__(self, buffer_size: int = 5000):
+    def __init__(self, buffer_size: int = 1000):
         """
         Initialize TelemetryBus.
         
         Args:
-            buffer_size: Maximum number of events to buffer in memory
+            buffer_size: Maximum number of events to buffer in memory (default: 1000)
         """
         # Only initialize once
         if hasattr(self, '_initialized'):
@@ -66,7 +77,77 @@ class TelemetryBus:
         self.buffer: deque = deque(maxlen=buffer_size)
         self._buffer_lock = Lock()
         self._event_types_seen: set = set()
+        self._subscribers: List = []
         logger.info("TelemetryBus initialized with buffer_size=%d", buffer_size)
+    
+    def publish(self, event_type: str, payload: Dict[str, Any]) -> None:
+        """
+        Publish a telemetry event (alias for publish_event).
+        
+        Args:
+            event_type: Type of event (e.g., 'signal_event', 'order_event')
+            payload: Event data as dictionary
+        """
+        self.publish_event(event_type, payload)
+    
+    def subscribe(self, callback) -> None:
+        """
+        Subscribe a callback to receive events.
+        
+        Args:
+            callback: Function to call with each event
+        """
+        with self._buffer_lock:
+            if callback not in self._subscribers:
+                self._subscribers.append(callback)
+                logger.debug("Added subscriber: %s", callback)
+    
+    def snapshot(self, since_ts: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get snapshot of events since a given timestamp.
+        
+        Args:
+            since_ts: ISO format timestamp to filter events after (None for all)
+            
+        Returns:
+            List of event dictionaries
+        """
+        with self._buffer_lock:
+            events = list(self.buffer)
+        
+        if since_ts is None:
+            return events
+        
+        # Filter events after the given timestamp
+        filtered = []
+        try:
+            since_dt = datetime.fromisoformat(since_ts.replace('Z', '+00:00'))
+            for event in events:
+                ts_str = event.get('timestamp', '')
+                try:
+                    event_dt = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
+                    if event_dt > since_dt:
+                        filtered.append(event)
+                except Exception:
+                    continue
+        except Exception:
+            # If timestamp parsing fails, return all events
+            return events
+        
+        return filtered
+    
+    @staticmethod
+    def to_json(event: Dict[str, Any]) -> str:
+        """
+        Convert event to JSON string.
+        
+        Args:
+            event: Event dictionary
+            
+        Returns:
+            JSON string representation of the event
+        """
+        return json.dumps(event, default=str)
     
     def publish_event(self, event_type: str, payload: Dict[str, Any]) -> None:
         """
@@ -90,6 +171,12 @@ class TelemetryBus:
         with self._buffer_lock:
             self.buffer.append(event)
             self._event_types_seen.add(event_type)
+            # Notify subscribers
+            for callback in self._subscribers:
+                try:
+                    callback(event)
+                except Exception as exc:
+                    logger.warning("Subscriber callback failed: %s", exc)
         
         # Log at debug level to avoid log spam
         logger.debug("Published %s event: %s", event_type, payload)
@@ -389,3 +476,33 @@ def publish_performance_update(
         **kwargs
     }
     publish_event("performance_update", payload)
+
+
+def publish_mde_status(
+    mde_name: str,
+    status: str,
+    metrics: Dict[str, Any],
+    **kwargs
+) -> None:
+    """Publish a market data engine status event."""
+    payload = {
+        "mde_name": mde_name,
+        "status": status,
+        "metrics": metrics,
+        **kwargs
+    }
+    publish_event("mde_status", payload)
+
+
+def publish_universe_summary(
+    universe_type: str,
+    summary: Dict[str, Any],
+    **kwargs
+) -> None:
+    """Publish a universe summary event."""
+    payload = {
+        "universe_type": universe_type,
+        "summary": summary,
+        **kwargs
+    }
+    publish_event("universe_summary", payload)
