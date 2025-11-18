@@ -192,7 +192,7 @@ async def test_order_status_discrepancy_pending_to_placed():
         side="BUY",
         qty=50,
         order_type="MARKET",
-        status=OrderStatus.PENDING,
+        status=OrderStatus.NEW,
         strategy="test_strategy"
     )
     
@@ -203,7 +203,7 @@ async def test_order_status_discrepancy_pending_to_placed():
         side="BUY",
         qty=50,
         order_type="MARKET",
-        status=OrderStatus.PLACED,
+        status=OrderStatus.OPEN,
         strategy="test_strategy"
     )
     
@@ -216,7 +216,7 @@ async def test_order_status_discrepancy_pending_to_placed():
     # Wait for async event publishing
     await asyncio.sleep(0.1)
     
-    assert local_order.status == OrderStatus.PLACED
+    assert local_order.status == OrderStatus.OPEN
     assert reconciler.discrepancy_count == 1
     assert len(published_events) > 0
     
@@ -256,7 +256,7 @@ async def test_order_fill_reconciliation():
         side="BUY",
         qty=50,
         order_type="MARKET",
-        status=OrderStatus.PLACED,
+        status=OrderStatus.OPEN,
         strategy="test_strategy",
         filled_qty=0,
         avg_price=None
@@ -324,7 +324,7 @@ async def test_order_partial_fill_reconciliation():
         side="BUY",
         qty=50,
         order_type="MARKET",
-        status=OrderStatus.PARTIAL,
+        status=OrderStatus.PARTIALLY_FILLED,
         strategy="test_strategy",
         filled_qty=20,
         avg_price=21000.0
@@ -337,7 +337,7 @@ async def test_order_partial_fill_reconciliation():
         side="BUY",
         qty=50,
         order_type="MARKET",
-        status=OrderStatus.PARTIAL,
+        status=OrderStatus.PARTIALLY_FILLED,
         strategy="test_strategy",
         filled_qty=35,
         avg_price=21000.0
@@ -390,7 +390,7 @@ async def test_order_cancelled_reconciliation():
         qty=50,
         order_type="LIMIT",
         price=21000.0,
-        status=OrderStatus.PLACED,
+        status=OrderStatus.OPEN,
         strategy="test_strategy"
     )
     
@@ -454,7 +454,7 @@ async def test_order_rejected_reconciliation():
         side="BUY",
         qty=50,
         order_type="MARKET",
-        status=OrderStatus.PLACED,
+        status=OrderStatus.OPEN,
         strategy="test_strategy"
     )
     
@@ -522,7 +522,7 @@ async def test_missing_order_in_broker():
         side="BUY",
         qty=50,
         order_type="MARKET",
-        status=OrderStatus.PLACED,
+        status=OrderStatus.OPEN,
         strategy="test_strategy"
     )
     
@@ -536,7 +536,7 @@ async def test_missing_order_in_broker():
     await asyncio.sleep(0.1)
     
     # Order should remain PLACED (will retry next cycle)
-    assert local_order.status == OrderStatus.PLACED
+    assert local_order.status == OrderStatus.OPEN
     
     # Discrepancy event should be published
     discrepancy_events = [e for e in published_events if e.type == EventType.RECONCILIATION_DISCREPANCY]
@@ -664,7 +664,7 @@ async def test_reconciliation_statistics():
         side="BUY",
         qty=50,
         order_type="MARKET",
-        status=OrderStatus.PENDING,
+        status=OrderStatus.NEW,
         strategy="test_strategy"
     )
     
