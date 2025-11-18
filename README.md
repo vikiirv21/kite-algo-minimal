@@ -49,6 +49,30 @@ python -m scripts.run_backtest_v3 \
 
 See [BACKTEST_ENGINE_V3.md](docs/BACKTEST_ENGINE_V3.md) for complete documentation.
 
+### Multi-Process Architecture (v3 Phase 1)
+Run each engine (FnO, Equity, Options) as a separate Python process for better isolation and scalability:
+
+```bash
+# Default: single-process mode (all engines in one process)
+python -m scripts.run_session --mode paper --config configs/dev.yaml
+
+# New: multi-process mode (one process per engine)
+python -m scripts.run_session --mode paper --config configs/dev.yaml --layout multi
+
+# Run individual engines directly
+python -m apps.run_fno_paper --config configs/dev.yaml --mode paper
+python -m apps.run_equity_paper --config configs/dev.yaml --mode paper
+python -m apps.run_options_paper --config configs/dev.yaml --mode paper
+```
+
+Features:
+- **Backward Compatible**: Default behavior unchanged
+- **Process Isolation**: Each engine runs independently
+- **Graceful Shutdown**: Handles Ctrl+C and SIGTERM properly
+- **Shared Artifacts**: All engines use same config and state files
+
+See [docs/MULTIPROCESS_ARCHITECTURE.md](docs/MULTIPROCESS_ARCHITECTURE.md) for complete documentation.
+
 ## Git Hooks & Documentation
 
 Auto-generated docs ensure REST and architecture notes stay current. Before committing, enable the local hook once:
