@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from kiteconnect import KiteConnect
 
+from analytics.telemetry_bus import publish_universe_scan
 from core.kite_http import kite_request
 
 logger = logging.getLogger(__name__)
@@ -106,6 +107,36 @@ def refresh_universe_from_kite(kite: KiteConnect, *, exchanges: Optional[List[st
     }
     save_universe(universe_payload)
     logger.info("Universe refreshed with %d instruments", len(entries))
+    
+    # Publish universe scan telemetry
+    try:
+        # Count instruments by type
+        equity_count = sum(1 for e in entries if e.instrument_type == "EQ")
+        fno_count = sum(1 for e in entries if e.instrument_type in ("FUT", "CE", "PE"))
+        
+        summary = {
+            "total_instruments": len(entries),
+            "equity_count": equity_count,
+            "fno_count": fno_count,
+            "exchanges": list(set(e.exchange for e in entries)),
+        }
+        
+        # Publish for each exchange
+        for exchange in exchanges:
+            exchange_entries = [e for e in entries if e.exchange == exchange]
+            if exchange_entries:
+                scan_type = "equity" if exchange == "NSE" else "fno"
+                publish_universe_scan(
+                    scan_type=scan_type,
+                    universe_size=len(exchange_entries),
+                    summary={
+                        "exchange": exchange,
+                        "instrument_types": list(set(e.instrument_type for e in exchange_entries if e.instrument_type)),
+                    }
+                )
+    except Exception as exc:
+        logger.debug("Failed to publish universe scan telemetry: %s", exc)
+    
     return universe_payload
 
 
