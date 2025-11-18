@@ -5,6 +5,9 @@ import { formatTimestamp, formatCurrency, getPnlClass, getPnlPrefix } from '../.
 export function TradingPage() {
   const { data: ordersData, isLoading } = useRecentOrders(50);
   
+  // Debug flag - set to true to see raw API data
+  const DEBUG_MODE = import.meta.env.DEV || false; // Only in development
+  
   const orders = ordersData?.orders || [];
   const activeOrders = orders.filter(o => 
     ['OPEN', 'PENDING', 'TRIGGER_PENDING'].includes(o.status?.toUpperCase())
@@ -16,6 +19,33 @@ export function TradingPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-3xl font-bold">Trading</h1>
+      
+      {/* DEBUG: Raw API Data (Development Only) */}
+      {DEBUG_MODE && ordersData && (
+        <Card title="🔍 DEBUG: Orders API Response">
+          <div className="text-xs font-mono space-y-2">
+            <div className="text-text-secondary mb-2">
+              Raw API data from <code className="bg-border px-1 rounded">/api/orders/recent?limit=50</code>
+            </div>
+            <div className="text-text-secondary text-[10px] mb-2">
+              Total orders: {orders.length}<br/>
+              Active orders: {activeOrders.length}<br/>
+              Completed orders: {completedOrders.length}
+            </div>
+            {orders.length > 0 && (
+              <>
+                <div className="text-text-secondary mb-1">First order:</div>
+                <pre className="bg-surface-light p-3 rounded overflow-x-auto text-[10px] leading-tight">
+                  {JSON.stringify(orders[0], null, 2)}
+                </pre>
+              </>
+            )}
+            {orders.length === 0 && (
+              <div className="text-warning">⚠️ No orders in response. Check if engine has placed any orders today.</div>
+            )}
+          </div>
+        </Card>
+      )}
       
       {/* Active Orders */}
       <Card title="Active Orders">
