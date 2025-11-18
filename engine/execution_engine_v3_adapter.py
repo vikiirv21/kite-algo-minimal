@@ -239,6 +239,20 @@ class ExecutionEngineV2ToV3Adapter:
             }
         )
     
+    def _map_status(self, status):
+        """Map V3 OrderStatus to V2 status string."""
+        STATUS_MAP = {
+            OrderStatus.OPEN: "PLACED",
+            OrderStatus.FILLED: "FILLED",
+            OrderStatus.CANCELLED: "CANCELLED",
+            OrderStatus.REJECTED: "REJECTED",
+            OrderStatus.SUBMITTED: "PLACED",
+            OrderStatus.NEW: "PLACED",
+            OrderStatus.PARTIALLY_FILLED: "PARTIAL",
+            OrderStatus.ERROR: "REJECTED",
+        }
+        return STATUS_MAP.get(status, str(status).upper())
+    
     def _convert_order_to_result(self, order: Order) -> ExecutionResult:
         """
         Convert V3 Order to V2 ExecutionResult.
@@ -249,20 +263,8 @@ class ExecutionEngineV2ToV3Adapter:
         Returns:
             V2 ExecutionResult
         """
-        # Map V3 status to V2 status
-        status_map = {
-            OrderStatus.NEW: "PENDING",
-            OrderStatus.SUBMITTED: "PENDING",
-            OrderStatus.OPEN: "PLACED",
-            OrderStatus.PARTIALLY_FILLED: "PARTIAL",
-            OrderStatus.FILLED: "FILLED",
-            OrderStatus.REJECTED: "REJECTED",
-            OrderStatus.CANCELLED: "CANCELLED",
-            OrderStatus.ERROR: "REJECTED",
-        }
-        
-        # Use get with default to handle any unknown statuses
-        status = status_map.get(order.status, str(order.status).upper())
+        # Use helper method to map status
+        status = self._map_status(order.status)
         
         return ExecutionResult(
             order_id=order.order_id,
