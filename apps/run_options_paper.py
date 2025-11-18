@@ -64,88 +64,99 @@ def main() -> None:
     
     args = parser.parse_args()
     
-    # Only support paper mode for this engine
-    if args.mode != "paper":
-        print(f"ERROR: This engine only supports paper mode, got: {args.mode}")
-        sys.exit(1)
-    
-    # Load config
+    # Wrap main logic in try/except for robust error handling
     try:
-        cfg = load_config(args.config)
-    except Exception as exc:
-        print(f"ERROR: Failed to load config from {args.config}: {exc}")
-        sys.exit(1)
-    
-    # Setup logging
-    setup_engine_logging(cfg)
-    
-    logger.info("=" * 60)
-    logger.info("OPTIONS PAPER ENGINE (Multi-Process Mode)")
-    logger.info("=" * 60)
-    logger.info("Config: %s", args.config)
-    logger.info("Mode: %s", args.mode)
-    logger.info("=" * 60)
-    
-    # Build Kite client
-    try:
-        kite = build_kite_client()
-    except SystemExit:
-        raise
-    except Exception as exc:
-        logger.error("Failed to build Kite client: %s", exc)
-        sys.exit(1)
-    
-    # Load scanner universe (optional)
-    universe_snapshot = load_scanner_universe(cfg, kite)
-    
-    # Resolve options universe
-    logical_underlyings, underlying_futs_map = resolve_options_universe(cfg, kite, universe_snapshot)
-    
-    if not logical_underlyings:
-        logger.error("No options underlyings configured. Nothing to trade.")
-        sys.exit(1)
-    
-    logger.info("Options underlyings: %s", ", ".join(logical_underlyings))
-    if underlying_futs_map:
-        logger.info("Underlying FUT mappings: %s", underlying_futs_map)
-    
-    # Create options paper engine
-    try:
-        _engine = OptionsPaperEngine(
-            cfg,
-            kite=kite,
-            logical_underlyings_override=logical_underlyings,
-            underlying_futs_override=underlying_futs_map,
-        )
-        logger.info("Options paper engine initialized successfully")
-    except Exception as exc:
-        logger.error("Failed to initialize options paper engine: %s", exc, exc_info=True)
-        sys.exit(1)
-    
-    # Setup signal handlers for graceful shutdown
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
-    # Start engine in foreground (synchronous)
-    logger.info("Starting options paper engine... (Press Ctrl+C to stop)")
-    
-    try:
-        _engine.run_forever()
-    except KeyboardInterrupt:
-        logger.info("Interrupted by user")
-    except Exception as exc:
-        logger.error("Engine failed with exception: %s", exc, exc_info=True)
-        sys.exit(1)
-    finally:
-        # Perform cleanup and save final checkpoint
-        logger.info("Performing final cleanup...")
-        try:
-            if hasattr(_engine, 'paper_broker') and _engine.paper_broker:
-                logger.info("Final state saved")
-        except Exception as exc:
-            logger.warning("Failed to save final state: %s", exc)
+        # Only support paper mode for this engine
+        if args.mode != "paper":
+            print(f"ERROR: This engine only supports paper mode, got: {args.mode}")
+            sys.exit(1)
         
-        logger.info("Options paper engine shutdown complete")
+        # Load config
+        try:
+            cfg = load_config(args.config)
+        except Exception as exc:
+            print(f"ERROR: Failed to load config from {args.config}: {exc}")
+            sys.exit(1)
+        
+        # Setup logging
+        setup_engine_logging(cfg)
+        
+        logger.info("=" * 60)
+        logger.info("OPTIONS PAPER ENGINE (Multi-Process Mode)")
+        logger.info("=" * 60)
+        logger.info("Config: %s", args.config)
+        logger.info("Mode: %s", args.mode)
+        logger.info("=" * 60)
+        
+        # Build Kite client
+        try:
+            kite = build_kite_client()
+        except SystemExit:
+            raise
+        except Exception as exc:
+            logger.error("Failed to build Kite client: %s", exc)
+            sys.exit(1)
+        
+        # Load scanner universe (optional)
+        universe_snapshot = load_scanner_universe(cfg, kite)
+        
+        # Resolve options universe
+        logical_underlyings, underlying_futs_map = resolve_options_universe(cfg, kite, universe_snapshot)
+        
+        if not logical_underlyings:
+            # Handle empty universe gracefully
+            logger.warning("=" * 60)
+            logger.warning("Options PaperEngine: options underlyings are empty; nothing to trade.")
+            logger.warning("Exiting cleanly with status 0 (no universe to trade)")
+            logger.warning("=" * 60)
+            sys.exit(0)
+        
+        logger.info("Options underlyings: %d symbols - %s", len(logical_underlyings), ", ".join(logical_underlyings))
+        if underlying_futs_map:
+            logger.info("Underlying FUT mappings: %s", underlying_futs_map)
+        
+        # Create options paper engine
+        try:
+            _engine = OptionsPaperEngine(
+                cfg,
+                kite=kite,
+                logical_underlyings_override=logical_underlyings,
+                underlying_futs_override=underlying_futs_map,
+            )
+            logger.info("Options paper engine initialized successfully")
+        except Exception as exc:
+            logger.error("Failed to initialize options paper engine: %s", exc, exc_info=True)
+            sys.exit(1)
+        
+        # Setup signal handlers for graceful shutdown
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+        
+        # Start engine in foreground (synchronous)
+        logger.info("Starting options paper engine... (Press Ctrl+C to stop)")
+        
+        try:
+            _engine.run_forever()
+        except KeyboardInterrupt:
+            logger.info("Interrupted by user")
+        except Exception as exc:
+            logger.error("Engine failed with exception: %s", exc, exc_info=True)
+            sys.exit(1)
+        finally:
+            # Perform cleanup and save final checkpoint
+            logger.info("Performing final cleanup...")
+            try:
+                if hasattr(_engine, 'paper_broker') and _engine.paper_broker:
+                    logger.info("Final state saved")
+            except Exception as exc:
+                logger.warning("Failed to save final state: %s", exc)
+            
+            logger.info("Options paper engine shutdown complete")
+    
+    except Exception as exc:
+        # Catch any unexpected errors and log them
+        logger.error("Options paper engine crashed with unexpected error: %s", exc, exc_info=True)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
