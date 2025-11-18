@@ -455,6 +455,9 @@ def monitor_multi_process_engines(processes: Dict[str, subprocess.Popen]) -> int
     
     logger.info("Monitoring %d engine processes. Press Ctrl+C to stop.", len(processes))
     
+    # Track which engines have exited cleanly (code 0) and which are still running
+    clean_exits = set()
+    
     try:
         # Poll all processes periodically
         while True:
@@ -462,25 +465,42 @@ def monitor_multi_process_engines(processes: Dict[str, subprocess.Popen]) -> int
             failed_engines = []
             
             for engine_name, proc in processes.items():
+                # Skip engines that have already exited cleanly
+                if engine_name in clean_exits:
+                    continue
+                
                 exit_code = proc.poll()
                 
                 if exit_code is None:
                     # Still running
                     all_stopped = False
+                elif exit_code == 0:
+                    # Clean exit (no work to do, or graceful shutdown)
+                    logger.info("Engine %s (PID=%d) exited cleanly with code=0 (no universe / no work)", 
+                               engine_name, proc.pid)
+                    clean_exits.add(engine_name)
+                    # DO NOT treat this as a failure
                 elif exit_code != 0:
                     # Failed
                     failed_engines.append((engine_name, exit_code))
                     logger.error("Engine %s (PID=%d) exited with code=%d", 
                                 engine_name, proc.pid, exit_code)
             
-            # If any engine failed, stop all and exit
+            # If any engine failed (non-zero exit), stop all and exit
             if failed_engines:
                 logger.error("Detected %d failed engine(s). Stopping all engines...", 
                            len(failed_engines))
                 _stop_all_processes(processes)
                 return 1
             
-            # If all stopped normally, we're done
+            # Check if only engines left are those still running (excluding clean exits)
+            running_engines = [name for name in processes.keys() if name not in clean_exits]
+            if not running_engines:
+                # All engines have exited cleanly
+                logger.info("All engines stopped normally")
+                return 0
+            
+            # If all remaining engines stopped (either clean or still being checked), we're done
             if all_stopped:
                 logger.info("All engines stopped normally")
                 return 0
