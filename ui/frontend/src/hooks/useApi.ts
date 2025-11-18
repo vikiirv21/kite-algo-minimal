@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import { api } from '../api/client';
 
 // Query keys
@@ -147,18 +148,22 @@ export function useSystemTime() {
 
 // Derived hook for connection status
 export function useConnectionStatus() {
-  const { isSuccess, isError, dataUpdatedAt } = useSystemTime();
-  const now = Date.now();
-  const timeSinceUpdate = now - dataUpdatedAt;
+  const query = useSystemTime();
+  const { isSuccess, isError, dataUpdatedAt } = query;
   
-  // Consider disconnected if no update in 15 seconds
-  const isConnected = isSuccess && timeSinceUpdate < 15000;
-  
-  return {
-    isConnected,
-    isDisconnected: isError || timeSinceUpdate >= 15000,
-    timeSinceUpdate,
-  };
+  return useMemo(() => {
+    // eslint-disable-next-line react-hooks/purity -- Date.now() required for time-based status calculation
+    const timeSinceUpdate = dataUpdatedAt > 0 ? Date.now() - dataUpdatedAt : Infinity;
+    
+    // Consider disconnected if no update in 15 seconds
+    const isConnected = isSuccess && timeSinceUpdate < 15000;
+    
+    return {
+      isConnected,
+      isDisconnected: isError || timeSinceUpdate >= 15000,
+      timeSinceUpdate,
+    };
+  }, [isSuccess, isError, dataUpdatedAt]);
 }
 
 // Analytics hooks
