@@ -2792,6 +2792,232 @@ async def api_performance() -> JSONResponse:
         return JSONResponse(default_metrics)
 
 
+# ============================================================================
+# Risk Metrics API Endpoints (Advanced Risk Metrics Dashboard)
+# ============================================================================
+
+@router.get("/api/risk/limits")
+async def api_risk_limits() -> JSONResponse:
+    """
+    Get current risk limits configuration.
+    
+    Returns:
+        {
+            "limits": {
+                "max_daily_loss_rupees": 5000.0,
+                "max_daily_drawdown_pct": 0.02,
+                "max_trades_per_day": 100,
+                "max_trades_per_symbol_per_day": 5,
+                "max_loss_streak": 5
+            },
+            "source": {
+                "base_config": "configs/dev.yaml",
+                "overrides": "configs/risk_overrides.yaml"
+            },
+            "updated_at": "2025-11-18T10:30:00+00:00"
+        }
+    """
+    try:
+        from analytics.risk_service import load_risk_limits
+        
+        risk_limits, metadata = load_risk_limits()
+        
+        return JSONResponse({
+            "limits": {
+                "max_daily_loss_rupees": risk_limits.max_daily_loss_rupees,
+                "max_daily_drawdown_pct": risk_limits.max_daily_drawdown_pct,
+                "max_trades_per_day": risk_limits.max_trades_per_day,
+                "max_trades_per_symbol_per_day": risk_limits.max_trades_per_symbol_per_day,
+                "max_loss_streak": risk_limits.max_loss_streak,
+            },
+            "source": {
+                "base_config": metadata.get("base_config"),
+                "overrides": metadata.get("overrides"),
+            },
+            "updated_at": metadata.get("updated_at"),
+        })
+    except Exception as exc:
+        logger.error("Failed to load risk limits: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to load risk limits: {str(exc)}"
+        ) from exc
+
+
+@router.get("/api/risk/breaches")
+async def api_risk_breaches() -> JSONResponse:
+    """
+    Get current risk limit breaches/violations.
+    
+    Returns:
+        {
+            "breaches": [
+                {
+                    "code": "MAX_DAILY_LOSS",
+                    "severity": "critical",
+                    "message": "Daily loss of ₹5500.00 exceeds limit of ₹5000.00",
+                    "metric": {
+                        "current": 5500.0,
+                        "limit": 5000.0,
+                        "unit": "rupees"
+                    },
+                    "symbol": null,
+                    "since": "2025-11-18T10:30:00+00:00"
+                }
+            ]
+        }
+    """
+    try:
+        from analytics.risk_service import load_risk_limits, compute_breaches
+        
+        risk_limits, _ = load_risk_limits()
+        breaches = compute_breaches(risk_limits)
+        
+        return JSONResponse({"breaches": breaches})
+    except Exception as exc:
+        logger.error("Failed to compute risk breaches: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to compute risk breaches: {str(exc)}"
+        ) from exc
+
+
+@router.get("/api/risk/var")
+async def api_risk_var(
+    days: int = Query(30, ge=1, le=365, description="Number of days of historical data"),
+    confidence: float = Query(0.95, ge=0.01, le=0.99, description="Confidence level (0.01-0.99)"),
+) -> JSONResponse:
+    """
+    Calculate Value at Risk (VaR) using historical method.
+    
+    Query params:
+        - days: Number of days of historical data to use (default: 30)
+        - confidence: Confidence level, e.g., 0.95 for 95% VaR (default: 0.95)
+    
+    Returns:
+        {
+            "days": 30,
+            "confidence": 0.95,
+            "method": "historical",
+            "var_rupees": 2500.0,
+            "var_pct": 0.5,
+            "sample_size": 30
+        }
+    """
+    try:
+        from analytics.risk_service import compute_var
+        
+        var_result = compute_var(days=days, confidence=confidence)
+        
+        return JSONResponse(var_result)
+    except Exception as exc:
+        logger.error("Failed to compute VaR: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to compute VaR: {str(exc)}"
+        ) from exc
+
+
+@router.post("/api/risk/limits")
+async def api_risk_limits_update(request: Request) -> JSONResponse:
+    """
+    Update risk limits with partial patch.
+    
+    Request body (JSON):
+        {
+            "max_daily_loss_rupees": 6000.0,
+            "max_trades_per_day": 120
+        }
+    
+    Returns:
+        {
+            "status": "ok",
+            "limits": {
+                "max_daily_loss_rupees": 6000.0,
+                "max_daily_drawdown_pct": 0.02,
+                "max_trades_per_day": 120,
+                "max_trades_per_symbol_per_day": 5,
+                "max_loss_streak": 5
+            }
+        }
+    """
+    try:
+        from analytics.risk_service import save_risk_limits
+        
+        # Parse request body
+        body = await request.json()
+        
+        # Validate patch fields
+        valid_fields = {
+            "max_daily_loss_rupees",
+            "max_daily_drawdown_pct",
+            "max_trades_per_day",
+            "max_trades_per_symbol_per_day",
+            "max_loss_streak",
+        }
+        
+        patch = {}
+        for key, value in body.items():
+            if key not in valid_fields:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid field: {key}. Valid fields: {', '.join(sorted(valid_fields))}"
+                )
+            
+            # Type validation
+            if key in {"max_daily_loss_rupees", "max_daily_drawdown_pct"}:
+                try:
+                    patch[key] = float(value)
+                except (TypeError, ValueError):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Field {key} must be a number"
+                    ) from None
+            else:
+                try:
+                    patch[key] = int(value)
+                except (TypeError, ValueError):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Field {key} must be an integer"
+                    ) from None
+            
+            # Range validation
+            if patch[key] <= 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Field {key} must be greater than 0"
+                )
+        
+        if not patch:
+            raise HTTPException(
+                status_code=400,
+                detail="No valid fields provided in patch"
+            )
+        
+        # Save updated limits
+        updated_limits = save_risk_limits(patch)
+        
+        return JSONResponse({
+            "status": "ok",
+            "limits": {
+                "max_daily_loss_rupees": updated_limits.max_daily_loss_rupees,
+                "max_daily_drawdown_pct": updated_limits.max_daily_drawdown_pct,
+                "max_trades_per_day": updated_limits.max_trades_per_day,
+                "max_trades_per_symbol_per_day": updated_limits.max_trades_per_symbol_per_day,
+                "max_loss_streak": updated_limits.max_loss_streak,
+            }
+        })
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to update risk limits: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update risk limits: {str(exc)}"
+        ) from exc
+
+
 # Mount old static files (for backwards compatibility during transition)
 if STATIC_DIR.exists():
     from starlette.staticfiles import StaticFiles as StarletteStaticFilesLegacy
