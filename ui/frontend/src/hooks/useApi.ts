@@ -48,6 +48,7 @@ export function useEnginesStatus() {
     queryKey: queryKeys.engines,
     queryFn: api.getEnginesStatus,
     refetchInterval: 3000, // 3 seconds
+    refetchIntervalInBackground: true,
   });
 }
 
@@ -55,7 +56,8 @@ export function usePortfolioSummary() {
   return useQuery({
     queryKey: queryKeys.portfolio,
     queryFn: api.getPortfolioSummary,
-    refetchInterval: 3000, // 3 seconds
+    refetchInterval: 2000, // 2 seconds - portfolio metrics need to be most responsive
+    refetchIntervalInBackground: true,
   });
 }
 
@@ -64,6 +66,7 @@ export function useOpenPositions() {
     queryKey: queryKeys.positions,
     queryFn: api.getOpenPositions,
     refetchInterval: 3000, // 3 seconds
+    refetchIntervalInBackground: true,
   });
 }
 
@@ -80,6 +83,7 @@ export function useRecentOrders(limit = 50) {
     queryKey: queryKeys.recentOrders(limit),
     queryFn: () => api.getRecentOrders(limit),
     refetchInterval: 3000, // 3 seconds
+    refetchIntervalInBackground: true,
   });
 }
 
@@ -96,6 +100,7 @@ export function useRecentSignals(limit = 50) {
     queryKey: queryKeys.recentSignals(limit),
     queryFn: () => api.getRecentSignals(limit),
     refetchInterval: 2000, // 2 seconds
+    refetchIntervalInBackground: true,
   });
 }
 
@@ -120,6 +125,7 @@ export function useTodaySummary() {
     queryKey: queryKeys.todaySummary,
     queryFn: api.getTodaySummary,
     refetchInterval: 3000, // 3 seconds
+    refetchIntervalInBackground: true,
   });
 }
 
