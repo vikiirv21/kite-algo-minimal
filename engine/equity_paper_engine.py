@@ -30,6 +30,13 @@ from strategies.fno_intraday_trend import (
 )
 from analytics.trade_recorder import TradeRecorder
 from analytics.multi_timeframe_engine import MultiTimeframeEngine
+from analytics.telemetry_bus import (
+    publish_engine_health,
+    publish_signal_event,
+    publish_order_event,
+    publish_position_event,
+    publish_decision_trace,
+)
 from engine.meta_strategy_engine import (
     MetaDecision,
     MetaStrategyEngine,
@@ -356,6 +363,11 @@ class EquityPaperEngine:
     def run_forever(self) -> None:
         if not self.universe:
             logger.error("No equity_universe configured. Aborting EquityPaperEngine.")
+            publish_engine_health(
+                "equity_paper_engine",
+                "error",
+                {"mode": self.mode.value, "error": "no_universe"}
+            )
             return
 
         logger.info(
@@ -363,22 +375,41 @@ class EquityPaperEngine:
             self.universe,
             self.mode.value,
         )
+        
+        # Publish engine startup telemetry
+        publish_engine_health(
+            "equity_paper_engine",
+            "starting",
+            {
+                "mode": self.mode.value,
+                "universe_size": len(self.universe),
+                "strategy_name": self.strategy_name,
+            }
+        )
 
-        while self.running:
-            try:
-                if not is_market_open():
-                    logger.info("Market appears closed (EquityPaperEngine); sleeping...")
+        try:
+            while self.running:
+                try:
+                    if not is_market_open():
+                        logger.info("Market appears closed (EquityPaperEngine); sleeping...")
+                        time.sleep(self.sleep_sec)
+                        continue
+
+                    self._loop_once()
                     time.sleep(self.sleep_sec)
-                    continue
-
-                self._loop_once()
-                time.sleep(self.sleep_sec)
-            except KeyboardInterrupt:
-                logger.info("EquityPaperEngine interrupted by user.")
-                self.running = False
-            except Exception as exc:  # noqa: BLE001
-                logger.exception("Unexpected error in equity engine loop: %s", exc)
-                time.sleep(self.sleep_sec)
+                except KeyboardInterrupt:
+                    logger.info("EquityPaperEngine interrupted by user.")
+                    self.running = False
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("Unexpected error in equity engine loop: %s", exc)
+                    time.sleep(self.sleep_sec)
+        finally:
+            # Publish engine shutdown telemetry
+            publish_engine_health(
+                "equity_paper_engine",
+                "stopped",
+                {"mode": self.mode.value}
+            )
 
     def _loop_once(self) -> None:
         self._loop_counter += 1
