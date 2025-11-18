@@ -119,9 +119,12 @@ def build_fno_universe(cfg_obj: AppConfig) -> Tuple[List[str], Dict[str, str]]:
     """
     Build FnO universe using the same logic as scripts.run_day.py.
     
-    This function:
+    This function replicates the exact universe resolution logic from run_day.py to ensure
+    consistency between single-process and multi-process architectures.
+    
+    Resolution order:
     1. Loads or scans the daily universe using MarketScanner
-    2. Extracts logical symbols and tradingsymbol mappings
+    2. Extracts logical symbols and tradingsymbol mappings from scanner
     3. Falls back to config if scanner data is unavailable
     4. Provides detailed logging of universe resolution
     
