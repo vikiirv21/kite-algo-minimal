@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import { api } from '../api/client';
 
 // Query keys
@@ -48,6 +49,7 @@ export function useEnginesStatus() {
     queryKey: queryKeys.engines,
     queryFn: api.getEnginesStatus,
     refetchInterval: 3000, // 3 seconds
+    refetchIntervalInBackground: true,
   });
 }
 
@@ -55,7 +57,8 @@ export function usePortfolioSummary() {
   return useQuery({
     queryKey: queryKeys.portfolio,
     queryFn: api.getPortfolioSummary,
-    refetchInterval: 3000, // 3 seconds
+    refetchInterval: 2000, // 2 seconds - portfolio metrics need to be most responsive
+    refetchIntervalInBackground: true,
   });
 }
 
@@ -64,6 +67,7 @@ export function useOpenPositions() {
     queryKey: queryKeys.positions,
     queryFn: api.getOpenPositions,
     refetchInterval: 3000, // 3 seconds
+    refetchIntervalInBackground: true,
   });
 }
 
@@ -80,6 +84,7 @@ export function useRecentOrders(limit = 50) {
     queryKey: queryKeys.recentOrders(limit),
     queryFn: () => api.getRecentOrders(limit),
     refetchInterval: 3000, // 3 seconds
+    refetchIntervalInBackground: true,
   });
 }
 
@@ -96,6 +101,7 @@ export function useRecentSignals(limit = 50) {
     queryKey: queryKeys.recentSignals(limit),
     queryFn: () => api.getRecentSignals(limit),
     refetchInterval: 2000, // 2 seconds
+    refetchIntervalInBackground: true,
   });
 }
 
@@ -120,6 +126,7 @@ export function useTodaySummary() {
     queryKey: queryKeys.todaySummary,
     queryFn: api.getTodaySummary,
     refetchInterval: 3000, // 3 seconds
+    refetchIntervalInBackground: true,
   });
 }
 
@@ -141,18 +148,22 @@ export function useSystemTime() {
 
 // Derived hook for connection status
 export function useConnectionStatus() {
-  const { isSuccess, isError, dataUpdatedAt } = useSystemTime();
-  const now = Date.now();
-  const timeSinceUpdate = now - dataUpdatedAt;
+  const query = useSystemTime();
+  const { isSuccess, isError, dataUpdatedAt } = query;
   
-  // Consider disconnected if no update in 15 seconds
-  const isConnected = isSuccess && timeSinceUpdate < 15000;
-  
-  return {
-    isConnected,
-    isDisconnected: isError || timeSinceUpdate >= 15000,
-    timeSinceUpdate,
-  };
+  return useMemo(() => {
+    // eslint-disable-next-line react-hooks/purity -- Date.now() required for time-based status calculation
+    const timeSinceUpdate = dataUpdatedAt > 0 ? Date.now() - dataUpdatedAt : Infinity;
+    
+    // Consider disconnected if no update in 15 seconds
+    const isConnected = isSuccess && timeSinceUpdate < 15000;
+    
+    return {
+      isConnected,
+      isDisconnected: isError || timeSinceUpdate >= 15000,
+      timeSinceUpdate,
+    };
+  }, [isSuccess, isError, dataUpdatedAt]);
 }
 
 // Analytics hooks
