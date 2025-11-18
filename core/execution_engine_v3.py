@@ -24,6 +24,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+from analytics.telemetry_bus import publish_order_event
+
 logger = logging.getLogger(__name__)
 
 
@@ -375,6 +377,17 @@ class PaperExecutionEngine(ExecutionEngine):
                     "symbol": order.symbol,
                     "reason": order.message
                 })
+                
+                # Publish to telemetry bus
+                publish_order_event(
+                    order_id=order.order_id,
+                    symbol=order.symbol,
+                    side=order.side,
+                    status=OrderStatus.REJECTED,
+                    reason=order.message,
+                    strategy=order.strategy,
+                )
+                
                 return order
             
             # Check if LIMIT order is marketable
@@ -394,6 +407,17 @@ class PaperExecutionEngine(ExecutionEngine):
                         "symbol": order.symbol,
                         "reason": order.message
                     })
+                    
+                    # Publish to telemetry bus
+                    publish_order_event(
+                        order_id=order.order_id,
+                        symbol=order.symbol,
+                        side=order.side,
+                        status=OrderStatus.REJECTED,
+                        reason=order.message,
+                        strategy=order.strategy,
+                    )
+                    
                     return order
             
             # Calculate fill price with slippage and spread
@@ -438,6 +462,19 @@ class PaperExecutionEngine(ExecutionEngine):
                     "status": order.status,
                     "remaining_qty": order.remaining_qty
                 }
+            )
+            
+            # Also publish to telemetry bus
+            publish_order_event(
+                order_id=order.order_id,
+                symbol=order.symbol,
+                side=order.side,
+                status=order.status,
+                qty=filled_qty,
+                price=fill_price,
+                remaining_qty=order.remaining_qty,
+                strategy=order.strategy,
+                order_type=order.order_type,
             )
             
             self.logger.info(
