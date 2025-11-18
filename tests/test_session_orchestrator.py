@@ -166,6 +166,55 @@ class TestSessionOrchestrator:
         # Test is_market_open (should return boolean)
         result = is_market_open(session_config)
         assert isinstance(result, bool)
+    
+    def test_multi_process_layout_flag(self):
+        """Test that --layout multi flag is supported"""
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "scripts.run_session",
+                "--help",
+            ],
+            cwd=BASE_DIR,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        
+        assert result.returncode == 0
+        assert "--layout" in result.stdout
+        assert "multi" in result.stdout
+        assert "single" in result.stdout
+    
+    def test_start_engine_helper(self):
+        """Test _start_engine helper function exists and has correct signature"""
+        from scripts.run_session import _start_engine
+        from pathlib import Path
+        import inspect
+        
+        # Check function exists
+        assert callable(_start_engine)
+        
+        # Check function signature
+        sig = inspect.signature(_start_engine)
+        params = list(sig.parameters.keys())
+        assert "cmd" in params
+        assert "log_path" in params
+        assert "name" in params
+    
+    def test_multi_process_functions_exist(self):
+        """Test that multi-process helper functions exist"""
+        from scripts.run_session import (
+            start_multi_process_engines,
+            monitor_multi_process_engines,
+            _stop_all_processes,
+        )
+        
+        # Check functions exist
+        assert callable(start_multi_process_engines)
+        assert callable(monitor_multi_process_engines)
+        assert callable(_stop_all_processes)
 
 
 if __name__ == "__main__":
