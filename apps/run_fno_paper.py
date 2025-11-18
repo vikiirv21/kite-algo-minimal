@@ -21,9 +21,7 @@ from typing import Optional
 from core.config import load_config
 from core.engine_bootstrap import (
     setup_engine_logging,
-    build_kite_client,
-    resolve_fno_universe,
-    load_scanner_universe,
+    build_fno_universe,
 )
 from core.state_store import JournalStateStore, StateStore
 from engine.paper_engine import PaperEngine
@@ -89,7 +87,36 @@ def main() -> None:
         logger.info("Mode: %s", args.mode)
         logger.info("=" * 60)
         
-        # Build Kite client
+        # Build FnO universe using the same logic as scripts.run_day.py
+        logger.info("Resolving FnO universe...")
+        logical_universe, symbol_map = build_fno_universe(cfg)
+        
+        # Check if universe is empty
+        if not logical_universe:
+            logger.warning("=" * 60)
+            logger.warning("FnoPaperEngine: no FnO universe resolved (logical=%s, symbol_map=%s); exiting with code 0.",
+                         logical_universe, symbol_map)
+            logger.warning("This is expected if:")
+            logger.warning("  1. config.trading.fno_universe is empty")
+            logger.warning("  2. Scanner data is unavailable")
+            logger.warning("  3. Network/API issues prevent resolution")
+            logger.warning("=" * 60)
+            sys.exit(0)
+        
+        # Log resolved universe
+        logger.info("=" * 60)
+        logger.info("FnoPaperEngine: starting with logical_universe=%s", logical_universe)
+        if symbol_map:
+            logger.info("FnoPaperEngine: tradingsymbols=%s", list(symbol_map.values()))
+            logger.info("FnoPaperEngine: symbol mappings:")
+            for logical, trading in symbol_map.items():
+                logger.info("  %s -> %s", logical, trading)
+        else:
+            logger.warning("FnoPaperEngine: symbol_map is empty, will rely on runtime resolution")
+        logger.info("=" * 60)
+        
+        # Build Kite client (needed by PaperEngine)
+        from core.engine_bootstrap import build_kite_client
         try:
             kite = build_kite_client()
         except SystemExit:
@@ -97,24 +124,6 @@ def main() -> None:
         except Exception as exc:
             logger.error("Failed to build Kite client: %s", exc)
             sys.exit(1)
-        
-        # Load scanner universe (optional)
-        universe_snapshot = load_scanner_universe(cfg, kite)
-        
-        # Resolve FnO universe
-        logical_universe, symbol_map = resolve_fno_universe(cfg, kite, universe_snapshot)
-        
-        if not logical_universe:
-            # Handle empty universe gracefully
-            logger.warning("=" * 60)
-            logger.warning("FnO PaperEngine: FnO universe is empty; nothing to trade.")
-            logger.warning("Exiting cleanly with status 0 (no universe to trade)")
-            logger.warning("=" * 60)
-            sys.exit(0)
-        
-        logger.info("FnO universe: %d symbols - %s", len(logical_universe), ", ".join(logical_universe))
-        if symbol_map:
-            logger.info("Symbol mappings: %s", symbol_map)
         
         # Initialize state stores
         journal_store = JournalStateStore(mode="paper")
