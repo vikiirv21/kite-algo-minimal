@@ -23,6 +23,7 @@ export interface ConfigSummary {
   risk_per_trade_pct: number;
   max_daily_loss: number;
   max_exposure_pct: number;
+  max_positions: number;
   risk_profile: string;
   meta_enabled: boolean;
 }
