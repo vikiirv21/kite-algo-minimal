@@ -34,6 +34,13 @@ from core.state_store import JournalStateStore, StateStore
 from core.strategy_engine_v2 import StrategyEngineV2
 from core.event_logging import log_event
 from core.portfolio_engine import PortfolioEngine, PortfolioConfig
+from analytics.telemetry_bus import (
+    publish_engine_health,
+    publish_signal_event,
+    publish_order_event,
+    publish_position_event,
+    publish_decision_trace,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +188,11 @@ class LiveEngine:
         if not self.broker.ensure_logged_in():
             logger.error("❌ Cannot start LiveEngine: not logged in to Kite")
             self.running = False
+            publish_engine_health(
+                "live_engine",
+                "error",
+                {"mode": "live", "error": "not_logged_in"}
+            )
             return
         
         # Load universe from config
@@ -193,6 +205,11 @@ class LiveEngine:
         if not self.universe:
             logger.error("❌ No symbols configured for LIVE trading - cannot start")
             self.running = False
+            publish_engine_health(
+                "live_engine",
+                "error",
+                {"mode": "live", "error": "no_universe"}
+            )
             return
         
         logger.info("📊 LIVE universe: %s", self.universe)
@@ -203,6 +220,11 @@ class LiveEngine:
         if not self.instrument_tokens:
             logger.error("❌ Could not resolve any instrument tokens - cannot subscribe to ticks")
             self.running = False
+            publish_engine_health(
+                "live_engine",
+                "error",
+                {"mode": "live", "error": "no_tokens"}
+            )
             return
         
         # Subscribe to WebSocket ticks
@@ -210,12 +232,44 @@ class LiveEngine:
         if not self.broker.subscribe_ticks(tokens, self.on_tick):
             logger.error("❌ Failed to subscribe to WebSocket ticks")
             self.running = False
+            publish_engine_health(
+                "live_engine",
+                "error",
+                {"mode": "live", "error": "subscribe_failed"}
+            )
             return
         
         logger.info("✅ LiveEngine started - processing ticks")
         
+        # Publish engine startup telemetry
+        publish_engine_health(
+            "live_engine",
+            "starting",
+            {
+                "mode": "live",
+                "universe_size": len(self.universe),
+                "universe": self.universe,
+            }
+        )
+        
         # Main event loop (keeps engine alive)
-        self._run_event_loop()
+        try:
+            self._run_event_loop()
+        except Exception as exc:
+            logger.error("LiveEngine error: %s", exc, exc_info=True)
+            publish_engine_health(
+                "live_engine",
+                "error",
+                {"mode": "live", "error": str(exc)}
+            )
+            raise
+        finally:
+            # Publish engine shutdown telemetry
+            publish_engine_health(
+                "live_engine",
+                "stopped",
+                {"mode": "live"}
+            )
     
     def _run_event_loop(self) -> None:
         """
