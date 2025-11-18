@@ -55,20 +55,32 @@ data:
   replay_speed: 1.0         # Replay speed multiplier (1.0 = real-time, 10.0 = 10x faster)
 
 strategy_engine:
-  version: 1                # 1 = legacy StrategyRunner, 2 = StrategyEngineV2
-  enabled: true             # Enable strategy engine (applies to both v1 and v2)
+  engine: v2                # Use StrategyEngineV2
+  version: 2                # 2 = StrategyEngineV2
+  enabled: true             # Enable strategy engine
+  primary_strategy_id: EMA_20_50  # Primary strategy to use
   
-  # When version: 2, specify v2 strategies to enable:
+  # V2 strategies configuration
   strategies_v2:
-    # - ema20_50_intraday_v2
+    - id: EMA_20_50
+      module: strategies.ema20_50_intraday_v2
+      class: EMA2050IntradayV2
+      enabled: true
+      params:
+        timeframe: "5m"
+        min_rr: 1.5
+        max_risk_per_trade_pct: 0.01
+        min_trend_strength: 0.4
+        min_confidence: 0.55
   
   # Additional config for v2 engine
   window_size: 200          # Historical candle window for indicators
+  history_lookback: 200     # Alias for window_size
   use_unified_indicators: true
   
   # V2 filtering and conflict resolution
   conflict_resolution: "highest_confidence"  # "highest_confidence", "priority", or "net_out"
-  strategy_priorities: {}   # E.g., {"ema20_50_intraday_v2": 100, "other_strategy": 50}
+  strategy_priorities: {}   # E.g., {"EMA_20_50": 100, "other_strategy": 50}
   max_trades_per_day: 10    # Per-strategy daily trade limit
   max_loss_streak: 3        # Disable strategy after N consecutive losses
 

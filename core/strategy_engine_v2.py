@@ -8,7 +8,9 @@ Provides clean separation between strategy logic, market data, and execution.
 from __future__ import annotations
 
 import logging
+import importlib
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -62,36 +64,55 @@ class StrategySignal:
         }
 
 
+@dataclass
 class OrderIntent:
-    """Represents a trading intent from a strategy before risk checks."""
+    """
+    Unified OrderIntent dataclass for StrategyEngineV2.
     
-    def __init__(
-        self,
-        symbol: str,
-        action: str,  # "BUY", "SELL", "EXIT"
-        qty: Optional[int] = None,
-        reason: str = "",
-        strategy_code: str = "",
-        confidence: float = 0.0,
-        metadata: Optional[Dict[str, Any]] = None
-    ):
-        self.symbol = symbol
-        self.action = action.upper()
-        self.qty = qty
-        self.reason = reason
-        self.strategy_code = strategy_code
-        self.confidence = confidence
-        self.metadata = metadata or {}
+    Represents a trading intent from a strategy before risk checks.
+    All trading decisions flow through this standardized format.
+    """
+    signal: str  # "BUY", "SELL", "EXIT", "HOLD"
+    side: str  # "LONG", "SHORT", "FLAT"
+    logical: str  # Logical symbol identifier (e.g., "NIFTY", "EQ_RELIANCE")
+    symbol: str  # Actual trading symbol
+    timeframe: str  # Timeframe (e.g., "5m", "15m")
+    strategy_id: str  # Strategy identifier
+    confidence: float  # Confidence score (0.0 to 1.0)
+    qty_hint: Optional[int] = None  # Optional quantity hint
+    reason: str = ""  # Entry/signal reason
+    exit_reason: str = ""  # Exit reason (if applicable)
+    extra: Dict[str, Any] = field(default_factory=dict)  # Additional metadata
+    
+    # Legacy fields for backward compatibility
+    action: Optional[str] = None  # Maps to signal
+    strategy_code: Optional[str] = None  # Maps to strategy_id
+    metadata: Optional[Dict[str, Any]] = None  # Maps to extra
+    
+    def __post_init__(self):
+        """Ensure signal is uppercase and legacy fields are synchronized."""
+        self.signal = self.signal.upper()
+        # Sync legacy fields
+        if self.action is None:
+            self.action = self.signal
+        if self.strategy_code is None:
+            self.strategy_code = self.strategy_id
+        if self.metadata is None:
+            self.metadata = self.extra
     
     def to_dict(self) -> Dict[str, Any]:
         return {
+            "signal": self.signal,
+            "side": self.side,
+            "logical": self.logical,
             "symbol": self.symbol,
-            "action": self.action,
-            "qty": self.qty,
-            "reason": self.reason,
-            "strategy_code": self.strategy_code,
+            "timeframe": self.timeframe,
+            "strategy_id": self.strategy_id,
             "confidence": self.confidence,
-            "metadata": self.metadata,
+            "qty_hint": self.qty_hint,
+            "reason": self.reason,
+            "exit_reason": self.exit_reason,
+            "extra": self.extra,
         }
 
 
@@ -314,6 +335,7 @@ class StrategyEngineV2:
         # Configuration
         self.window_size = self.config.get("history_lookback", 200)
         self.enabled_strategies = self.config.get("strategies", [])
+        self.primary_strategy_id = self.config.get("primary_strategy_id", "")
         
         # Conflict resolution config
         self.conflict_resolution_mode = self.config.get("conflict_resolution", "highest_confidence")
@@ -335,6 +357,263 @@ class StrategyEngineV2:
             self.logger.info("StrategyEngineV2: RegimeEngine enabled")
         if self.conflict_resolution_mode:
             self.logger.info("StrategyEngineV2: Conflict resolution mode: %s", self.conflict_resolution_mode)
+    
+    @classmethod
+    def from_config(cls, cfg: Dict[str, Any], logger: Optional[logging.Logger] = None) -> "StrategyEngineV2":
+        """
+        Create StrategyEngineV2 instance from config.
+        
+        Reads cfg["strategy_engine"] (or {} if missing) and:
+        - Iterates strategies_v2 list
+        - Imports module and class for each
+        - Instantiates strategy with (strategy_id, params, logger)
+        - Registers in self.strategies dict keyed by id
+        - Logs final list of strategies
+        
+        Args:
+            cfg: Full application config dict
+            logger: Optional logger instance
+            
+        Returns:
+            Configured StrategyEngineV2 instance
+        """
+        log = logger or logging.getLogger(__name__)
+        
+        # Extract strategy_engine config safely
+        strategy_engine_cfg = cfg.get("strategy_engine", {})
+        if not isinstance(strategy_engine_cfg, dict):
+            strategy_engine_cfg = {}
+        
+        # Create engine instance
+        engine = cls(config=strategy_engine_cfg, logger_instance=log)
+        
+        # Load and register strategies_v2
+        strategies_v2 = strategy_engine_cfg.get("strategies_v2", [])
+        if not strategies_v2:
+            log.warning("No strategies_v2 configured in strategy_engine config")
+            return engine
+        
+        log.info("Loading %d strategies from config", len(strategies_v2))
+        
+        for strategy_cfg in strategies_v2:
+            if not isinstance(strategy_cfg, dict):
+                log.warning("Invalid strategy config (not a dict): %s", strategy_cfg)
+                continue
+            
+            strategy_id = strategy_cfg.get("id", "")
+            module_name = strategy_cfg.get("module", "")
+            class_name = strategy_cfg.get("class", "")
+            enabled = strategy_cfg.get("enabled", True)
+            params = strategy_cfg.get("params", {})
+            
+            if not enabled:
+                log.info("Strategy %s is disabled, skipping", strategy_id)
+                continue
+            
+            if not strategy_id or not module_name or not class_name:
+                log.warning(
+                    "Strategy config missing required fields (id=%s, module=%s, class=%s)",
+                    strategy_id, module_name, class_name
+                )
+                continue
+            
+            try:
+                # Import module and class
+                mod = importlib.import_module(module_name)
+                strategy_class = getattr(mod, class_name)
+                
+                # Create strategy state
+                state = StrategyState()
+                
+                # Merge params with strategy_id
+                full_config = {"strategy_id": strategy_id, **params}
+                
+                # Instantiate strategy
+                strategy = strategy_class(config=full_config, strategy_state=state)
+                
+                # Register strategy
+                engine.register_strategy(strategy_id, strategy)
+                
+                log.info(
+                    "Loaded strategy: %s (module=%s, class=%s)",
+                    strategy_id, module_name, class_name
+                )
+                
+            except Exception as exc:
+                log.error(
+                    "Failed to load strategy %s from %s.%s: %s",
+                    strategy_id, module_name, class_name, exc,
+                    exc_info=True
+                )
+        
+        log.info(
+            "StrategyEngineV2 loaded with strategies: %s",
+            list(engine.strategies.keys())
+        )
+        
+        return engine
+    
+    def evaluate(
+        self,
+        logical: str,
+        symbol: str,
+        timeframe: str,
+        candle: Dict[str, float],
+        indicators: Dict[str, Any],
+        mode: str,
+        profile: str,
+        context: Optional[Dict[str, Any]] = None
+    ) -> Tuple[OrderIntent, Dict[str, Any]]:
+        """
+        Evaluate trading decision using primary strategy.
+        
+        Args:
+            logical: Logical symbol identifier (e.g., "NIFTY", "EQ_RELIANCE")
+            symbol: Actual trading symbol
+            timeframe: Timeframe (e.g., "5m", "15m")
+            candle: Current candle dict (open, high, low, close, volume)
+            indicators: Pre-computed indicators dict
+            mode: Trading mode (e.g., "PAPER", "LIVE")
+            profile: Trading profile (e.g., "INTRADAY", "SWING")
+            context: Optional additional context
+            
+        Returns:
+            Tuple of (OrderIntent, debug_payload)
+            debug_payload always includes indicators (ema20, ema50, ema100, ema200, rsi14, atr)
+        """
+        context = context or {}
+        
+        # Build debug payload with indicators
+        debug_payload = {
+            "logical": logical,
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "mode": mode,
+            "profile": profile,
+            "candle": candle,
+            "indicators": {
+                "ema20": indicators.get("ema20"),
+                "ema50": indicators.get("ema50"),
+                "ema100": indicators.get("ema100"),
+                "ema200": indicators.get("ema200"),
+                "rsi14": indicators.get("rsi14"),
+                "atr": indicators.get("atr14"),  # Map atr14 to atr
+                "atr14": indicators.get("atr14"),
+            },
+            "context": context,
+        }
+        
+        # Get primary strategy
+        strategy_id = self.primary_strategy_id
+        if not strategy_id:
+            # If no primary strategy configured, return HOLD
+            intent = OrderIntent(
+                signal="HOLD",
+                side="FLAT",
+                logical=logical,
+                symbol=symbol,
+                timeframe=timeframe,
+                strategy_id="none",
+                confidence=0.0,
+                reason="no_primary_strategy_configured",
+            )
+            return intent, debug_payload
+        
+        if strategy_id not in self.strategies:
+            # Primary strategy not found, return HOLD
+            intent = OrderIntent(
+                signal="HOLD",
+                side="FLAT",
+                logical=logical,
+                symbol=symbol,
+                timeframe=timeframe,
+                strategy_id=strategy_id,
+                confidence=0.0,
+                reason="primary_strategy_not_found",
+            )
+            return intent, debug_payload
+        
+        strategy = self.strategies[strategy_id]
+        
+        try:
+            # Build series dict (empty for now - strategies should use indicators)
+            series = {}
+            
+            # Call strategy's generate_signal method
+            decision = strategy.generate_signal(candle, series, indicators)
+            
+            # Convert Decision to OrderIntent
+            if decision and decision.action and decision.action != "HOLD":
+                # Map action to signal and side
+                action = decision.action.upper()
+                if action in ["BUY", "LONG"]:
+                    signal = "BUY"
+                    side = "LONG"
+                elif action in ["SELL", "SHORT"]:
+                    signal = "SELL"
+                    side = "SHORT"
+                elif action in ["EXIT", "CLOSE", "FLAT"]:
+                    signal = "EXIT"
+                    side = "FLAT"
+                else:
+                    signal = "HOLD"
+                    side = "FLAT"
+                
+                intent = OrderIntent(
+                    signal=signal,
+                    side=side,
+                    logical=logical,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    strategy_id=strategy_id,
+                    confidence=getattr(decision, "confidence", 0.0),
+                    reason=getattr(decision, "reason", ""),
+                    extra={"decision": decision.to_dict() if hasattr(decision, "to_dict") else {}},
+                )
+            else:
+                # HOLD or no decision
+                intent = OrderIntent(
+                    signal="HOLD",
+                    side="FLAT",
+                    logical=logical,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    strategy_id=strategy_id,
+                    confidence=0.0,
+                    reason=getattr(decision, "reason", "no_signal") if decision else "no_decision",
+                )
+            
+            # Add decision details to debug payload
+            if decision:
+                debug_payload["decision"] = {
+                    "action": decision.action,
+                    "reason": getattr(decision, "reason", ""),
+                    "confidence": getattr(decision, "confidence", 0.0),
+                }
+            
+            return intent, debug_payload
+            
+        except Exception as exc:
+            self.logger.error(
+                "Strategy %s failed for %s: %s",
+                strategy_id, symbol, exc,
+                exc_info=True
+            )
+            
+            # Return HOLD intent on error
+            intent = OrderIntent(
+                signal="HOLD",
+                side="FLAT",
+                logical=logical,
+                symbol=symbol,
+                timeframe=timeframe,
+                strategy_id=strategy_id,
+                confidence=0.0,
+                reason=f"strategy_error: {str(exc)}",
+            )
+            debug_payload["error"] = str(exc)
+            
+            return intent, debug_payload
     
     def register_strategy(self, strategy_code: str, strategy: BaseStrategy):
         """Register a strategy instance."""
