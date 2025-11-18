@@ -16,6 +16,9 @@ export function OverviewPage() {
   
   const tradingMode = deriveModeFromEngines(engines?.engines);
   
+  // Debug flag - set to true to see raw API data
+  const DEBUG_MODE = import.meta.env.DEV || false; // Only in development
+  
   return (
     <div className="space-y-6">
       <h1 className="text-3xl font-bold">Overview</h1>
@@ -151,6 +154,44 @@ export function OverviewPage() {
           </div>
         </Card>
       </div>
+      
+      {/* DEBUG: Raw API Data (Development Only) */}
+      {DEBUG_MODE && (
+        <Card title="🔍 DEBUG: Portfolio API Response">
+          <div className="text-xs font-mono space-y-2">
+            <div className="text-text-secondary mb-2">
+              This debug block shows raw API data from <code className="bg-border px-1 rounded">/api/portfolio/summary</code>
+            </div>
+            <pre className="bg-surface-light p-3 rounded overflow-x-auto text-[10px] leading-tight">
+              {JSON.stringify(portfolio, null, 2)}
+            </pre>
+            <div className="text-text-secondary text-[10px] mt-2">
+              ✓ Data is being fetched and updated every 2 seconds<br/>
+              ✓ Check Network tab to see API calls<br/>
+              {portfolio?.equity ? '✓ Equity value is present' : '⚠️ Equity is null/missing'}<br/>
+              {portfolio?.daily_pnl !== undefined && portfolio?.daily_pnl !== null ? '✓ Daily P&L is present' : '⚠️ Daily P&L is null/missing'}
+            </div>
+          </div>
+        </Card>
+      )}
+      
+      {DEBUG_MODE && (
+        <Card title="🔍 DEBUG: Today's Summary API Response">
+          <div className="text-xs font-mono space-y-2">
+            <div className="text-text-secondary mb-2">
+              This debug block shows raw API data from <code className="bg-border px-1 rounded">/api/summary/today</code>
+            </div>
+            <pre className="bg-surface-light p-3 rounded overflow-x-auto text-[10px] leading-tight">
+              {JSON.stringify(today, null, 2)}
+            </pre>
+            <div className="text-text-secondary text-[10px] mt-2">
+              ✓ Data is being fetched and updated every 3 seconds<br/>
+              {today?.realized_pnl !== undefined && today?.realized_pnl !== null ? '✓ Realized P&L is present' : '⚠️ Realized P&L is null/missing'}<br/>
+              {today?.num_trades ? '✓ Trade count is present' : '⚠️ Trade count is 0 or missing'}
+            </div>
+          </div>
+        </Card>
+      )}
       
       {/* Recent Signals */}
       {signalsError ? (
