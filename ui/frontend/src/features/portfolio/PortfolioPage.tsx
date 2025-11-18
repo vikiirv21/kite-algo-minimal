@@ -6,6 +6,9 @@ export function PortfolioPage() {
   const { data: portfolio, isLoading: portfolioLoading } = usePortfolioSummary();
   const { data: positions, isLoading: positionsLoading } = useOpenPositions();
   
+  // Debug flag - set to true to see raw API data
+  const DEBUG_MODE = import.meta.env.DEV || false; // Only in development
+  
   return (
     <div className="space-y-6">
       <h1 className="text-3xl font-bold">Portfolio</h1>
@@ -57,6 +60,37 @@ export function PortfolioPage() {
             <div>
               <div className="text-sm text-text-secondary mb-1">Positions</div>
               <div className="text-lg font-semibold">{portfolio?.position_count || 0}</div>
+            </div>
+          </div>
+        </Card>
+      )}
+      
+      {/* DEBUG: Raw API Data (Development Only) */}
+      {DEBUG_MODE && (
+        <Card title="🔍 DEBUG: Portfolio Summary API Response">
+          <div className="text-xs font-mono space-y-2">
+            <div className="text-text-secondary mb-2">
+              Raw API data from <code className="bg-border px-1 rounded">/api/portfolio/summary</code>
+            </div>
+            <pre className="bg-surface-light p-3 rounded overflow-x-auto text-[10px] leading-tight">
+              {JSON.stringify(portfolio, null, 2)}
+            </pre>
+          </div>
+        </Card>
+      )}
+      
+      {DEBUG_MODE && positions && positions.length > 0 && (
+        <Card title="🔍 DEBUG: Open Positions API Response (First 2)">
+          <div className="text-xs font-mono space-y-2">
+            <div className="text-text-secondary mb-2">
+              Raw API data from <code className="bg-border px-1 rounded">/api/positions/open</code>
+            </div>
+            <pre className="bg-surface-light p-3 rounded overflow-x-auto text-[10px] leading-tight">
+              {JSON.stringify(positions.slice(0, 2), null, 2)}
+            </pre>
+            <div className="text-text-secondary text-[10px] mt-2">
+              ✓ Showing first 2 positions out of {positions.length} total<br/>
+              ✓ Data updates every 3 seconds
             </div>
           </div>
         </Card>

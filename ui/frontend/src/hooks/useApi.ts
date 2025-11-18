@@ -2,6 +2,33 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { api } from '../api/client';
 
+/**
+ * React Query hooks for Dashboard API endpoints.
+ * 
+ * Hook → Endpoint mapping:
+ * - useMeta() → /api/meta
+ * - useConfigSummary() → /api/config/summary
+ * - useAuthStatus() → /api/auth/status
+ * - useEnginesStatus() → /api/engines/status
+ * - usePortfolioSummary() → /api/portfolio/summary
+ * - useOpenPositions() → /api/positions/open
+ * - useOrders(limit) → /api/orders?limit={limit}
+ * - useRecentOrders(limit) → /api/orders/recent?limit={limit}
+ * - useSignals(limit) → /api/signals?limit={limit}
+ * - useRecentSignals(limit) → /api/signals/recent?limit={limit}
+ * - useStrategyStats(days) → /api/stats/strategies?days={days}
+ * - useEquityCurve(days) → /api/stats/equity?days={days}
+ * - useTodaySummary() → /api/summary/today
+ * - useLogs(params) → /api/logs?{params}
+ * - useSystemTime() → /api/system/time
+ * - useAnalyticsSummary() → /api/analytics/summary
+ * - useAnalyticsEquityCurve(params) → /api/analytics/equity_curve?{params}
+ * - useRiskSummary() → /api/risk/summary
+ * 
+ * All hooks use React Query with appropriate refetchInterval for live updates.
+ * See docs/api_dashboard_mapping.md for complete mapping documentation.
+ */
+
 // Query keys
 export const queryKeys = {
   meta: ['meta'] as const,
