@@ -15,11 +15,12 @@ from typing import Any, Dict, Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from kiteconnect import KiteConnect, exceptions as kite_exceptions
 from pydantic import BaseModel, Field
 
+from analytics.telemetry_bus import get_telemetry_bus
 from apps.dashboard import router as dashboard_router
 from core.config import load_config
 from core.kite_env import (
@@ -494,6 +495,71 @@ def get_portfolio_limits() -> JSONResponse:
             "ok": False,
             "error": str(exc)
         }, status_code=500)
+
+
+@app.get("/api/telemetry/stream")
+async def telemetry_stream(event_type: Optional[str] = None) -> StreamingResponse:
+    """
+    Stream real-time telemetry events via Server-Sent Events (SSE).
+    
+    Query Parameters:
+    - event_type (optional): Filter events by type (e.g., 'signal_event', 'order_event')
+    
+    Returns:
+        StreamingResponse with SSE-formatted events
+        
+    Event Types:
+    - signal_event: Strategy signals generated
+    - indicator_event: Indicator calculations
+    - order_event: Order lifecycle events
+    - position_event: Position updates
+    - engine_health: Engine health metrics
+    - decision_trace: Strategy decision traces
+    - universe_scan: Universe scanning results
+    - performance_update: Performance metrics updates
+    """
+    telemetry_bus = get_telemetry_bus()
+    
+    return StreamingResponse(
+        telemetry_bus.stream_events(event_type=event_type),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+@app.get("/api/telemetry/stats")
+def telemetry_stats() -> JSONResponse:
+    """
+    Get telemetry bus statistics.
+    
+    Returns:
+        JSON with buffer stats and event counts
+    """
+    telemetry_bus = get_telemetry_bus()
+    stats = telemetry_bus.get_stats()
+    return JSONResponse({"ok": True, **stats})
+
+
+@app.get("/api/telemetry/events")
+def telemetry_events(event_type: Optional[str] = None, limit: int = 100) -> JSONResponse:
+    """
+    Get recent telemetry events.
+    
+    Query Parameters:
+    - event_type (optional): Filter events by type
+    - limit (optional): Maximum number of events to return (default: 100, max: 1000)
+    
+    Returns:
+        JSON with list of recent events
+    """
+    telemetry_bus = get_telemetry_bus()
+    limit = min(limit, 1000)  # Cap at 1000 events
+    events = telemetry_bus.get_recent_events(event_type=event_type, limit=limit)
+    return JSONResponse({"ok": True, "events": events, "count": len(events)})
 
 
 def _install_signal_handlers() -> None:

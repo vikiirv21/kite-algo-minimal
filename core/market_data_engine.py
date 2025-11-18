@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Generator, Iterable, List, Optional
 
 from kiteconnect import KiteConnect
 
+from analytics.telemetry_bus import publish_engine_health
 from core.kite_http import kite_request
 from core.universe_builder import load_universe
 from data.instruments import get_instrument_token
@@ -42,6 +45,7 @@ class MarketDataEngine:
         kite_client: Optional[KiteConnect],
         universe: Optional[Dict[str, Any]] = None,
         cache_dir: Optional[Path] = None,
+        enable_telemetry: bool = True,
     ) -> None:
         self.kite = kite_client
         self.cache_dir = Path(cache_dir or DEFAULT_CACHE_DIR)
@@ -50,6 +54,15 @@ class MarketDataEngine:
         self.meta = (universe_data.get("meta") or {}) if isinstance(universe_data, dict) else {}
         self._cache: Dict[tuple[str, str], List[Dict[str, Any]]] = {}
         self._warned_missing_token: set[str] = set()  # Track symbols already warned about
+        self._lookup_failures: set[str] = set()  # Track lookup failures for telemetry
+        
+        # Telemetry support
+        self._enable_telemetry = enable_telemetry
+        self._telemetry_thread: Optional[threading.Thread] = None
+        self._telemetry_stop = threading.Event()
+        
+        if self._enable_telemetry:
+            self._start_telemetry_thread()
 
     # ------------------------------------------------------------------
     # Cache helpers
@@ -280,8 +293,94 @@ class MarketDataEngine:
         if symbol_upper not in self._warned_missing_token:
             logger.warning("No instrument token for %s; historical fetch skipped.", symbol_upper)
             self._warned_missing_token.add(symbol_upper)
+            self._lookup_failures.add(symbol_upper)
+            
+            # Publish lookup failure event (once per symbol)
+            if self._enable_telemetry:
+                from analytics.telemetry_bus import publish_event
+                publish_event("mde_lookup_failure", {
+                    "symbol": symbol_upper,
+                    "exchange_tried": exchange
+                })
         
         return None
+    
+    def _start_telemetry_thread(self) -> None:
+        """Start background thread for publishing MDE status."""
+        self._telemetry_stop.clear()
+        self._telemetry_thread = threading.Thread(
+            target=self._telemetry_loop,
+            name="mde-telemetry",
+            daemon=True
+        )
+        self._telemetry_thread.start()
+        logger.debug("MarketDataEngine telemetry thread started")
+    
+    def _telemetry_loop(self) -> None:
+        """Background loop to publish MDE status every 3 seconds."""
+        try:
+            while not self._telemetry_stop.wait(3.0):
+                self._publish_status()
+        except Exception as exc:
+            logger.error("MDE telemetry loop error: %s", exc, exc_info=True)
+    
+    def _publish_status(self) -> None:
+        """Publish current MDE status to telemetry bus."""
+        try:
+            # Get cache statistics
+            total_symbols = len(self._cache)
+            total_candles = sum(len(candles) for candles in self._cache.values())
+            
+            # Get stale symbol information (symbols with no recent data)
+            stale_symbols = []
+            now = datetime.now(timezone.utc)
+            for (symbol, timeframe), candles in self._cache.items():
+                if candles:
+                    last_candle_ts = self._parse_ts(candles[-1].get("ts"))
+                    if last_candle_ts:
+                        age_minutes = (now - last_candle_ts).total_seconds() / 60
+                        # Consider stale if > 60 minutes old
+                        if age_minutes > 60:
+                            stale_symbols.append({
+                                "symbol": symbol,
+                                "timeframe": timeframe,
+                                "last_update": last_candle_ts.isoformat(),
+                                "age_minutes": int(age_minutes)
+                            })
+            
+            # Publish status
+            status = {
+                "cached_symbols": total_symbols,
+                "total_candles": total_candles,
+                "meta_entries": len(self.meta),
+                "lookup_failures": len(self._lookup_failures),
+                "stale_symbols_count": len(stale_symbols),
+                "has_kite_client": self.kite is not None,
+            }
+            
+            publish_engine_health(
+                engine_name="MarketDataEngine",
+                status="active",
+                metrics=status
+            )
+            
+            # Publish stale symbols separately if any exist
+            if stale_symbols:
+                from analytics.telemetry_bus import publish_event
+                publish_event("mde_stale_symbols", {
+                    "count": len(stale_symbols),
+                    "symbols": stale_symbols[:10]  # Limit to first 10 for brevity
+                })
+        
+        except Exception as exc:
+            logger.error("Failed to publish MDE status: %s", exc, exc_info=True)
+    
+    def stop_telemetry(self) -> None:
+        """Stop the telemetry thread."""
+        if self._telemetry_thread and self._telemetry_thread.is_alive():
+            self._telemetry_stop.set()
+            self._telemetry_thread.join(timeout=5.0)
+            logger.debug("MarketDataEngine telemetry thread stopped")
 
     @staticmethod
     def _parse_ts(value: Any) -> Optional[datetime]:
