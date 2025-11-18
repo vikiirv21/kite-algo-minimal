@@ -345,7 +345,7 @@ def is_market_open(session_config: Optional[Dict[str, Any]] = None) -> bool:
 
 def start_engines_subprocess(mode: str, config_path: str) -> subprocess.Popen:
     """
-    Start engines via run_day in a subprocess.
+    Start engines via run_day in a subprocess (single-process mode).
     
     Args:
         mode: Trading mode ("paper" or "live")
@@ -363,7 +363,7 @@ def start_engines_subprocess(mode: str, config_path: str) -> subprocess.Popen:
         "--config", config_path,
     ]
     
-    logger.info("Starting engines: %s", " ".join(cmd))
+    logger.info("Starting engines (single-process): %s", " ".join(cmd))
     
     proc = subprocess.Popen(
         cmd,
@@ -376,6 +376,154 @@ def start_engines_subprocess(mode: str, config_path: str) -> subprocess.Popen:
     
     logger.info("Engines started with PID=%d", proc.pid)
     return proc
+
+
+def start_multi_process_engines(mode: str, config_path: str) -> Dict[str, subprocess.Popen]:
+    """
+    Start engines in multi-process mode (one process per engine).
+    
+    Args:
+        mode: Trading mode ("paper" or "live")
+        config_path: Path to config file
+    
+    Returns:
+        Dict mapping engine name to Popen handle
+    """
+    engines = {
+        "fno": "apps.run_fno_paper",
+        "equity": "apps.run_equity_paper",
+        "options": "apps.run_options_paper",
+    }
+    
+    processes: Dict[str, subprocess.Popen] = {}
+    
+    logger.info("=" * 60)
+    logger.info("Starting multi-process engines")
+    logger.info("=" * 60)
+    
+    for engine_name, module_name in engines.items():
+        cmd = [
+            sys.executable,
+            "-m",
+            module_name,
+            "--mode", mode,
+            "--config", config_path,
+        ]
+        
+        logger.info("Starting %s engine: %s", engine_name, " ".join(cmd))
+        
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                bufsize=1,
+                universal_newlines=True,
+                cwd=BASE_DIR,
+            )
+            processes[engine_name] = proc
+            logger.info("  %s engine started with PID=%d", engine_name, proc.pid)
+        except Exception as exc:
+            logger.error("Failed to start %s engine: %s", engine_name, exc)
+    
+    if not processes:
+        logger.error("Failed to start any engines in multi-process mode")
+        return {}
+    
+    logger.info("=" * 60)
+    logger.info("Started %d engines: %s", len(processes), ", ".join(
+        f"{name} (PID={proc.pid})" for name, proc in processes.items()
+    ))
+    logger.info("=" * 60)
+    
+    return processes
+
+
+def monitor_multi_process_engines(processes: Dict[str, subprocess.Popen]) -> int:
+    """
+    Monitor multiple engine processes and handle their lifecycle.
+    
+    Args:
+        processes: Dict mapping engine name to Popen handle
+    
+    Returns:
+        Exit code (0 if all processes exited normally, 1 if any failed)
+    """
+    if not processes:
+        logger.error("No processes to monitor")
+        return 1
+    
+    logger.info("Monitoring %d engine processes. Press Ctrl+C to stop.", len(processes))
+    
+    try:
+        # Poll all processes periodically
+        while True:
+            all_stopped = True
+            failed_engines = []
+            
+            for engine_name, proc in processes.items():
+                exit_code = proc.poll()
+                
+                if exit_code is None:
+                    # Still running
+                    all_stopped = False
+                elif exit_code != 0:
+                    # Failed
+                    failed_engines.append((engine_name, exit_code))
+                    logger.error("Engine %s (PID=%d) exited with code=%d", 
+                                engine_name, proc.pid, exit_code)
+            
+            # If any engine failed, stop all and exit
+            if failed_engines:
+                logger.error("Detected %d failed engine(s). Stopping all engines...", 
+                           len(failed_engines))
+                _stop_all_processes(processes)
+                return 1
+            
+            # If all stopped normally, we're done
+            if all_stopped:
+                logger.info("All engines stopped normally")
+                return 0
+            
+            # Wait a bit before next check
+            time.sleep(1)
+            
+    except KeyboardInterrupt:
+        logger.info("Received interrupt signal. Stopping all engines...")
+        _stop_all_processes(processes)
+        return 0
+
+
+def _stop_all_processes(processes: Dict[str, subprocess.Popen]) -> None:
+    """
+    Stop all engine processes gracefully, with force kill as fallback.
+    
+    Args:
+        processes: Dict mapping engine name to Popen handle
+    """
+    # First, send SIGTERM to all
+    for engine_name, proc in processes.items():
+        if proc.poll() is None:  # Still running
+            logger.info("Sending SIGTERM to %s engine (PID=%d)", engine_name, proc.pid)
+            proc.terminate()
+    
+    # Wait up to 10 seconds for graceful shutdown
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        all_stopped = all(proc.poll() is not None for proc in processes.values())
+        if all_stopped:
+            logger.info("All engines stopped gracefully")
+            return
+        time.sleep(0.5)
+    
+    # Force kill any remaining processes
+    for engine_name, proc in processes.items():
+        if proc.poll() is None:  # Still running
+            logger.warning("Force killing %s engine (PID=%d)", engine_name, proc.pid)
+            proc.kill()
+            proc.wait()
+    
+    logger.info("All engines terminated")
 
 
 def monitor_engines(proc: subprocess.Popen) -> int:
@@ -673,6 +821,12 @@ def main() -> None:
         help="Path to YAML config file (default: configs/dev.yaml)",
     )
     parser.add_argument(
+        "--layout",
+        choices=["single", "multi"],
+        default="single",
+        help="Engine layout: single (all in one process) or multi (one process per engine). Default: single",
+    )
+    parser.add_argument(
         "--no-backtest",
         action="store_true",
         help="Skip end-of-day backtests",
@@ -706,6 +860,7 @@ def main() -> None:
     logger.info("=" * 60)
     logger.info("Mode: %s", args.mode.upper())
     logger.info("Config: %s", args.config)
+    logger.info("Layout: %s", args.layout)
     logger.info("Dry run: %s", args.dry_run)
     logger.info("=" * 60)
     
@@ -728,15 +883,39 @@ def main() -> None:
         logger.info("Market is currently CLOSED")
         logger.info("  (Session will start engines anyway. Manual timing control is up to the user.)")
     
-    # Start engines
-    try:
-        proc = start_engines_subprocess(args.mode, args.config)
-    except Exception as exc:
-        logger.error("Failed to start engines: %s", exc)
-        sys.exit(1)
+    # Start engines based on layout choice
+    exit_code = 0
     
-    # Monitor engines
-    exit_code = monitor_engines(proc)
+    if args.layout == "single":
+        # Single-process mode (current/default behavior)
+        logger.info("Using single-process layout (default)")
+        try:
+            proc = start_engines_subprocess(args.mode, args.config)
+        except Exception as exc:
+            logger.error("Failed to start engines: %s", exc)
+            sys.exit(1)
+        
+        # Monitor single process
+        exit_code = monitor_engines(proc)
+        
+    elif args.layout == "multi":
+        # Multi-process mode (new architecture)
+        logger.info("Using multi-process layout (one process per engine)")
+        try:
+            processes = start_multi_process_engines(args.mode, args.config)
+            if not processes:
+                logger.error("Failed to start engines in multi-process mode")
+                sys.exit(1)
+        except Exception as exc:
+            logger.error("Failed to start engines: %s", exc)
+            sys.exit(1)
+        
+        # Monitor multiple processes
+        exit_code = monitor_multi_process_engines(processes)
+    
+    else:
+        logger.error("Unknown layout: %s", args.layout)
+        sys.exit(1)
     
     # Run EOD pipeline
     run_eod_pipeline(
