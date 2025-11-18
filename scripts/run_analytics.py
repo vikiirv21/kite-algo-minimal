@@ -146,6 +146,41 @@ def run_analytics(mode: str = "paper", historical: bool = False):
     print("=" * 60)
     print(f"Full report: {output_file}")
     print("=" * 60 + "\n")
+    
+    # Run Performance Engine V2
+    logger.info("Running Performance Engine V2...")
+    try:
+        from analytics.performance_v2 import write_metrics
+        
+        # Get starting capital from config
+        starting_capital = 500000  # Default
+        if config and hasattr(config, 'trading'):
+            starting_capital = config.trading.get("paper_capital", 500000)
+        
+        # Path setup
+        orders_path = ARTIFACTS_DIR / "orders.csv"
+        state_path = ARTIFACTS_DIR / "checkpoints" / f"{mode}_state_latest.json"
+        if not state_path.exists():
+            state_path = ARTIFACTS_DIR / f"{mode}_state.json"
+        
+        # Write runtime metrics
+        runtime_metrics_path = ANALYTICS_DIR / "runtime_metrics.json"
+        write_metrics(orders_path, state_path, runtime_metrics_path, starting_capital)
+        
+        # Write daily metrics
+        daily_metrics_path = DAILY_DIR / f"{today}-metrics.json"
+        write_metrics(orders_path, state_path, daily_metrics_path, starting_capital)
+        
+        logger.info("Performance Engine V2 completed successfully")
+        print("\n" + "=" * 60)
+        print("PERFORMANCE ENGINE V2")
+        print("=" * 60)
+        print(f"Runtime metrics: {runtime_metrics_path}")
+        print(f"Daily metrics: {daily_metrics_path}")
+        print("=" * 60 + "\n")
+    except Exception as exc:
+        logger.warning("Performance Engine V2 failed: %s", exc, exc_info=True)
+        print(f"\nWarning: Performance Engine V2 failed: {exc}\n")
 
 
 def main():

@@ -133,6 +133,65 @@ async def api_config_summary() -> JSONResponse:
     return JSONResponse(summary)
 
 
+@router.get("/api/performance")
+async def api_performance() -> JSONResponse:
+    """
+    Return performance metrics from Performance Engine V2.
+    
+    Returns runtime_metrics.json if available, otherwise returns
+    a default empty structure.
+    """
+    runtime_metrics_path = BASE_DIR / "artifacts" / "analytics" / "runtime_metrics.json"
+    
+    # Default empty structure
+    default_metrics = {
+        "asof": None,
+        "mode": "paper",
+        "equity": {
+            "starting_capital": 0.0,
+            "current_equity": 0.0,
+            "realized_pnl": 0.0,
+            "unrealized_pnl": 0.0,
+            "max_drawdown": 0.0,
+            "max_equity": 0.0,
+            "min_equity": 0.0,
+        },
+        "overall": {
+            "total_trades": 0,
+            "win_trades": 0,
+            "loss_trades": 0,
+            "breakeven_trades": 0,
+            "win_rate": 0.0,
+            "gross_profit": 0.0,
+            "gross_loss": 0.0,
+            "net_pnl": 0.0,
+            "profit_factor": 0.0,
+            "avg_win": 0.0,
+            "avg_loss": 0.0,
+            "avg_r_multiple": 0.0,
+            "biggest_win": 0.0,
+            "biggest_loss": 0.0,
+        },
+        "per_strategy": {},
+        "per_symbol": {},
+    }
+    
+    if not runtime_metrics_path.exists():
+        return JSONResponse(default_metrics)
+    
+    try:
+        import json
+        with runtime_metrics_path.open("r", encoding="utf-8") as f:
+            metrics = json.load(f)
+        return JSONResponse(metrics)
+    except Exception as exc:
+        # Log error but return default structure
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error("Failed to load performance metrics: %s", exc)
+        return JSONResponse(default_metrics)
+
+
 router.include_router(dashboard_module.router)
 
 app = FastAPI(title="Dashboard")
