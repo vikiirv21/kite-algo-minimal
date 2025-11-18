@@ -21,9 +21,7 @@ from typing import Optional
 from core.config import load_config
 from core.engine_bootstrap import (
     setup_engine_logging,
-    build_kite_client,
-    resolve_options_universe,
-    load_scanner_universe,
+    build_options_universe,
 )
 from engine.options_paper_engine import OptionsPaperEngine
 
@@ -88,7 +86,28 @@ def main() -> None:
         logger.info("Mode: %s", args.mode)
         logger.info("=" * 60)
         
-        # Build Kite client
+        # Build options universe using the same logic as scripts.run_day.py
+        logger.info("Resolving options universe...")
+        logical_underlyings, underlying_futs_map = build_options_universe(cfg)
+        
+        if not logical_underlyings:
+            # Handle empty universe gracefully
+            logger.warning("=" * 60)
+            logger.warning("OptionsPaperEngine: no options underlyings resolved (logical=%s, futs_map=%s); exiting with code 0.",
+                         logical_underlyings, underlying_futs_map)
+            logger.warning("This is expected if:")
+            logger.warning("  1. config.trading.options_underlyings is empty")
+            logger.warning("  2. Scanner data is unavailable")
+            logger.warning("  3. Network/API issues prevent resolution")
+            logger.warning("=" * 60)
+            sys.exit(0)
+        
+        logger.info("Options underlyings: %d symbols - %s", len(logical_underlyings), ", ".join(logical_underlyings))
+        if underlying_futs_map:
+            logger.info("Underlying FUT mappings: %s", underlying_futs_map)
+        
+        # Build Kite client (needed by OptionsPaperEngine)
+        from core.engine_bootstrap import build_kite_client
         try:
             kite = build_kite_client()
         except SystemExit:
@@ -96,24 +115,6 @@ def main() -> None:
         except Exception as exc:
             logger.error("Failed to build Kite client: %s", exc)
             sys.exit(1)
-        
-        # Load scanner universe (optional)
-        universe_snapshot = load_scanner_universe(cfg, kite)
-        
-        # Resolve options universe
-        logical_underlyings, underlying_futs_map = resolve_options_universe(cfg, kite, universe_snapshot)
-        
-        if not logical_underlyings:
-            # Handle empty universe gracefully
-            logger.warning("=" * 60)
-            logger.warning("Options PaperEngine: options underlyings are empty; nothing to trade.")
-            logger.warning("Exiting cleanly with status 0 (no universe to trade)")
-            logger.warning("=" * 60)
-            sys.exit(0)
-        
-        logger.info("Options underlyings: %d symbols - %s", len(logical_underlyings), ", ".join(logical_underlyings))
-        if underlying_futs_map:
-            logger.info("Underlying FUT mappings: %s", underlying_futs_map)
         
         # Create options paper engine
         try:

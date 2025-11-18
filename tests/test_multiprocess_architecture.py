@@ -51,6 +51,9 @@ def test_bootstrap_functions():
     from core.engine_bootstrap import (
         setup_engine_logging,
         build_kite_client,
+        build_fno_universe,
+        build_equity_universe,
+        build_options_universe,
         resolve_fno_universe,
         resolve_equity_universe,
         resolve_options_universe,
@@ -60,6 +63,9 @@ def test_bootstrap_functions():
     functions = [
         setup_engine_logging,
         build_kite_client,
+        build_fno_universe,
+        build_equity_universe,
+        build_options_universe,
         resolve_fno_universe,
         resolve_equity_universe,
         resolve_options_universe,
