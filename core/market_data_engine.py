@@ -10,6 +10,7 @@ from kiteconnect import KiteConnect
 
 from core.kite_http import kite_request
 from core.universe_builder import load_universe
+from data.instruments import get_instrument_token
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,7 @@ class MarketDataEngine:
         universe_data = universe or load_universe()
         self.meta = (universe_data.get("meta") or {}) if isinstance(universe_data, dict) else {}
         self._cache: Dict[tuple[str, str], List[Dict[str, Any]]] = {}
+        self._warned_missing_token: set[str] = set()  # Track symbols already warned about
 
     # ------------------------------------------------------------------
     # Cache helpers
@@ -94,7 +96,6 @@ class MarketDataEngine:
         from_dt = to_dt - span
         token = self._resolve_token(symbol)
         if token is None:
-            logger.warning("No instrument token for %s; historical fetch skipped.", symbol)
             return []
         try:
             candles = kite_request(
@@ -150,6 +151,20 @@ class MarketDataEngine:
             self.update_cache(symbol, timeframe, count=max(window_size, 200))
             cache = self.load_cache(symbol, timeframe)
         return cache[-window_size:]
+
+    def log_token_summary(self) -> None:
+        """
+        Log a summary of resolved vs missing instrument tokens.
+        Useful for debugging token resolution issues.
+        """
+        resolved_count = len([k for k, v in self.meta.items() if isinstance(v, dict) and v.get("token")])
+        missing_count = len(self._warned_missing_token)
+        logger.info(
+            "MDE tokens: resolved=%d missing=%d (%s)",
+            resolved_count,
+            missing_count,
+            sorted(self._warned_missing_token) if missing_count > 0 else "none"
+        )
 
     def replay(
         self,
@@ -224,17 +239,48 @@ class MarketDataEngine:
         return timedelta(minutes=max(1, count))
 
     def _resolve_token(self, symbol: str) -> Optional[int]:
-        meta_entry = self.meta.get(symbol.upper())
+        """
+        Resolve instrument token for a symbol.
+        
+        First tries universe meta, then falls back to instrument lookup.
+        Automatically detects exchange based on symbol suffix:
+        - Symbols ending with "FUT" -> NFO exchange
+        - All other symbols -> NSE exchange
+        
+        Logs warning only once per missing symbol.
+        """
+        symbol_upper = symbol.upper()
+        
+        # Try universe meta first
+        meta_entry = self.meta.get(symbol_upper)
         if isinstance(meta_entry, dict):
             token = meta_entry.get("token")
             if token is not None:
                 return int(token)
-        # fallback: try to match by tradingsymbol field
+        
+        # Fallback: try to match by tradingsymbol field in meta
         for entry in self.meta.values():
-            if isinstance(entry, dict) and entry.get("tradingsymbol", "").upper() == symbol.upper():
+            if isinstance(entry, dict) and entry.get("tradingsymbol", "").upper() == symbol_upper:
                 token = entry.get("token")
                 if token is not None:
                     return int(token)
+        
+        # Auto-detect exchange based on symbol
+        exchange = "NFO" if symbol_upper.endswith("FUT") else "NSE"
+        
+        # Try resolving from instrument dump
+        token = get_instrument_token(exchange, symbol_upper)
+        if token is not None:
+            # Cache it in meta for future lookups
+            if symbol_upper not in self.meta:
+                self.meta[symbol_upper] = {"token": token, "tradingsymbol": symbol_upper}
+            return int(token)
+        
+        # Still None? Log warning once
+        if symbol_upper not in self._warned_missing_token:
+            logger.warning("No instrument token for %s; historical fetch skipped.", symbol_upper)
+            self._warned_missing_token.add(symbol_upper)
+        
         return None
 
     @staticmethod
