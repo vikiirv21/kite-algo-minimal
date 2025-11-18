@@ -51,6 +51,19 @@ from core.trade_throttler import (
     build_throttler_config,
 )
 
+# Strategy Engine v2 (optional - fallback if not available)
+try:
+    from core.strategy_engine_v2 import StrategyEngineV2, StrategyState
+    from strategies.ema20_50_intraday_v2 import EMA2050IntradayV2
+    from core.market_data_engine import MarketDataEngine
+    STRATEGY_ENGINE_V2_AVAILABLE = True
+except ImportError:
+    STRATEGY_ENGINE_V2_AVAILABLE = False
+    StrategyEngineV2 = None
+    StrategyState = None
+    EMA2050IntradayV2 = None
+    MarketDataEngine = None
+
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -254,6 +267,47 @@ class OptionsPaperEngine:
             config=throttler_config,
             capital=self.paper_capital,
         )
+        
+        # Initialize MarketDataEngine (for v2 strategies)
+        self.market_data_engine = None
+        if STRATEGY_ENGINE_V2_AVAILABLE and MarketDataEngine and self.kite:
+            try:
+                cache_dir = self.artifacts_dir / "market_data"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                universe_snapshot = {}  # Can be populated from universe
+                self.market_data_engine = MarketDataEngine(
+                    self.kite,
+                    universe_snapshot,
+                    cache_dir=cache_dir
+                )
+            except Exception as exc:
+                logger.warning("Failed to initialize MarketDataEngine: %s", exc)
+                self.market_data_engine = None
+        
+        # Initialize Strategy Engine v2 (optional, based on config)
+        strategy_engine_config = self.cfg.raw.get("strategy_engine", {})
+        strategy_engine_version = strategy_engine_config.get("version", 1)
+        self.strategy_engine_v2 = None
+        
+        if strategy_engine_version == 2 and STRATEGY_ENGINE_V2_AVAILABLE:
+            logger.info("Initializing Strategy Engine v2 for options trading")
+            try:
+                self.strategy_engine_v2 = StrategyEngineV2.from_config(self.cfg.raw, logger)
+                
+                # Set engines
+                if self.market_data_engine:
+                    self.strategy_engine_v2.mde = self.market_data_engine
+                    self.strategy_engine_v2.market_data = self.market_data_engine
+                    self.strategy_engine_v2.market_data_engine = self.market_data_engine
+                self.strategy_engine_v2.regime_engine = self.regime_detector
+                
+                logger.info(
+                    "Strategy Engine v2 initialized for options with %d strategies",
+                    len(self.strategy_engine_v2.strategies)
+                )
+            except Exception as exc:
+                logger.error("Failed to initialize Strategy Engine v2 for options: %s", exc, exc_info=True)
+                self.strategy_engine_v2 = None
 
     def _build_strategy_instances(self) -> List[FnoIntradayTrendStrategy]:
         instances: List[FnoIntradayTrendStrategy] = []
