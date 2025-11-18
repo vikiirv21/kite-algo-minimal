@@ -702,80 +702,51 @@ class PaperEngine:
         
         if not use_v3:
             if strategy_engine_version == 2 and STRATEGY_ENGINE_V2_AVAILABLE:
-                # Initialize Strategy Engine v2
-                logger.info("Initializing Strategy Engine v2")
-                v2_config = {
-                    "history_lookback": strategy_engine_config.get("window_size", 200),
-                    "strategies": strategy_engine_config.get("strategies_v2", []),
-                    "timeframe": self.default_timeframe,
-                    "conflict_resolution": strategy_engine_config.get("conflict_resolution", "highest_confidence"),
-                    "strategy_priorities": strategy_engine_config.get("strategy_priorities", {}),
-                    "max_trades_per_day": strategy_engine_config.get("max_trades_per_day", 10),
-                    "max_loss_streak": strategy_engine_config.get("max_loss_streak", 3),
-                }
-                # Copy the full config for orchestrator access
-                full_config = dict(self.cfg.raw) if hasattr(self.cfg, 'raw') else {}
-                full_config.update(v2_config)
+                # Initialize Strategy Engine v2 using from_config
+                logger.info("Initializing Strategy Engine v2 from config")
                 
-                self.strategy_engine_v2 = StrategyEngineV2(
-                    config=full_config,
-                    mde=self.market_data_engine,
-                    portfolio_engine=self.portfolio_engine,
-                    analytics_engine=None,  # Analytics can be added later if needed
-                    regime_engine=self.regime_detector,
-                    logger_instance=logger,
-                    risk_engine=None,  # Will be set after initialization
-                    market_data_engine_v2=self.market_data_engine_v2,
-                    state_store=self.state_store,
-                    analytics=None,
+                try:
+                    self.strategy_engine_v2 = StrategyEngineV2.from_config(self.cfg.raw, logger)
+                    self.strategy_engine_v2.set_paper_engine(self)
+                    
+                    # Set additional engines
+                    self.strategy_engine_v2.mde = self.market_data_engine
+                    self.strategy_engine_v2.market_data = self.market_data_engine
+                    self.strategy_engine_v2.market_data_engine = self.market_data_engine
+                    self.strategy_engine_v2.market_data_v2 = self.market_data_engine_v2
+                    self.strategy_engine_v2.portfolio_engine = self.portfolio_engine
+                    self.strategy_engine_v2.regime_engine = self.regime_detector
+                    self.strategy_engine_v2.state_store = self.state_store
+                    
+                    # Wire MDE v2 candle close events to strategy engine
+                    if self.market_data_engine_v2:
+                        self.market_data_engine_v2.on_candle_close_handlers.append(
+                            self.strategy_engine_v2.on_candle_close
+                        )
+                        logger.info("Wired MDE v2 candle_close events to StrategyEngineV2")
+                    
+                    self.strategy_runner = None  # Disable v1 when using v2
+                    self.strategy_engine_v3 = None  # Disable v3 when using v2
+                    logger.info(
+                        "Strategy Engine v2 initialized with %d strategies",
+                        len(self.strategy_engine_v2.strategies)
+                    )
+                except Exception as exc:
+                    logger.error("Failed to initialize Strategy Engine v2: %s", exc, exc_info=True)
+                    logger.info("Falling back to v1")
+                    self.strategy_engine_v2 = None
+            else:
+                # Use legacy Strategy Engine v1
+                if strategy_engine_version == 2:
+                    logger.warning("Strategy Engine v2 requested but not available, falling back to v1")
+                logger.info("Using Strategy Engine v1 (legacy)")
+                self.strategy_runner = StrategyRunner(
+                    self.state_store,
+                    self,
+                    market_data_engine=self.market_data_engine,
                 )
-                self.strategy_engine_v2.set_paper_engine(self)
-            
-            # Wire MDE v2 candle close events to strategy engine
-            if self.market_data_engine_v2:
-                self.market_data_engine_v2.on_candle_close_handlers.append(
-                    self.strategy_engine_v2.on_candle_close
-                )
-                logger.info("Wired MDE v2 candle_close events to StrategyEngineV2")
-            
-            # Register v2 strategies - safely handle None or empty lists
-            strategy_engine_config = self.strategy_engine_config or {}
-            strategies_v2 = strategy_engine_config.get("strategies_v2") or []
-            strategies_v1 = strategy_engine_config.get("strategies") or []
-            
-            # Warn if no strategies are configured
-            if not strategies_v2 and not strategies_v1:
-                logger.warning("No strategies configured (strategies_v2 and strategies are both empty). Engine will run in idle mode.")
-            
-            # Register v2 strategies
-            for strategy_code in strategies_v2:
-                if strategy_code == "ema20_50_intraday_v2":
-                    state = StrategyState()
-                    strategy_config = {
-                        "name": strategy_code,
-                        "timeframe": self.default_timeframe,
-                        "ema_fast": 20,
-                        "ema_slow": 50,
-                        "current_symbol": None,  # Will be set per-run
-                    }
-                    strategy = EMA2050IntradayV2(strategy_config, state)
-                    self.strategy_engine_v2.register_strategy(strategy_code, strategy)
-                    logger.info("Registered v2 strategy: %s", strategy_code)
-            
-            self.strategy_runner = None  # Disable v1 when using v2
-            logger.info("Strategy Engine v2 initialized with %d strategies", len(strategies_v2))
-        else:
-            # Use legacy Strategy Engine v1
-            if strategy_engine_version == 2:
-                logger.warning("Strategy Engine v2 requested but not available, falling back to v1")
-            logger.info("Using Strategy Engine v1 (legacy)")
-            self.strategy_runner = StrategyRunner(
-                self.state_store,
-                self,
-                market_data_engine=self.market_data_engine,
-            )
-            self.strategy_engine_v2 = None
-            self.strategy_engine_v3 = None
+                self.strategy_engine_v2 = None
+                self.strategy_engine_v3 = None
         
         risk_config = self.cfg.risk or {}
         self.risk_engine = RiskEngine(risk_config, self.state_store.load_checkpoint() or {}, logger)
@@ -1033,12 +1004,106 @@ class PaperEngine:
                     logger.error("Strategy Engine v3 evaluation failed for %s: %s", symbol, e, exc_info=True)
         
         elif self.strategy_engine_v2:
-            # Use Strategy Engine v2
-            # Note: When MDE v2 is active, strategies are triggered by candle_close events
-            # Otherwise, use the manual run() method
-            if not self.market_data_engine_v2:
-                symbols = list(self.universe)
-                self.strategy_engine_v2.run(symbols)
+            # Use Strategy Engine v2 with evaluate() method
+            for symbol in self.universe:
+                logical = self.logical_alias.get(symbol, symbol)
+                ltp = ticks.get(symbol, {}).get("close")
+                
+                if ltp is None:
+                    continue
+                
+                # Get timeframe
+                timeframes = self.multi_tf_config.get(logical, [self.default_timeframe])
+                tf = timeframes[0] if timeframes else self.default_timeframe
+                
+                # Fetch candle window from market data engine
+                window = self.market_data_engine.get_window(symbol, tf, 200)
+                
+                if not window or len(window) < 20:
+                    logger.debug("Insufficient candles for %s/%s: %d", symbol, tf, len(window) if window else 0)
+                    continue
+                
+                # Build series dict
+                series = {
+                    "open": [c["open"] for c in window],
+                    "high": [c["high"] for c in window],
+                    "low": [c["low"] for c in window],
+                    "close": [c["close"] for c in window],
+                    "volume": [c.get("volume", 0) for c in window],
+                }
+                
+                # Get current candle
+                current_candle = window[-1]
+                
+                # Compute indicators using the strategy engine
+                indicators = self.strategy_engine_v2.compute_indicators(series)
+                
+                # Safety check: validate candle and indicators
+                if not current_candle or current_candle.get("close") is None:
+                    logger.debug("Invalid candle for %s, skipping", symbol)
+                    continue
+                
+                if not indicators or indicators.get("ema20") is None or indicators.get("ema50") is None:
+                    logger.debug("Indicators not ready for %s, skipping", symbol)
+                    continue
+                
+                # Call evaluate
+                try:
+                    intent, debug = self.strategy_engine_v2.evaluate(
+                        logical=logical,
+                        symbol=symbol,
+                        timeframe=tf,
+                        candle=current_candle,
+                        indicators=indicators,
+                        mode=self.mode.value,
+                        profile=_profile_from_tf(tf),
+                        context={"ltp": ltp},
+                    )
+                    
+                    # Always log the signal
+                    self.recorder.log_signal(
+                        logical=logical,
+                        symbol=symbol,
+                        price=ltp,
+                        signal=intent.signal,
+                        tf=tf,
+                        reason=intent.reason,
+                        profile=_profile_from_tf(tf),
+                        mode=self.mode.value,
+                        confidence=intent.confidence,
+                        strategy=intent.strategy_id,
+                        ema20=debug.get("indicators", {}).get("ema20"),
+                        ema50=debug.get("indicators", {}).get("ema50"),
+                        ema100=debug.get("indicators", {}).get("ema100"),
+                        ema200=debug.get("indicators", {}).get("ema200"),
+                        rsi14=debug.get("indicators", {}).get("rsi14"),
+                        atr=debug.get("indicators", {}).get("atr"),
+                    )
+                    
+                    # If HOLD, skip order placement
+                    if intent.signal == "HOLD":
+                        continue
+                    
+                    # Process non-HOLD signals through risk and execution
+                    # Call _handle_signal to execute the trade
+                    self._handle_signal(
+                        symbol=symbol,
+                        signal=intent.signal,
+                        price=ltp,
+                        logical=logical,
+                        tf=tf,
+                        strategy_name=intent.strategy_id,
+                        strategy_code=intent.strategy_id,
+                        confidence=intent.confidence,
+                        reason=intent.reason,
+                        indicators=debug.get("indicators", {}),
+                    )
+                    
+                except Exception as exc:
+                    logger.error(
+                        "Strategy Engine v2 evaluation failed for %s: %s",
+                        symbol, exc, exc_info=True
+                    )
         elif self.strategy_runner:
             # Use Strategy Engine v1 (legacy)
             self.strategy_runner.run(ticks)
