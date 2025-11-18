@@ -133,9 +133,14 @@ class OrderIntent:
             "strategy_id": self.strategy_id,
             "confidence": self.confidence,
             "qty_hint": self.qty_hint,
+            "qty": self.qty,
             "reason": self.reason,
             "exit_reason": self.exit_reason,
             "extra": self.extra,
+            # Include legacy fields for backward compatibility
+            "action": self.action,
+            "strategy_code": self.strategy_code,
+            "metadata": self.metadata,
         }
 
 
