@@ -21,6 +21,8 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
+import signal
 import subprocess
 import sys
 import time
@@ -378,6 +380,40 @@ def start_engines_subprocess(mode: str, config_path: str) -> subprocess.Popen:
     return proc
 
 
+def _start_engine(cmd: list, log_path: Path, name: str) -> subprocess.Popen:
+    """
+    Start a single engine process with log redirection.
+    
+    Args:
+        cmd: Command to execute
+        log_path: Path to log file
+        name: Engine name (for logging)
+    
+    Returns:
+        Popen handle for the subprocess
+    """
+    # Ensure log directory exists
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Open the log file in append mode
+    log_file = open(log_path, "a", buffering=1, encoding="utf-8")
+    
+    # Start process with stdout/stderr redirected to log file
+    proc = subprocess.Popen(
+        cmd,
+        stdout=log_file,
+        stderr=log_file,
+        bufsize=1,
+        universal_newlines=True,
+        cwd=BASE_DIR,
+    )
+    
+    # Store log file handle for cleanup
+    proc._log_file = log_file  # type: ignore
+    
+    return proc
+
+
 def start_multi_process_engines(mode: str, config_path: str) -> Dict[str, subprocess.Popen]:
     """
     Start engines in multi-process mode (one process per engine).
@@ -389,10 +425,21 @@ def start_multi_process_engines(mode: str, config_path: str) -> Dict[str, subpro
     Returns:
         Dict mapping engine name to Popen handle
     """
+    base_cmd = [sys.executable, "-m"]
+    
     engines = {
-        "fno": "apps.run_fno_paper",
-        "equity": "apps.run_equity_paper",
-        "options": "apps.run_options_paper",
+        "fno": {
+            "module": "apps.run_fno_paper",
+            "log": LOGS_DIR / "fno_paper.log",
+        },
+        "equity": {
+            "module": "apps.run_equity_paper",
+            "log": LOGS_DIR / "equity_paper.log",
+        },
+        "options": {
+            "module": "apps.run_options_paper",
+            "log": LOGS_DIR / "options_paper.log",
+        },
     }
     
     processes: Dict[str, subprocess.Popen] = {}
@@ -401,26 +448,15 @@ def start_multi_process_engines(mode: str, config_path: str) -> Dict[str, subpro
     logger.info("Starting multi-process engines")
     logger.info("=" * 60)
     
-    for engine_name, module_name in engines.items():
-        cmd = [
-            sys.executable,
-            "-m",
-            module_name,
-            "--mode", mode,
-            "--config", config_path,
-        ]
+    for engine_name, info in engines.items():
+        cmd = base_cmd + [info["module"], "--mode", mode, "--config", config_path]
+        log_path = info["log"]
         
         logger.info("Starting %s engine: %s", engine_name, " ".join(cmd))
+        logger.info("  Log file: %s", log_path)
         
         try:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                bufsize=1,
-                universal_newlines=True,
-                cwd=BASE_DIR,
-            )
+            proc = _start_engine(cmd, log_path, engine_name)
             processes[engine_name] = proc
             logger.info("  %s engine started with PID=%d", engine_name, proc.pid)
         except Exception as exc:
@@ -455,61 +491,78 @@ def monitor_multi_process_engines(processes: Dict[str, subprocess.Popen]) -> int
     
     logger.info("Monitoring %d engine processes. Press Ctrl+C to stop.", len(processes))
     
-    # Track which engines have exited cleanly (code 0) and which are still running
-    clean_exits = set()
+    # Track exit codes and which engines have exited
+    exited_engines: Dict[str, int] = {}
+    any_failed = False
+    last_heartbeat = time.time()
+    heartbeat_interval = 30  # seconds
     
     try:
         # Poll all processes periodically
         while True:
-            all_stopped = True
-            failed_engines = []
-            
-            for engine_name, proc in processes.items():
-                # Skip engines that have already exited cleanly
-                if engine_name in clean_exits:
+            # Check each engine's status
+            for engine_name, proc in list(processes.items()):
+                # Skip engines that have already exited
+                if engine_name in exited_engines:
                     continue
                 
                 exit_code = proc.poll()
                 
-                if exit_code is None:
-                    # Still running
-                    all_stopped = False
-                elif exit_code == 0:
-                    # Clean exit (no work to do, or graceful shutdown)
-                    logger.info("Engine %s (PID=%d) exited cleanly with code=0 (no universe / no work)", 
-                               engine_name, proc.pid)
-                    clean_exits.add(engine_name)
-                    # DO NOT treat this as a failure
-                elif exit_code != 0:
-                    # Failed
-                    failed_engines.append((engine_name, exit_code))
-                    logger.error("Engine %s (PID=%d) exited with code=%d", 
-                                engine_name, proc.pid, exit_code)
+                if exit_code is not None:
+                    # Engine has exited
+                    exited_engines[engine_name] = exit_code
+                    
+                    if exit_code == 0:
+                        logger.info("Engine %s (PID=%d) exited with code 0", engine_name, proc.pid)
+                    else:
+                        logger.error("Engine %s (PID=%d) exited with code %d", engine_name, proc.pid, exit_code)
+                        any_failed = True
+                    
+                    # Close log file handle
+                    if hasattr(proc, '_log_file'):
+                        try:
+                            proc._log_file.close()
+                        except Exception:
+                            pass
             
-            # If any engine failed (non-zero exit), stop all and exit
-            if failed_engines:
-                logger.error("Detected %d failed engine(s). Stopping all engines...", 
-                           len(failed_engines))
-                _stop_all_processes(processes)
-                return 1
+            # Check if all engines have exited
+            if len(exited_engines) == len(processes):
+                # All engines have stopped
+                logger.info("=" * 60)
+                logger.info("All engines have stopped")
+                logger.info("Exit summary:")
+                for name, code in exited_engines.items():
+                    status = "OK" if code == 0 else "FAILED"
+                    logger.info("  %s: exit_code=%d (%s)", name, code, status)
+                logger.info("=" * 60)
+                
+                if any_failed:
+                    logger.error("One or more engines failed")
+                    return 1
+                else:
+                    logger.info("All engines exited successfully")
+                    return 0
             
-            # Check if only engines left are those still running (excluding clean exits)
-            running_engines = [name for name in processes.keys() if name not in clean_exits]
-            if not running_engines:
-                # All engines have exited cleanly
-                logger.info("All engines stopped normally")
-                return 0
-            
-            # If all remaining engines stopped (either clean or still being checked), we're done
-            if all_stopped:
-                logger.info("All engines stopped normally")
-                return 0
+            # Periodic heartbeat
+            now = time.time()
+            if now - last_heartbeat > heartbeat_interval:
+                running_engines = []
+                for name, proc in processes.items():
+                    if name not in exited_engines:
+                        running_engines.append(f"{name}=running(PID={proc.pid})")
+                
+                if running_engines:
+                    logger.info("Still monitoring engines: %s", ", ".join(running_engines))
+                
+                last_heartbeat = now
             
             # Wait a bit before next check
-            time.sleep(1)
+            time.sleep(2)
             
     except KeyboardInterrupt:
-        logger.info("Received interrupt signal. Stopping all engines...")
+        logger.info("=" * 60)
+        logger.info("Received KeyboardInterrupt, terminating all engines...")
+        logger.info("=" * 60)
         _stop_all_processes(processes)
         return 0
 
@@ -521,11 +574,19 @@ def _stop_all_processes(processes: Dict[str, subprocess.Popen]) -> None:
     Args:
         processes: Dict mapping engine name to Popen handle
     """
-    # First, send SIGTERM to all
+    # First, send SIGINT (or CTRL_BREAK_EVENT on Windows) to all
     for engine_name, proc in processes.items():
         if proc.poll() is None:  # Still running
-            logger.info("Sending SIGTERM to %s engine (PID=%d)", engine_name, proc.pid)
-            proc.terminate()
+            logger.info("Sending interrupt signal to %s engine (PID=%d)", engine_name, proc.pid)
+            try:
+                if os.name == "nt":
+                    # Windows: use CTRL_BREAK_EVENT
+                    proc.send_signal(signal.CTRL_BREAK_EVENT)
+                else:
+                    # Unix: use SIGINT
+                    proc.send_signal(signal.SIGINT)
+            except Exception as exc:
+                logger.warning("Failed to send interrupt signal to %s engine: %s", engine_name, exc)
     
     # Wait up to 10 seconds for graceful shutdown
     deadline = time.time() + 10
@@ -533,6 +594,13 @@ def _stop_all_processes(processes: Dict[str, subprocess.Popen]) -> None:
         all_stopped = all(proc.poll() is not None for proc in processes.values())
         if all_stopped:
             logger.info("All engines stopped gracefully")
+            # Close log files
+            for proc in processes.values():
+                if hasattr(proc, '_log_file'):
+                    try:
+                        proc._log_file.close()
+                    except Exception:
+                        pass
             return
         time.sleep(0.5)
     
@@ -542,6 +610,13 @@ def _stop_all_processes(processes: Dict[str, subprocess.Popen]) -> None:
             logger.warning("Force killing %s engine (PID=%d)", engine_name, proc.pid)
             proc.kill()
             proc.wait()
+            
+            # Close log file
+            if hasattr(proc, '_log_file'):
+                try:
+                    proc._log_file.close()
+                except Exception:
+                    pass
     
     logger.info("All engines terminated")
 
