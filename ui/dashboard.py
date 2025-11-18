@@ -2923,19 +2923,30 @@ async def api_benchmarks(
 @router.get("/api/risk/limits")
 async def api_risk_limits() -> JSONResponse:
     """
-    Get current risk limits configuration.
+    Get current risk limits configuration with source information.
     
     Returns:
-        RiskLimits configuration with all limit values
+        {
+          "limits": { ...RiskLimits fields... },
+          "source": {
+            "base_config": "configs/dev.yaml",
+            "overrides": "configs/risk_overrides.yaml"
+          },
+          "updated_at": <ISO timestamp or null>
+        }
     """
     try:
-        limits = load_risk_limits()
+        limits, metadata = load_risk_limits()
         return JSONResponse({
-            "max_daily_loss_rupees": limits.max_daily_loss_rupees,
-            "max_daily_drawdown_pct": limits.max_daily_drawdown_pct,
-            "max_trades_per_day": limits.max_trades_per_day,
-            "max_trades_per_symbol_per_day": limits.max_trades_per_symbol_per_day,
-            "max_loss_streak": limits.max_loss_streak,
+            "limits": {
+                "max_daily_loss_rupees": limits.max_daily_loss_rupees,
+                "max_daily_drawdown_pct": limits.max_daily_drawdown_pct,
+                "max_trades_per_day": limits.max_trades_per_day,
+                "max_trades_per_symbol_per_day": limits.max_trades_per_symbol_per_day,
+                "max_loss_streak": limits.max_loss_streak,
+            },
+            "source": metadata.get("source", {}),
+            "updated_at": metadata.get("updated_at"),
         })
     except Exception as exc:
         logger.error("Failed to load risk limits: %s", exc, exc_info=True)
@@ -2950,7 +2961,7 @@ async def api_risk_limits_update(request: Request) -> JSONResponse:
     """
     Update risk limits configuration.
     
-    Request body should contain risk limit fields to update:
+    Request body should contain risk limit fields to update (partial patch):
     - max_daily_loss_rupees: float
     - max_daily_drawdown_pct: float
     - max_trades_per_day: int
@@ -2958,22 +2969,47 @@ async def api_risk_limits_update(request: Request) -> JSONResponse:
     - max_loss_streak: int
     
     Returns:
-        Updated RiskLimits configuration
+        { "status": "ok", "limits": { ...new limits... } }
     """
     try:
         body = await request.json()
-        save_risk_limits(body)
         
-        # Return updated limits
-        limits = load_risk_limits()
+        # Basic validation
+        if "max_daily_loss_rupees" in body:
+            if not isinstance(body["max_daily_loss_rupees"], (int, float)) or body["max_daily_loss_rupees"] <= 0:
+                raise HTTPException(status_code=400, detail="max_daily_loss_rupees must be positive number")
+        
+        if "max_daily_drawdown_pct" in body:
+            if not isinstance(body["max_daily_drawdown_pct"], (int, float)) or body["max_daily_drawdown_pct"] <= 0:
+                raise HTTPException(status_code=400, detail="max_daily_drawdown_pct must be positive number")
+        
+        if "max_trades_per_day" in body:
+            if not isinstance(body["max_trades_per_day"], int) or body["max_trades_per_day"] <= 0:
+                raise HTTPException(status_code=400, detail="max_trades_per_day must be positive integer")
+        
+        if "max_trades_per_symbol_per_day" in body:
+            if not isinstance(body["max_trades_per_symbol_per_day"], int) or body["max_trades_per_symbol_per_day"] <= 0:
+                raise HTTPException(status_code=400, detail="max_trades_per_symbol_per_day must be positive integer")
+        
+        if "max_loss_streak" in body:
+            if not isinstance(body["max_loss_streak"], int) or body["max_loss_streak"] <= 0:
+                raise HTTPException(status_code=400, detail="max_loss_streak must be positive integer")
+        
+        # Save and get updated limits
+        updated_limits = save_risk_limits(body)
+        
         return JSONResponse({
-            "max_daily_loss_rupees": limits.max_daily_loss_rupees,
-            "max_daily_drawdown_pct": limits.max_daily_drawdown_pct,
-            "max_trades_per_day": limits.max_trades_per_day,
-            "max_trades_per_symbol_per_day": limits.max_trades_per_symbol_per_day,
-            "max_loss_streak": limits.max_loss_streak,
-            "message": "Risk limits updated successfully",
+            "status": "ok",
+            "limits": {
+                "max_daily_loss_rupees": updated_limits.max_daily_loss_rupees,
+                "max_daily_drawdown_pct": updated_limits.max_daily_drawdown_pct,
+                "max_trades_per_day": updated_limits.max_trades_per_day,
+                "max_trades_per_symbol_per_day": updated_limits.max_trades_per_symbol_per_day,
+                "max_loss_streak": updated_limits.max_loss_streak,
+            }
         })
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error("Failed to update risk limits: %s", exc, exc_info=True)
         raise HTTPException(
@@ -2988,15 +3024,20 @@ async def api_risk_breaches() -> JSONResponse:
     Get list of active risk limit breaches.
     
     Returns:
-        List of breach objects, each containing:
-        - type: Breach type (e.g., "max_daily_loss")
-        - limit: The limit value
-        - current: The current value
-        - timestamp: When the breach was detected
+        { "breaches": [ ... ] }
+        
+        Each breach contains:
+        - code: Breach code (e.g., "MAX_DAILY_LOSS")
+        - severity: "warning" or "critical"
+        - message: Human-readable description
+        - metric: { current, limit, unit }
+        - symbol: Trading symbol (or null)
+        - since: ISO timestamp (or null)
     """
     try:
-        breaches = compute_breaches()
-        return JSONResponse(breaches)
+        limits, _ = load_risk_limits()
+        breaches = compute_breaches(limits)
+        return JSONResponse({"breaches": breaches})
     except Exception as exc:
         logger.error("Failed to compute risk breaches: %s", exc, exc_info=True)
         raise HTTPException(
