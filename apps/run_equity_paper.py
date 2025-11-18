@@ -21,9 +21,7 @@ from typing import Optional
 from core.config import load_config
 from core.engine_bootstrap import (
     setup_engine_logging,
-    build_kite_client,
-    resolve_equity_universe,
-    load_scanner_universe,
+    build_equity_universe,
 )
 from engine.equity_paper_engine import EquityPaperEngine
 
@@ -88,7 +86,27 @@ def main() -> None:
         logger.info("Mode: %s", args.mode)
         logger.info("=" * 60)
         
-        # Build Kite client
+        # Build equity universe using the same logic as scripts.run_day.py
+        logger.info("Resolving equity universe...")
+        equity_universe = build_equity_universe(cfg)
+        
+        if not equity_universe:
+            # Handle empty universe gracefully
+            logger.warning("=" * 60)
+            logger.warning("EquityPaperEngine: no equity universe resolved (universe=%s); exiting with code 0.",
+                         equity_universe)
+            logger.warning("This is expected if:")
+            logger.warning("  1. config.trading.equity_universe is empty")
+            logger.warning("  2. config/universe_equity.csv is empty or missing")
+            logger.warning("  3. Scanner data is unavailable")
+            logger.warning("=" * 60)
+            sys.exit(0)
+        
+        logger.info("Equity universe: %d symbols", len(equity_universe))
+        logger.debug("Symbols: %s", ", ".join(equity_universe[:10]) + ("..." if len(equity_universe) > 10 else ""))
+        
+        # Build Kite client (needed by EquityPaperEngine)
+        from core.engine_bootstrap import build_kite_client
         try:
             kite = build_kite_client()
         except SystemExit:
@@ -96,36 +114,6 @@ def main() -> None:
         except Exception as exc:
             logger.error("Failed to build Kite client: %s", exc)
             sys.exit(1)
-        
-        # Load scanner universe (optional)
-        universe_snapshot = load_scanner_universe(cfg, kite)
-        
-        # Resolve equity universe
-        equity_universe = resolve_equity_universe(cfg, kite, universe_snapshot)
-        
-        if not equity_universe:
-            # Handle empty universe gracefully
-            logger.warning("=" * 60)
-            logger.warning("EquityPaperEngine: equity universe is empty; nothing to trade.")
-            logger.warning("Engine will idle. Press Ctrl+C to exit.")
-            logger.warning("=" * 60)
-            
-            # Option A: Exit cleanly with code 0 (no work to do)
-            # This allows the orchestrator to treat this as a non-failure
-            logger.info("Exiting with status 0 (no universe to trade)")
-            sys.exit(0)
-            
-            # Option B (commented out): Keep process alive in idle loop
-            # try:
-            #     while True:
-            #         logger.info("EquityPaperEngine: no universe to trade; sleeping...")
-            #         time.sleep(60)
-            # except KeyboardInterrupt:
-            #     logger.info("Interrupted by user")
-            #     sys.exit(0)
-        
-        logger.info("Equity universe: %d symbols", len(equity_universe))
-        logger.debug("Symbols: %s", ", ".join(equity_universe[:10]) + ("..." if len(equity_universe) > 10 else ""))
         
         # Create equity paper engine
         try:
