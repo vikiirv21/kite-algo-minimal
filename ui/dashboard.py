@@ -340,6 +340,7 @@ def summarize_config(cfg: AppConfig) -> Dict[str, Any]:
             risk.get("max_exposure_pct", trading.get("max_notional_multiplier", 2.0)),
         )
     )
+    max_positions = int(trading.get("max_positions", risk.get("max_positions", 5)))
 
     if risk_per_trade_pct <= 0.004 and max_exposure_pct <= 1.5:
         risk_profile = "Conservative"
@@ -358,6 +359,7 @@ def summarize_config(cfg: AppConfig) -> Dict[str, Any]:
         "risk_per_trade_pct": risk_per_trade_pct,
         "max_daily_loss": max_daily_loss,
         "max_exposure_pct": max_exposure_pct,
+        "max_positions": max_positions,
         "risk_profile": risk_profile,
         "meta_enabled": meta_enabled,
     }

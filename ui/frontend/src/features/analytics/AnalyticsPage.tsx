@@ -1,22 +1,42 @@
+/**
+ * Analytics Page
+ * 
+ * Backend APIs used:
+ * - GET /api/analytics/summary - Daily P&L, strategy and symbol performance
+ * - GET /api/analytics/equity_curve - Equity curve with drawdown data
+ * 
+ * Missing APIs (documented in comments):
+ * - GET /api/benchmarks - Benchmark comparison (NIFTY/BANKNIFTY)
+ */
+
 import { Card, CardSkeleton } from '../../components/Card';
-import { useEquityCurve, useAnalyticsSummary } from '../../hooks/useApi';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { useAnalyticsSummary, useAnalyticsEquityCurve } from '../../hooks/useApi';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ComposedChart, Area } from 'recharts';
 import { formatCurrency, getPnlClass, getPnlPrefix } from '../../utils/format';
 
 export function AnalyticsPage() {
-  const { data: equityCurve, isLoading: equityCurveLoading } = useEquityCurve();
   const { data: analytics, isLoading: analyticsLoading } = useAnalyticsSummary();
+  const { data: equityCurveData, isLoading: equityCurveLoading } = useAnalyticsEquityCurve();
   
-  // Format data for charts
-  const chartData = equityCurve?.map(point => ({
-    time: new Date(point.ts).toLocaleTimeString('en-IN', { 
+  // Format data for equity curve chart
+  const chartData = equityCurveData?.equity_curve?.map(point => ({
+    time: new Date(point.timestamp).toLocaleTimeString('en-IN', { 
       hour: '2-digit', 
       minute: '2-digit',
       timeZone: 'Asia/Kolkata'
     }),
     equity: point.equity,
-    realized: point.realized,
-    unrealized: point.unrealized,
+    pnl: point.pnl,
+  })) || [];
+  
+  // Format drawdown data
+  const drawdownData = equityCurveData?.drawdown?.drawdown_series?.map(point => ({
+    time: new Date(point.timestamp).toLocaleTimeString('en-IN', { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      timeZone: 'Asia/Kolkata'
+    }),
+    drawdown: point.drawdown,
   })) || [];
   
   return (
@@ -82,7 +102,62 @@ export function AnalyticsPage() {
         ) : (
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData}>
+              <ComposedChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#2a3447" />
+                <XAxis 
+                  dataKey="time" 
+                  stroke="#6b7280" 
+                  style={{ fontSize: '12px' }}
+                />
+                <YAxis 
+                  stroke="#6b7280" 
+                  style={{ fontSize: '12px' }}
+                  tickFormatter={(value) => `₹${(value / 1000).toFixed(0)}k`}
+                />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: '#121825', 
+                    border: '1px solid #2a3447',
+                    borderRadius: '4px'
+                  }}
+                  formatter={(value: number) => [`₹${value.toFixed(2)}`, '']}
+                />
+                <Legend />
+                <Area 
+                  type="monotone" 
+                  dataKey="pnl" 
+                  fill="#3b82f6" 
+                  fillOpacity={0.2}
+                  stroke="none"
+                  name="P&L"
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="equity" 
+                  stroke="#3b82f6" 
+                  strokeWidth={2}
+                  name="Equity"
+                  dot={false}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </Card>
+      
+      {/* Drawdown Chart */}
+      {drawdownData.length > 0 && (
+        <Card title="Drawdown">
+          <div className="mb-4">
+            <div className="text-sm text-text-secondary">
+              Max Drawdown: <span className="text-negative font-semibold">
+                {formatCurrency(equityCurveData?.drawdown?.max_drawdown || 0)}
+              </span>
+            </div>
+          </div>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={drawdownData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#2a3447" />
                 <XAxis 
                   dataKey="time" 
@@ -105,35 +180,17 @@ export function AnalyticsPage() {
                 <Legend />
                 <Line 
                   type="monotone" 
-                  dataKey="equity" 
-                  stroke="#3b82f6" 
+                  dataKey="drawdown" 
+                  stroke="#ef4444" 
                   strokeWidth={2}
-                  name="Equity"
-                  dot={false}
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="realized" 
-                  stroke="#10b981" 
-                  strokeWidth={1}
-                  strokeDasharray="5 5"
-                  name="Realized"
-                  dot={false}
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="unrealized" 
-                  stroke="#f59e0b" 
-                  strokeWidth={1}
-                  strokeDasharray="5 5"
-                  name="Unrealized"
+                  name="Drawdown"
                   dot={false}
                 />
               </LineChart>
             </ResponsiveContainer>
           </div>
-        )}
-      </Card>
+        </Card>
+      )}
       
       {/* Per-Strategy Performance */}
       {analytics?.strategies && Object.keys(analytics.strategies).length > 0 ? (
@@ -193,28 +250,31 @@ export function AnalyticsPage() {
         </Card>
       ) : null}
       
-      {/* Benchmarks Placeholder 
-          TODO: Implement GET /api/benchmarks endpoint
-          Expected response: Array of { ts: string, nifty?: number, banknifty?: number, finnifty?: number }
-          See docs/ANALYTICS_RISK_API_GAPS.md for implementation details
-      */}
-      <Card title="Benchmarks">
+      {/* Benchmarks Placeholder */}
+      <Card title="Benchmark Comparison">
         <div className="text-center text-text-secondary py-12">
-          <p className="font-semibold">Benchmark Comparison Coming Soon</p>
+          <p className="font-semibold">Coming Soon: NIFTY/BANKNIFTY Comparison</p>
           <p className="text-sm mt-2">
-            To enable this feature, add the following API endpoint:
+            Compare portfolio equity curve against market benchmarks
           </p>
-          <pre className="mt-4 text-left inline-block bg-surface-light p-4 rounded text-xs">
+          <div className="mt-6 text-xs text-left max-w-2xl mx-auto bg-surface-light p-4 rounded">
+            <p className="font-semibold mb-2">📝 Backend Implementation Required:</p>
+            <pre className="text-xs">
 {`GET /api/benchmarks?days=1
-Returns:
-[
-  { ts: "2024-11-17T10:00:00+00:00", nifty: 19500, banknifty: 45000, finnifty: 20456 },
+Response: [
+  {
+    ts: "2024-11-18T10:00:00+05:30",
+    nifty: 19500.25,
+    banknifty: 45234.80,
+    finnifty: 20456.50
+  },
   ...
 ]`}
-          </pre>
-          <p className="text-xs mt-4 text-text-secondary">
-            📝 See <code>docs/ANALYTICS_RISK_API_GAPS.md</code> for implementation details
-          </p>
+            </pre>
+            <p className="mt-3 text-text-secondary">
+              Add this endpoint in <code>ui/dashboard.py</code> to enable benchmark tracking
+            </p>
+          </div>
         </div>
       </Card>
     </div>

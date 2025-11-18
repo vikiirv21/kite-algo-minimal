@@ -1,6 +1,39 @@
+/**
+ * Risk Dashboard Page
+ * 
+ * Backend APIs used:
+ * - GET /api/risk/summary - Risk configuration and current halt status
+ * - GET /api/portfolio/summary - Current exposure and position data
+ * - GET /api/config/summary - Risk limits and configuration
+ * - GET /api/summary/today - Today's P&L for loss limit calculation
+ * 
+ * Missing fields:
+ * - max_positions: Currently hardcoded, should come from config
+ * 
+ * Missing features (for future enhancement):
+ * - Per-symbol position limits
+ * - Correlation-adjusted exposure
+ * - Value at Risk (VaR) calculations
+ * - Real-time risk alerts
+ */
+
 import { Card, CardSkeleton } from '../../components/Card';
 import { usePortfolioSummary, useConfigSummary, useTodaySummary, useRiskSummary } from '../../hooks/useApi';
 import { formatCurrency, formatPercent, getPnlClass } from '../../utils/format';
+
+// Helper function to get risk level color
+function getRiskLevelColor(percentUsed: number): string {
+  if (percentUsed >= 90) return 'bg-negative';
+  if (percentUsed >= 60) return 'bg-warning';
+  return 'bg-positive';
+}
+
+// Helper function to get risk level status
+function getRiskLevelStatus(percentUsed: number): { text: string; class: string } {
+  if (percentUsed >= 90) return { text: '✗ Critical level', class: 'text-negative' };
+  if (percentUsed >= 60) return { text: '⚠ Approaching limit', class: 'text-warning' };
+  return { text: '✓ Within safe limits', class: 'text-positive' };
+}
 
 export function RiskPage() {
   const { data: portfolio, isLoading: portfolioLoading } = usePortfolioSummary();
@@ -18,12 +51,14 @@ export function RiskPage() {
   const currentExposure = portfolio?.exposure_pct || 0;
   const exposureUsedPct = (currentExposure / maxExposure) * 100;
   
-  // TODO: Get max_positions from backend config instead of hardcoding
-  // Expected: config.max_positions from GET /api/config/summary
-  // See docs/ANALYTICS_RISK_API_GAPS.md for implementation details
-  const maxPositions = 5; // TODO: Get from config
+  // Get max_positions from config (now available from backend)
+  const maxPositions = config?.max_positions || 5;
   const currentPositions = portfolio?.position_count || 0;
   const positionsUsedPct = (currentPositions / maxPositions) * 100;
+  
+  const lossStatus = getRiskLevelStatus(lossUsedPct);
+  const exposureStatus = getRiskLevelStatus(exposureUsedPct);
+  const positionStatus = getRiskLevelStatus(positionsUsedPct);
   
   return (
     <div className="space-y-6">
@@ -66,23 +101,16 @@ export function RiskPage() {
                 </div>
                 <div className="w-full bg-border rounded-full h-3">
                   <div 
-                    className={`rounded-full h-3 transition-all ${
-                      lossUsedPct < 50 ? 'bg-positive' : 
-                      lossUsedPct < 80 ? 'bg-warning' : 
-                      'bg-negative'
-                    }`}
+                    className={`rounded-full h-3 transition-all ${getRiskLevelColor(lossUsedPct)}`}
                     style={{ width: `${Math.min(100, lossUsedPct)}%` }}
                   />
                 </div>
+                <div className="text-xs text-text-secondary mt-1">
+                  {lossUsedPct.toFixed(1)}% used
+                </div>
               </div>
-              <div className="text-sm text-text-secondary">
-                {lossUsedPct < 80 ? (
-                  <span className="text-positive">✓ Within safe limits</span>
-                ) : lossUsedPct < 100 ? (
-                  <span className="text-warning">⚠ Approaching limit</span>
-                ) : (
-                  <span className="text-negative">✗ Limit exceeded</span>
-                )}
+              <div className={`text-sm ${lossStatus.class}`}>
+                {lossStatus.text}
               </div>
             </div>
           </Card>
@@ -103,17 +131,19 @@ export function RiskPage() {
                 </div>
                 <div className="w-full bg-border rounded-full h-3">
                   <div 
-                    className={`rounded-full h-3 transition-all ${
-                      exposureUsedPct < 50 ? 'bg-positive' : 
-                      exposureUsedPct < 80 ? 'bg-warning' : 
-                      'bg-negative'
-                    }`}
+                    className={`rounded-full h-3 transition-all ${getRiskLevelColor(exposureUsedPct)}`}
                     style={{ width: `${Math.min(100, exposureUsedPct)}%` }}
                   />
                 </div>
+                <div className="text-xs text-text-secondary mt-1">
+                  {exposureUsedPct.toFixed(1)}% used
+                </div>
               </div>
-              <div className="text-sm text-text-secondary">
-                Notional: {formatCurrency(portfolio?.total_notional)}
+              <div className="text-sm">
+                <div className={exposureStatus.class}>{exposureStatus.text}</div>
+                <div className="text-text-secondary mt-1">
+                  Notional: {formatCurrency(portfolio?.total_notional)}
+                </div>
               </div>
             </div>
           </Card>
@@ -131,15 +161,19 @@ export function RiskPage() {
               </div>
               <div className="w-full bg-border rounded-full h-3">
                 <div 
-                  className={`rounded-full h-3 transition-all ${
-                    positionsUsedPct < 80 ? 'bg-positive' : 'bg-warning'
-                  }`}
+                  className={`rounded-full h-3 transition-all ${getRiskLevelColor(positionsUsedPct)}`}
                   style={{ width: `${Math.min(100, positionsUsedPct)}%` }}
                 />
               </div>
+              <div className="text-xs text-text-secondary mt-1">
+                {positionsUsedPct.toFixed(1)}% used
+              </div>
             </div>
-            <div className="text-sm text-text-secondary">
-              {maxPositions - currentPositions} positions available
+            <div className={`text-sm ${positionStatus.class}`}>
+              {positionStatus.text}
+              <div className="text-text-secondary mt-1">
+                {maxPositions - currentPositions} positions available
+              </div>
             </div>
           </div>
         </Card>
@@ -199,30 +233,37 @@ export function RiskPage() {
         </div>
       </Card>
       
-      {/* Future Enhancements 
-          TODO: Implement advanced risk APIs
-          See docs/ANALYTICS_RISK_API_GAPS.md for detailed specifications
-      */}
-      <Card title="Advanced Risk Metrics (Coming Soon)">
+      {/* Future Enhancements */}
+      <Card title="Advanced Risk Metrics">
         <div className="text-center text-text-secondary py-8">
-          <p className="font-semibold">Additional Risk Features Planned:</p>
-          <ul className="mt-4 space-y-2 text-sm text-left max-w-2xl mx-auto">
-            <li>• Max drawdown monitoring</li>
-            <li>• Per-symbol position limits</li>
-            <li>• Correlation-adjusted exposure</li>
-            <li>• Value at Risk (VaR) calculations</li>
-            <li>• Real-time risk alerts and notifications</li>
-          </ul>
-          <pre className="mt-6 text-left inline-block bg-surface-light p-4 rounded text-xs">
-{`// Expected API endpoints:
-GET /api/risk/limits        // All risk limits
-GET /api/risk/breaches      // Current limit breaches
-GET /api/risk/var           // Value at Risk metrics
-POST /api/risk/limits       // Update risk limits`}
-          </pre>
-          <p className="text-xs mt-4 text-text-secondary">
-            📝 See <code>docs/ANALYTICS_RISK_API_GAPS.md</code> for implementation details
-          </p>
+          <p className="font-semibold mb-4">Additional Risk Features Planned:</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl mx-auto text-left">
+            <div className="bg-surface-light p-4 rounded">
+              <div className="font-semibold text-sm mb-2">📊 Max Drawdown Monitoring</div>
+              <div className="text-xs">Track largest peak-to-trough decline</div>
+            </div>
+            <div className="bg-surface-light p-4 rounded">
+              <div className="font-semibold text-sm mb-2">🎯 Per-Symbol Position Limits</div>
+              <div className="text-xs">Control concentration risk per instrument</div>
+            </div>
+            <div className="bg-surface-light p-4 rounded">
+              <div className="font-semibold text-sm mb-2">🔗 Correlation-Adjusted Exposure</div>
+              <div className="text-xs">Account for portfolio correlations</div>
+            </div>
+            <div className="bg-surface-light p-4 rounded">
+              <div className="font-semibold text-sm mb-2">⚡ Value at Risk (VaR)</div>
+              <div className="text-xs">Statistical risk assessment</div>
+            </div>
+          </div>
+          <div className="mt-6 text-xs bg-surface-light p-4 rounded max-w-2xl mx-auto text-left">
+            <p className="font-semibold mb-2">📝 Expected API Endpoints:</p>
+            <pre className="text-xs">
+{`GET /api/risk/limits        # All risk limits
+GET /api/risk/breaches      # Current violations
+GET /api/risk/var           # VaR calculations
+POST /api/risk/limits       # Update limits`}
+            </pre>
+          </div>
         </div>
       </Card>
     </div>
