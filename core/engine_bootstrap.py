@@ -198,7 +198,7 @@ def resolve_equity_universe(
     Returns:
         List of equity symbols to trade
     """
-    from core.universe_builder import build_equity_universe
+    from core.universe import load_equity_universe
     
     # Check scanner snapshot first
     if universe_snapshot and isinstance(universe_snapshot, dict):
@@ -211,14 +211,29 @@ def resolve_equity_universe(
             )
             return symbols
     
-    # Use equity universe builder (handles config + CSV fallback)
+    # Check config for equity_universe
+    trading = cfg.trading or {}
+    config_universe = trading.get("equity_universe", [])
+    
+    if config_universe:
+        symbols = [str(sym).strip().upper() for sym in config_universe if sym]
+        logger.info(
+            "Using equity universe from config: %d symbols",
+            len(symbols),
+        )
+        return symbols
+    
+    # Fallback to CSV file (config/universe_equity.csv)
     try:
-        symbols = build_equity_universe(cfg.raw, kite)
-        logger.info("Resolved equity universe: %d symbols", len(symbols))
+        symbols = load_equity_universe()
+        logger.info(
+            "Using equity universe from CSV file: %d symbols",
+            len(symbols),
+        )
         return symbols
     except Exception as exc:
-        logger.warning("Failed to build equity universe: %s", exc)
-        # Fallback to empty list
+        logger.warning("Failed to load equity universe from CSV: %s", exc)
+        # Return empty list - let the caller decide how to handle
         return []
 
 
