@@ -1822,6 +1822,118 @@ async def api_portfolio_summary() -> JSONResponse:
     return JSONResponse(load_paper_portfolio_summary())
 
 
+@router.get("/api/portfolio")
+async def api_portfolio() -> JSONResponse:
+    """
+    Return live portfolio snapshot with up-to-date position values.
+    
+    This endpoint provides real-time portfolio data including:
+    - Summary: equity, realized/unrealized PnL, total notional, margins
+    - Positions: Per-symbol details with live LTP, unrealized PnL, and PnL%
+    
+    Works in both paper and live modes by loading from state store checkpoint
+    and resolving current prices from market data cache.
+    """
+    try:
+        # Load state from checkpoint
+        state = _load_runtime_state_payload()
+        if not state:
+            return JSONResponse({
+                "starting_capital": 0.0,
+                "equity": 0.0,
+                "realized_pnl": 0.0,
+                "unrealized_pnl": 0.0,
+                "total_notional": 0.0,
+                "free_margin": 0.0,
+                "margin_used": 0.0,
+                "positions": [],
+                "error": "No checkpoint data available",
+            })
+        
+        # Load market data for price resolution
+        quotes = _load_quotes()
+        ticks = _load_ticks_cache(state)
+        
+        # Extract equity info from state
+        equity_data = state.get("equity") or {}
+        pnl_data = state.get("pnl") or {}
+        
+        starting_capital = _safe_float(equity_data.get("paper_capital"), 0.0)
+        realized_pnl = _safe_float(equity_data.get("realized_pnl"), 0.0)
+        
+        # Process positions to compute live unrealized PnL
+        positions_data = state.get("positions") or []
+        if isinstance(positions_data, dict):
+            positions_list = list(positions_data.values())
+        else:
+            positions_list = list(positions_data)
+        
+        processed_positions = []
+        total_unrealized = 0.0
+        total_notional = 0.0
+        
+        for pos in positions_list:
+            if not isinstance(pos, dict):
+                continue
+            
+            qty = _safe_float(pos.get("quantity") or pos.get("qty"), 0.0)
+            if qty == 0:
+                continue
+            
+            symbol = pos.get("symbol") or pos.get("tradingsymbol") or ""
+            if not symbol:
+                continue
+            
+            avg_price = _safe_float(pos.get("avg_price") or pos.get("average_price"), 0.0)
+            last_price = resolve_last_for_symbol(symbol, pos, quotes, ticks)
+            unrealized_pnl = compute_unrealized_pnl(avg_price, last_price, qty)
+            notional = abs(qty * last_price)
+            pnl_pct = ((last_price - avg_price) / avg_price * 100.0) if avg_price > 0 else 0.0
+            
+            total_unrealized += unrealized_pnl
+            total_notional += notional
+            
+            processed_positions.append({
+                "symbol": symbol,
+                "side": "LONG" if qty > 0 else "SHORT",
+                "quantity": int(abs(qty)),
+                "avg_price": round(avg_price, 2),
+                "last_price": round(last_price, 2),
+                "notional": round(notional, 2),
+                "unrealized_pnl": round(unrealized_pnl, 2),
+                "pnl_pct": round(pnl_pct, 2),
+            })
+        
+        # Compute final equity
+        equity = starting_capital + realized_pnl + total_unrealized
+        free_margin = equity - total_notional
+        
+        return JSONResponse({
+            "starting_capital": round(starting_capital, 2),
+            "equity": round(equity, 2),
+            "realized_pnl": round(realized_pnl, 2),
+            "unrealized_pnl": round(total_unrealized, 2),
+            "total_notional": round(total_notional, 2),
+            "free_margin": round(free_margin, 2),
+            "margin_used": round(total_notional, 2),
+            "positions": processed_positions,
+        })
+        
+    except Exception as exc:
+        logger.exception("Failed to load portfolio snapshot: %s", exc)
+        return JSONResponse({
+            "starting_capital": 0.0,
+            "equity": 0.0,
+            "realized_pnl": 0.0,
+            "unrealized_pnl": 0.0,
+            "total_notional": 0.0,
+            "free_margin": 0.0,
+            "margin_used": 0.0,
+            "positions": [],
+            "error": str(exc),
+        }, status_code=500)
+
+
 @router.get("/api/monitor/trade_flow")
 async def api_monitor_trade_flow() -> JSONResponse:
     """
