@@ -933,6 +933,9 @@ def _default_portfolio_summary() -> Dict[str, Any]:
         "daily_pnl": None,
         "has_positions": False,
         "position_count": 0,
+        "position_limit": None,
+        "open_positions": 0,
+        "position_used_pct": 0.0,
         "note": "No data",
     }
 
