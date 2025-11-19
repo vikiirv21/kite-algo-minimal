@@ -92,6 +92,25 @@ except ImportError:
     StrategyState = None
     EMA2050IntradayV2 = None
 
+# Market Context (optional - graceful fallback)
+try:
+    from core.market_context import (
+        MarketContext,
+        MarketContextBuilder,
+        MarketContextConfig,
+        initialize_market_context,
+    )
+    MARKET_CONTEXT_AVAILABLE = True
+except ImportError:
+    MARKET_CONTEXT_AVAILABLE = False
+    MarketContext = None
+    MarketContextBuilder = None
+    MarketContextConfig = None
+    initialize_market_context = None
+    StrategyEngineV2 = None
+    StrategyState = None
+    EMA2050IntradayV2 = None
+
 from engine.meta_strategy_engine import (
     MetaDecision,
     MetaStrategyEngine,
@@ -738,6 +757,28 @@ class PaperEngine:
                         "Strategy Engine v2 initialized with %d strategies",
                         len(self.strategy_engine_v2.strategies)
                     )
+                    
+                    # Initialize MarketContext if enabled
+                    if MARKET_CONTEXT_AVAILABLE:
+                        mc_config = self.cfg.raw.get("market_context", {})
+                        if mc_config.get("enabled", False):
+                            try:
+                                self.market_context_builder = initialize_market_context(
+                                    config=self.cfg.raw,
+                                    kite_client=self.kite,
+                                    market_data_engine=self.market_data_engine,
+                                )
+                                logger.info("MarketContext initialized and enabled")
+                            except Exception as exc:
+                                logger.warning("Failed to initialize MarketContext: %s", exc)
+                                self.market_context_builder = None
+                        else:
+                            logger.info("MarketContext disabled in config")
+                            self.market_context_builder = None
+                    else:
+                        logger.debug("MarketContext module not available")
+                        self.market_context_builder = None
+                        
                 except Exception as exc:
                     logger.error("Failed to initialize Strategy Engine v2: %s", exc, exc_info=True)
                     logger.info("Falling back to v1")
@@ -1044,6 +1085,16 @@ class PaperEngine:
         
         elif self.strategy_engine_v2:
             # Use Strategy Engine v2 with evaluate() method
+            
+            # Build MarketContext once per tick if available
+            market_context = None
+            if hasattr(self, "market_context_builder") and self.market_context_builder:
+                try:
+                    market_context = self.market_context_builder.build(symbols=self.universe)
+                except Exception as exc:
+                    logger.debug("Failed to build MarketContext: %s", exc)
+                    market_context = None
+            
             for symbol in self.universe:
                 logical = self.logical_alias.get(symbol, symbol)
                 ltp = ticks.get(symbol, {}).get("close")
@@ -1086,7 +1137,7 @@ class PaperEngine:
                     logger.debug("Indicators not ready for %s, skipping", symbol)
                     continue
                 
-                # Call evaluate
+                # Call evaluate with market_context
                 try:
                     intent, debug = self.strategy_engine_v2.evaluate(
                         logical=logical,
@@ -1097,6 +1148,7 @@ class PaperEngine:
                         mode=self.mode.value,
                         profile=_profile_from_tf(tf),
                         context={"ltp": ltp},
+                        market_context=market_context,  # Pass MarketContext here
                     )
                     
                     # Always log the signal
