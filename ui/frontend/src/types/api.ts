@@ -85,7 +85,21 @@ export interface Position {
   quantity: number;
   avg_price: number;
   last_price: number;
+  notional?: number;
   unrealized_pnl: number;
+  pnl_pct?: number;
+}
+
+export interface Portfolio {
+  starting_capital: number;
+  equity: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  total_notional: number;
+  free_margin: number;
+  margin_used: number;
+  positions: Position[];
+  error?: string;
 }
 
 export interface LogEntry {
