@@ -2041,6 +2041,57 @@ async def api_stats_strategies(days: int = Query(1, ge=1, le=7)) -> JSONResponse
     return JSONResponse(stats)
 
 
+@router.get("/api/strategies/health")
+async def api_strategies_health() -> JSONResponse:
+    """
+    Get real-time strategy health metrics from telemetry bus.
+    Returns structured health data for active strategies.
+    """
+    bus = get_telemetry_bus()
+    
+    # Get recent engine_health events
+    recent_events = bus.get_recent_events(event_type="engine_health", limit=10)
+    
+    strategies = []
+    
+    # Find the most recent StrategyEngineV2 health event
+    for event in reversed(recent_events):
+        payload = event.get("payload", {})
+        if payload.get("engine_name") == "StrategyEngineV2":
+            metrics = payload.get("metrics", {})
+            strategy_metrics = metrics.get("strategies", {})
+            
+            # Convert to frontend-friendly format
+            for strategy_name, stats in strategy_metrics.items():
+                # Skip invalid entries
+                if not strategy_name or strategy_name.startswith("ema50="):
+                    continue
+                
+                win_rate = stats.get("win_rate")
+                signals_today = stats.get("signals_today", 0)
+                last_signal = stats.get("last_signal", "HOLD")
+                last_signal_ts = stats.get("last_signal_ts")
+                regime = stats.get("regime")
+                
+                strategy_entry = {
+                    "strategy_name": strategy_name,
+                    "symbol": "N/A",  # Per-strategy, not per-symbol
+                    "timeframe": "N/A",
+                    "mode": "paper",
+                    "signals_today": signals_today,
+                    "win_rate": win_rate,
+                    "last_signal": last_signal,
+                    "last_signal_ts": last_signal_ts,
+                    "regime": regime,
+                }
+                strategies.append(strategy_entry)
+            
+            # Only use the most recent event
+            break
+    
+    return JSONResponse({"strategies": strategies})
+
+
 @router.get("/api/stats/equity")
 async def api_stats_equity(days: int = Query(1, ge=1, le=7)) -> JSONResponse:
     """
