@@ -40,6 +40,15 @@ trading:
 
   max_open_positions: null  # null = unlimited positions
 
+# Expiry-Aware Risk Configuration
+expiry_risk:
+  enabled: true                              # Enable expiry-aware risk adjustments
+  expiry_day_risk_scale: 0.8                 # Scale risk down to 80% on expiry day
+  expiry_last_hour_risk_scale: 0.6           # Scale risk down to 60% in last hour of expiry day
+  expiry_week_risk_scale: 0.9                # Scale risk down to 90% during expiry week
+  block_new_option_entries_after_ist: "15:00"  # Block new option entries after this time on expiry day (IST)
+  expiry_day_last_hour_threshold_minutes: 60   # Minutes before market close considered "last hour"
+
 data:
   source: "broker"          # for now, always "broker" (Kite). Later: "nse", "cached".
   timeframe: "5minute"      # base timeframe for intraday decisions
