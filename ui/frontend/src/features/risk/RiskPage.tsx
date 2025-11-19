@@ -20,6 +20,7 @@
 import { Card, CardSkeleton } from '../../components/Card';
 import { usePortfolioSummary, useConfigSummary, useTodaySummary, useRiskSummary } from '../../hooks/useApi';
 import { formatCurrency, formatPercent, getPnlClass } from '../../utils/format';
+import { AdvancedRiskMetrics } from './AdvancedRiskMetrics';
 
 // Helper function to get risk level color
 function getRiskLevelColor(percentUsed: number): string {
@@ -254,39 +255,8 @@ export function RiskPage() {
         </div>
       </Card>
       
-      {/* Future Enhancements */}
-      <Card title="Advanced Risk Metrics">
-        <div className="text-center text-text-secondary py-8">
-          <p className="font-semibold mb-4">Additional Risk Features Planned:</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl mx-auto text-left">
-            <div className="bg-surface-light p-4 rounded">
-              <div className="font-semibold text-sm mb-2">📊 Max Drawdown Monitoring</div>
-              <div className="text-xs">Track largest peak-to-trough decline</div>
-            </div>
-            <div className="bg-surface-light p-4 rounded">
-              <div className="font-semibold text-sm mb-2">🎯 Per-Symbol Position Limits</div>
-              <div className="text-xs">Control concentration risk per instrument</div>
-            </div>
-            <div className="bg-surface-light p-4 rounded">
-              <div className="font-semibold text-sm mb-2">🔗 Correlation-Adjusted Exposure</div>
-              <div className="text-xs">Account for portfolio correlations</div>
-            </div>
-            <div className="bg-surface-light p-4 rounded">
-              <div className="font-semibold text-sm mb-2">⚡ Value at Risk (VaR)</div>
-              <div className="text-xs">Statistical risk assessment</div>
-            </div>
-          </div>
-          <div className="mt-6 text-xs bg-surface-light p-4 rounded max-w-2xl mx-auto text-left">
-            <p className="font-semibold mb-2">📝 Expected API Endpoints:</p>
-            <pre className="text-xs">
-{`GET /api/risk/limits        # All risk limits
-GET /api/risk/breaches      # Current violations
-GET /api/risk/var           # VaR calculations
-POST /api/risk/limits       # Update limits`}
-            </pre>
-          </div>
-        </div>
-      </Card>
+      {/* Advanced Risk Metrics */}
+      <AdvancedRiskMetrics />
     </div>
   );
 }

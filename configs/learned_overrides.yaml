@@ -1,1 +1,3 @@
-strategies: {}
+strategies:
+  EMA_20_50:
+    enabled: true
