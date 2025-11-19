@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 from core.config import AppConfig, load_config
 from core.market_session import is_market_open
 from ui import dashboard as dashboard_module
+from apps import dashboard_logs
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 TEMPLATES_DIR = BASE_DIR / "templates"
@@ -193,6 +194,7 @@ async def api_performance() -> JSONResponse:
 
 
 router.include_router(dashboard_module.router)
+router.include_router(dashboard_logs.router)
 
 app = FastAPI(title="Dashboard")
 if STATIC_DIR.exists():
