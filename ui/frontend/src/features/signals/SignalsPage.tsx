@@ -1,6 +1,7 @@
 import { Card, CardSkeleton, CardError } from '../../components/Card';
 import { useStrategyStats, useRecentSignals } from '../../hooks/useApi';
 import { formatTimestamp } from '../../utils/format';
+import { StrategyLab } from './StrategyLab';
 
 export function SignalsPage() {
   const { data: strategies, isLoading: strategiesLoading, error: strategiesError } = useStrategyStats();
@@ -72,36 +73,8 @@ export function SignalsPage() {
         </Card>
       )}
       
-      {/* Strategy Lab Placeholder */}
-      <Card title="Strategy Lab (Coming Soon)">
-        <div className="text-center text-text-secondary py-8">
-          <p className="font-semibold mb-4">Strategy Management Features:</p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl mx-auto">
-            <div className="bg-surface-light p-4 rounded border border-border">
-              <div className="text-lg mb-2">⚙️</div>
-              <div className="font-semibold text-text-primary mb-1">Enable/Disable</div>
-              <div className="text-sm">Toggle strategies on/off</div>
-            </div>
-            <div className="bg-surface-light p-4 rounded border border-border">
-              <div className="text-lg mb-2">🎚️</div>
-              <div className="font-semibold text-text-primary mb-1">Parameters</div>
-              <div className="text-sm">Adjust strategy settings</div>
-            </div>
-            <div className="bg-surface-light p-4 rounded border border-border">
-              <div className="text-lg mb-2">📊</div>
-              <div className="font-semibold text-text-primary mb-1">Backtest</div>
-              <div className="text-sm">Test strategy changes</div>
-            </div>
-          </div>
-          <pre className="mt-6 text-left inline-block bg-surface-light p-4 rounded text-xs">
-{`// Expected API endpoints:
-POST /api/strategies/{id}/enable    // Enable a strategy
-POST /api/strategies/{id}/disable   // Disable a strategy
-PUT  /api/strategies/{id}/params    // Update parameters
-POST /api/strategies/{id}/backtest  // Run backtest`}
-          </pre>
-        </div>
-      </Card>
+      {/* Strategy Lab */}
+      <StrategyLab />
       
       {/* Signal Stream */}
       {signalsError ? (
