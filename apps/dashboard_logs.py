@@ -7,6 +7,7 @@ Maps engine names to their corresponding log file paths and returns the last N l
 from __future__ import annotations
 
 import logging
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +32,7 @@ ENGINE_LOG_MAP = {
 
 def tail_file(file_path: Path, lines: int = 200) -> list[str]:
     """
-    Read the last N lines from a file.
+    Read the last N lines from a file efficiently using deque.
     
     Args:
         file_path: Path to the log file
@@ -44,12 +45,17 @@ def tail_file(file_path: Path, lines: int = 200) -> list[str]:
         return []
     
     try:
-        with file_path.open("r", encoding="utf-8", errors="ignore") as f:
-            all_lines = f.readlines()
+        # Use deque with maxlen for memory-efficient tail operation
+        last_lines: deque[str] = deque(maxlen=lines)
         
-        # Filter out empty lines and get last N
-        non_empty = [line.rstrip("\n") for line in all_lines if line.strip()]
-        return non_empty[-lines:] if lines > 0 else non_empty
+        with file_path.open("r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                # Only keep non-empty lines
+                stripped = line.rstrip("\n")
+                if stripped:
+                    last_lines.append(stripped)
+        
+        return list(last_lines)
     except Exception as exc:
         logger.exception("Failed to tail file %s: %s", file_path, exc)
         return []
@@ -58,14 +64,14 @@ def tail_file(file_path: Path, lines: int = 200) -> list[str]:
 @router.get("/api/logs/tail")
 async def tail_engine_logs(
     engine: str = Query(..., description="Engine name: fno, equity, or options"),
-    lines: int = Query(200, ge=1, le=1000, description="Number of lines to return (1-1000)")
+    lines: int = Query(200, ge=1, le=2000, description="Number of lines to return (1-2000)")
 ) -> dict[str, Any]:
     """
     Tail engine log files and return the last N lines.
     
     Args:
         engine: Engine name (fno, equity, options)
-        lines: Number of lines to return (default 200, max 1000)
+        lines: Number of lines to return (default 200, max 2000)
         
     Returns:
         JSON response with:
