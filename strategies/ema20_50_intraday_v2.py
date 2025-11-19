@@ -251,44 +251,83 @@ class EMA2050IntradayV2(BaseStrategy):
             signal: "BUY" or "SELL"
             confidence: Signal confidence (0-1)
             symbol: Trading symbol
-            market_context: MarketContext instance
+            market_context: MarketContextSnapshot instance
         
         Returns:
             Decision to block entry (HOLD) or None to allow
         """
-        # VIX Filter: Block short entries in panic regime
+        # Determine index alias for symbol (NIFTY or BANKNIFTY)
+        index_alias = self._determine_index_alias(symbol)
+        
+        # Get index trend if available
+        index_trend_state = None
+        if hasattr(market_context, "index_trend") and index_alias in market_context.index_trend:
+            index_trend_state = market_context.index_trend[index_alias]
+        
+        # BUY signal gating: Require BULL or RANGE_UP regime
+        if signal in ["BUY", "LONG"]:
+            if index_trend_state:
+                regime = getattr(index_trend_state, "regime", "UNKNOWN")
+                if regime not in ["BULL", "RANGE_UP"]:
+                    return Decision(
+                        action="HOLD",
+                        reason=f"market_context_{index_alias}_{regime}_no_longs",
+                        confidence=0.0
+                    )
+        
+        # SELL signal gating: Require BEAR or RANGE_DOWN regime
         if signal in ["SELL", "SHORT"]:
-            vix_regime = getattr(market_context, "vix_regime", "unknown")
-            if vix_regime in ["panic", "very_high"]:
+            if index_trend_state:
+                regime = getattr(index_trend_state, "regime", "UNKNOWN")
+                if regime not in ["BEAR", "RANGE_DOWN"]:
+                    return Decision(
+                        action="HOLD",
+                        reason=f"market_context_{index_alias}_{regime}_no_shorts",
+                        confidence=0.0
+                    )
+        
+        # Volatility Filter: Block ALL new entries in PANIC regime
+        volatility_state = getattr(market_context, "volatility", None)
+        if volatility_state:
+            vol_regime = getattr(volatility_state, "regime", "UNKNOWN")
+            if vol_regime == "PANIC":
                 return Decision(
                     action="HOLD",
-                    reason=f"market_context_vix_{vix_regime}_no_shorts",
+                    reason=f"market_context_vol_{vol_regime}_block_entries",
                     confidence=0.0
                 )
         
-        # Breadth Filter: Require stronger confidence when breadth is weak
-        if signal in ["BUY", "LONG"]:
-            pct_above_20ema = getattr(market_context, "pct_above_20ema", 100.0)
-            if pct_above_20ema < 30.0:  # Less than 30% above 20 EMA
-                if confidence < 0.7:  # Require high confidence
-                    return Decision(
-                        action="HOLD",
-                        reason=f"market_context_weak_breadth_{pct_above_20ema:.1f}%_low_confidence_{confidence:.2f}",
-                        confidence=confidence
-                    )
-        
-        # Relative Volume Filter: Skip low RVOL entries
-        symbol_rvol = getattr(market_context, "symbol_rvol", {})
-        rvol = symbol_rvol.get(symbol, 1.0)
-        if rvol < 0.7:  # Below 70% of average volume
-            return Decision(
-                action="HOLD",
-                reason=f"market_context_low_rvol_{rvol:.2f}",
-                confidence=confidence
-            )
+        # Relative Volume Filter: Block when rvol < 0.5
+        rvol_index = getattr(market_context, "rvol_index", {})
+        if index_alias and index_alias in rvol_index:
+            rvol = rvol_index[index_alias]
+            if rvol < 0.5:
+                return Decision(
+                    action="HOLD",
+                    reason=f"market_context_{index_alias}_low_rvol_{rvol:.2f}",
+                    confidence=0.0
+                )
         
         # All filters passed
         return None
+    
+    def _determine_index_alias(self, symbol: str) -> str:
+        """
+        Determine which index (NIFTY/BANKNIFTY) a symbol belongs to.
+        
+        Args:
+            symbol: Trading symbol
+        
+        Returns:
+            "NIFTY" or "BANKNIFTY" (defaults to NIFTY)
+        """
+        symbol_upper = symbol.upper()
+        
+        if "BANKNIFTY" in symbol_upper or "BANKNFT" in symbol_upper:
+            return "BANKNIFTY"
+        else:
+            # Default to NIFTY for most symbols
+            return "NIFTY"
 
 
 # Factory function for easy instantiation
