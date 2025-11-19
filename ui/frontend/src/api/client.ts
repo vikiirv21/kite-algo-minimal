@@ -16,6 +16,12 @@ import type {
   RiskSummary,
   EngineLogsTailResponse,
   Portfolio,
+  StrategyDetail,
+  BacktestRequest,
+  BacktestResult,
+  RiskLimits,
+  RiskBreach,
+  VaRResponse,
 } from '../types/api';
 
 const API_BASE = '/api';
@@ -86,4 +92,37 @@ export const api = {
   // Engine Logs
   getEngineLogs: (engine: string, lines = 200) => 
     fetchApi<EngineLogsTailResponse>(`/logs/tail?engine=${engine}&lines=${lines}`),
+  
+  // Strategy Lab APIs
+  getStrategies: () => fetchApi<StrategyDetail[]>('/strategies'),
+  enableStrategy: (strategyId: string): Promise<StrategyDetail> => 
+    fetch(`${API_BASE}/strategies/${strategyId}/enable`, { method: 'POST' })
+      .then(r => r.json()),
+  disableStrategy: (strategyId: string): Promise<StrategyDetail> => 
+    fetch(`${API_BASE}/strategies/${strategyId}/disable`, { method: 'POST' })
+      .then(r => r.json()),
+  updateStrategyParams: (strategyId: string, params: Record<string, any>): Promise<StrategyDetail> =>
+    fetch(`${API_BASE}/strategies/${strategyId}/params`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ params }),
+    }).then(r => r.json()),
+  backtestStrategy: (strategyId: string, request: BacktestRequest): Promise<BacktestResult> =>
+    fetch(`${API_BASE}/strategies/${strategyId}/backtest`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }).then(r => r.json()),
+  
+  // Advanced Risk APIs
+  getRiskLimits: () => fetchApi<RiskLimits>('/risk/limits'),
+  updateRiskLimits: (limits: Partial<RiskLimits>): Promise<RiskLimits> =>
+    fetch(`${API_BASE}/risk/limits`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(limits),
+    }).then(r => r.json()),
+  getRiskBreaches: () => fetchApi<RiskBreach[]>('/risk/breaches'),
+  getVaR: (horizonDays = 1, confidence = 0.95) => 
+    fetchApi<VaRResponse>(`/risk/var?horizon_days=${horizonDays}&confidence=${confidence}`),
 };

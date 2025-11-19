@@ -236,3 +236,74 @@ export interface EngineLogsTailResponse {
   exists: boolean;
   warning: string | null;
 }
+
+// Strategy Lab API Types
+export interface StrategyDetail {
+  id: string;
+  name: string;
+  strategy_code: string;
+  engine: string;
+  timeframe: string;
+  mode: string;
+  enabled: boolean;
+  params: Record<string, any>;
+  tags: string[];
+}
+
+export interface BacktestRequest {
+  symbol: string;
+  engine: string;
+  timeframe: string;
+  from_date: string;
+  to_date: string;
+  params_override?: Record<string, any>;
+}
+
+export interface BacktestResult {
+  summary: {
+    trades: number;
+    win_rate: number;
+    total_pnl: number;
+    max_drawdown_pct: number;
+    avg_pnl_per_trade?: number;
+  };
+  equity_curve?: Array<[string, number]>;
+}
+
+// Advanced Risk API Types
+export interface RiskLimits {
+  max_daily_loss_rupees: number;
+  max_daily_drawdown_pct: number;
+  max_trades_per_day: number;
+  max_trades_per_symbol_per_day: number;
+  max_loss_streak: number;
+  metadata?: {
+    updated_at?: string;
+    source?: {
+      base_config: string;
+      overrides: string;
+    };
+  };
+}
+
+export interface RiskBreach {
+  code: string;
+  severity: string;
+  message: string;
+  metric: {
+    current: number;
+    limit: number;
+    unit: string;
+  };
+  symbol?: string | null;
+  since?: string | null;
+}
+
+export interface VaRResponse {
+  horizon_days: number;
+  confidence: number;
+  method: string;
+  var_rupees: number;
+  var_pct: number;
+  sample_size: number;
+}
