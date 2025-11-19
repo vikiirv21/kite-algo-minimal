@@ -184,6 +184,16 @@ PROFILE_SWING = {"15m", "30m", "1h", "60m"}
 FILLED_ORDER_STATUSES = {"FILLED", "COMPLETE", "SUCCESS", "EXECUTED", "CLOSED"}
 
 
+def _safe_int(value, default):
+    """Convert to int safely, falling back if value is None or invalid."""
+    try:
+        if value is None:
+            raise TypeError("None not allowed")
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _profile_from_tf(tf: str) -> str:
     tf_norm = (tf or "").lower()
     if tf_norm in PROFILE_INTRADAY:
@@ -2956,11 +2966,12 @@ class PaperEngine:
             max_order_notional_pct=float(
                 risk_cfg.get("max_order_notional_pct", 0.2)
             ),
-            max_trades=int(
+            max_trades=_safe_int(
                 risk_cfg.get(
                     "max_concurrent_trades",
                     trading_cfg.get("max_open_positions", 10),
-                )
+                ),
+                10,
             ),
             risk_scale_min=float(
                 risk_cfg.get("risk_scale_min", 0.3)
