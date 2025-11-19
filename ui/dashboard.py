@@ -120,6 +120,7 @@ ARTIFACTS_ROOT = Path(os.environ.get("KITE_ALGO_ARTIFACTS", str(DEFAULT_ARTIFACT
 if not ARTIFACTS_ROOT.is_absolute():
     ARTIFACTS_ROOT = (BASE_DIR / ARTIFACTS_ROOT).resolve()
 CHECKPOINTS_DIR = ARTIFACTS_ROOT / "checkpoints"
+ANALYTICS_DIR = ARTIFACTS_ROOT / "analytics"
 PAPER_CHECKPOINT_PATH = CHECKPOINTS_DIR / "paper_state_latest.json"
 BACKTESTS_ROOT = ARTIFACTS_ROOT / "backtests"
 DEFAULT_CONFIG_PATH = BASE_DIR / "configs" / "dev.yaml"
@@ -182,6 +183,54 @@ def _resolve_checkpoint_path() -> Optional[Path]:
     # Return the newest one
     existing.sort(key=lambda t: t[0])
     return existing[-1][1]
+
+
+def load_runtime_metrics() -> Optional[Dict[str, Any]]:
+    """
+    Load runtime metrics from analytics/runtime_metrics.json.
+    
+    Returns:
+        Dictionary with equity, overall, per_strategy, per_symbol metrics,
+        or None if file doesn't exist or can't be loaded.
+    """
+    metrics_path = ANALYTICS_DIR / "runtime_metrics.json"
+    if not metrics_path.exists():
+        return None
+    try:
+        with metrics_path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.warning("Failed to load runtime metrics: %s", e)
+        return None
+
+
+def load_paper_state_checkpoint() -> Optional[Dict[str, Any]]:
+    """
+    Load the current state checkpoint for paper mode.
+    
+    Tries multiple fallback paths to find the most recent checkpoint.
+    
+    Returns:
+        Dictionary with state data including positions, equity, etc.,
+        or None if no checkpoint found.
+    """
+    # Prefer paper_state_latest.json, but keep fallbacks
+    candidates = [
+        CHECKPOINTS_DIR / "paper_state_latest.json",
+        CHECKPOINTS_DIR / "paper_state.json",
+        CHECKPOINTS_DIR / "runtime_state_latest.json",
+        ARTIFACTS_ROOT / "paper_state_latest.json",
+        ARTIFACTS_ROOT / "paper_state.json",
+    ]
+    for path in candidates:
+        if path.exists():
+            try:
+                with path.open("r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.warning("Failed to load checkpoint %s: %s", path, e)
+    return None
+
 
 def _resolve_orders_path() -> Path:
     if TradeRecorder is not None:
@@ -1851,41 +1900,35 @@ async def api_portfolio() -> JSONResponse:
     """
     Return live portfolio snapshot with up-to-date position values.
     
-    This endpoint provides real-time portfolio data including:
-    - Summary: equity, realized/unrealized PnL, total notional, margins
-    - Positions: Per-symbol details with live LTP, unrealized PnL, and PnL%
+    This endpoint provides real-time portfolio data by reading from:
+    1. artifacts/analytics/runtime_metrics.json (for overall PnL/equity)
+    2. artifacts/checkpoints/paper_state_latest.json (for current positions)
     
-    Works in both paper and live modes by loading from state store checkpoint
-    and resolving current prices from market data cache.
+    Per-position PnL is computed using:
+    - LTP from checkpoint if present
+    - Fresh LTP from broker feed if available
+    - Fallback to avg_price if no LTP available
+    
+    Returns:
+        JSON with equity, realized_pnl, unrealized_pnl, total_notional, 
+        free_margin, and positions list with per-position PnL and PnL%
     """
     try:
-        # Load state from checkpoint
-        state = _load_runtime_state_payload()
-        if not state:
-            return JSONResponse({
-                "starting_capital": 0.0,
-                "equity": 0.0,
-                "realized_pnl": 0.0,
-                "unrealized_pnl": 0.0,
-                "total_notional": 0.0,
-                "free_margin": 0.0,
-                "margin_used": 0.0,
-                "positions": [],
-                "error": "No checkpoint data available",
-            })
+        # Load runtime metrics from Performance Engine V2
+        metrics = load_runtime_metrics() or {}
         
-        # Load market data for price resolution
-        quotes = _load_quotes()
-        ticks = _load_ticks_cache(state)
+        # Load checkpoint state for positions
+        state = load_paper_state_checkpoint() or {}
         
-        # Extract equity info from state
-        equity_data = state.get("equity") or {}
-        pnl_data = state.get("pnl") or {}
+        # Overall metrics from runtime_metrics.json if present
+        equity_info = metrics.get("equity", {})
+        overall_info = metrics.get("overall", {})
         
-        # Try to get paper capital from equity, pnl, or config
-        starting_capital = _safe_float(equity_data.get("paper_capital"), 0.0)
-        if starting_capital == 0.0:
-            starting_capital = _safe_float(pnl_data.get("paper_capital"), 0.0)
+        # Starting capital: prefer runtime_metrics, fallback to checkpoint, then config
+        starting_capital = equity_info.get("starting_capital")
+        if starting_capital is None:
+            equity_data = state.get("equity", {})
+            starting_capital = _safe_float(equity_data.get("paper_capital"), 0.0)
         if starting_capital == 0.0:
             # Fallback to config
             try:
@@ -1894,19 +1937,51 @@ async def api_portfolio() -> JSONResponse:
                 starting_capital = _safe_float(trading_section.get("paper_capital"), 500_000.0)
             except Exception:
                 starting_capital = 500_000.0
+        else:
+            starting_capital = _safe_float(starting_capital, 500_000.0)
         
-        realized_pnl = _safe_float(equity_data.get("realized_pnl"), 0.0)
+        # Current equity: prefer runtime_metrics, fallback to checkpoint calculation
+        current_equity = equity_info.get("current_equity")
+        if current_equity is None:
+            equity_data = state.get("equity", {})
+            realized = _safe_float(equity_data.get("realized_pnl"), 0.0)
+            unrealized = _safe_float(equity_data.get("unrealized_pnl"), 0.0)
+            current_equity = starting_capital + realized + unrealized
+        else:
+            current_equity = _safe_float(current_equity, 0.0)
         
-        # Process positions to compute live unrealized PnL
+        # Realized PnL: prefer runtime_metrics, fallback to checkpoint
+        realized_pnl = equity_info.get("realized_pnl")
+        if realized_pnl is None:
+            equity_data = state.get("equity", {})
+            realized_pnl = _safe_float(equity_data.get("realized_pnl"), 0.0)
+        else:
+            realized_pnl = _safe_float(realized_pnl, 0.0)
+        
+        # Daily PnL: prefer runtime_metrics, fallback to checkpoint
+        daily_pnl = overall_info.get("net_pnl")
+        if daily_pnl is None:
+            pnl_data = state.get("pnl", {})
+            daily_pnl = _safe_float(pnl_data.get("day_pnl"), realized_pnl)
+        else:
+            daily_pnl = _safe_float(daily_pnl, 0.0)
+        
+        # Load market data for price resolution
+        quotes = _load_quotes()
+        ticks = _load_ticks_cache(state)
+        
+        # Build positions list from checkpoint
         positions_data = state.get("positions") or []
         if isinstance(positions_data, dict):
             positions_list = list(positions_data.values())
         else:
             positions_list = list(positions_data)
         
-        processed_positions = []
+        # Process positions to compute per-position PnL and PnL%
+        positions = []
         total_unrealized = 0.0
         total_notional = 0.0
+        open_positions_count = 0
         
         for pos in positions_list:
             if not isinstance(pos, dict):
@@ -1920,51 +1995,91 @@ async def api_portfolio() -> JSONResponse:
             if not symbol:
                 continue
             
+            open_positions_count += 1
+            
             avg_price = _safe_float(pos.get("avg_price") or pos.get("average_price"), 0.0)
-            last_price = resolve_last_for_symbol(symbol, pos, quotes, ticks)
-            unrealized_pnl = compute_unrealized_pnl(avg_price, last_price, qty)
-            notional = abs(qty * last_price)
-            pnl_pct = ((last_price - avg_price) / avg_price * 100.0) if avg_price > 0 else 0.0
             
-            total_unrealized += unrealized_pnl
-            total_notional += notional
+            # Last price: if checkpoint has it, use that; else try to fetch LTP
+            last_price = pos.get("ltp") or pos.get("last_price")
+            if last_price is None:
+                # Try to resolve from quotes or ticks
+                last_price = resolve_last_for_symbol(symbol, pos, quotes, ticks)
+            else:
+                last_price = _safe_float(last_price, avg_price)
             
-            processed_positions.append({
+            # If still no last_price, use avg_price as fallback
+            if last_price == 0.0:
+                last_price = avg_price
+            
+            # Compute PnL
+            pnl = 0.0
+            if qty != 0 and avg_price > 0 and last_price > 0:
+                if qty > 0:
+                    # Long position
+                    pnl = (last_price - avg_price) * qty
+                else:
+                    # Short position
+                    pnl = (avg_price - last_price) * abs(qty)
+            
+            # Compute PnL%
+            pnl_pct = 0.0
+            notional = abs(qty) * avg_price if avg_price > 0 else 0.0
+            if notional > 0:
+                pnl_pct = (pnl / notional) * 100.0
+            
+            total_unrealized += pnl
+            total_notional += abs(qty) * last_price
+            
+            positions.append({
                 "symbol": symbol,
-                "side": "LONG" if qty > 0 else "SHORT",
-                "quantity": int(abs(qty)),
+                "side": "LONG" if qty > 0 else ("SHORT" if qty < 0 else "FLAT"),
+                "quantity": int(qty),  # Keep sign for LONG/SHORT distinction
                 "avg_price": round(avg_price, 2),
-                "last_price": round(last_price, 2),
-                "notional": round(notional, 2),
-                "unrealized_pnl": round(unrealized_pnl, 2),
+                "ltp": round(last_price, 2),
+                "pnl": round(pnl, 2),
                 "pnl_pct": round(pnl_pct, 2),
+                "notional": round(abs(qty) * last_price, 2),
             })
         
-        # Compute final equity
-        equity = starting_capital + realized_pnl + total_unrealized
-        free_margin = equity - total_notional
+        # Use unrealized from runtime_metrics if available and not recomputed
+        unrealized_pnl = equity_info.get("unrealized_pnl")
+        if unrealized_pnl is None:
+            # Use computed value from positions
+            unrealized_pnl = total_unrealized
+        else:
+            unrealized_pnl = _safe_float(unrealized_pnl, total_unrealized)
+        
+        # Use total_notional from runtime_metrics if available
+        metrics_notional = equity_info.get("total_notional")
+        if metrics_notional is not None:
+            total_notional = _safe_float(metrics_notional, total_notional)
+        
+        # Free margin = equity - total_notional
+        free_margin = current_equity - total_notional
         
         return JSONResponse({
+            "equity": round(current_equity, 2),
             "starting_capital": round(starting_capital, 2),
-            "equity": round(equity, 2),
+            "daily_pnl": round(daily_pnl, 2),
             "realized_pnl": round(realized_pnl, 2),
-            "unrealized_pnl": round(total_unrealized, 2),
+            "unrealized_pnl": round(unrealized_pnl, 2),
             "total_notional": round(total_notional, 2),
             "free_margin": round(free_margin, 2),
-            "margin_used": round(total_notional, 2),
-            "positions": processed_positions,
+            "open_positions": open_positions_count,
+            "positions": positions,
         })
         
     except Exception as exc:
         logger.exception("Failed to load portfolio snapshot: %s", exc)
         return JSONResponse({
-            "starting_capital": 0.0,
             "equity": 0.0,
+            "starting_capital": 0.0,
+            "daily_pnl": 0.0,
             "realized_pnl": 0.0,
             "unrealized_pnl": 0.0,
             "total_notional": 0.0,
             "free_margin": 0.0,
-            "margin_used": 0.0,
+            "open_positions": 0,
             "positions": [],
             "error": str(exc),
         }, status_code=500)
