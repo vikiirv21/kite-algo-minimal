@@ -174,11 +174,27 @@ learning_engine:
   max_risk_multiplier: 2.0
 
 execution:
-  # ExecutionEngine v2 configuration
+  # ExecutionEngine configuration
+  engine: v3  # "v2" or "v3" - use v3 for enhanced order lifecycle management
   use_execution_engine_v2: false  # Set to true to enable ExecutionEngine v2
   dry_run: false  # When true, simulates live orders without actual placement
-  slippage_bps: 5.0  # Slippage in basis points for paper fills (5 bps = 0.05%)
+  
+  # Fill configuration (ExecutionEngine V3)
+  fill_mode: "mid"  # "mid", "bid_ask", or "ltp"
+  slippage_bps: 5  # Slippage in basis points for paper fills (5 bps = 0.05%)
   use_bid_ask_spread: false  # Use bid-ask spread for more realistic paper fills
+  
+  # Partial exit configuration (ExecutionEngine V3)
+  enable_partial_exit: true  # Enable partial exits on SL breach
+  partial_exit_pct: 0.5  # Exit 50% of position on SL breach
+  
+  # Trailing stop configuration (ExecutionEngine V3)
+  enable_trailing: true  # Enable trailing stop loss
+  trail_step_r: 0.5  # Trail step as multiple of initial risk (0.5R)
+  
+  # Time stop configuration (ExecutionEngine V3)
+  enable_time_stop: true  # Enable time-based exits
+  time_stop_bars: 20  # Close position after N bars if no SL/TP hit
   
   circuit_breakers:
     max_daily_loss_rupees: 5000.0  # Stop trading when daily loss exceeds this

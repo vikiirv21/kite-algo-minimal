@@ -631,10 +631,32 @@ class PaperEngine:
         
         # Initialize ExecutionEngine v2 (optional)
         self.execution_engine_v2 = execution_engine_v2
+        self.execution_engine_v3 = None
+        
         if self.execution_engine_v2 is None:
             exec_config = self.cfg.raw.get("execution", {})
+            engine_version = exec_config.get("engine", "v2")
+            
+            # Initialize ExecutionEngine V3 if configured
+            if engine_version == "v3":
+                try:
+                    from engine.execution_v3_integration import create_execution_engine_v3
+                    logger.info("Initializing ExecutionEngine V3 for paper mode")
+                    self.execution_engine_v3 = create_execution_engine_v3(
+                        config=self.cfg.raw,
+                        market_data_engine=self.feed,
+                        trade_recorder=self.recorder,
+                        state_store=self.checkpoint_store,
+                    )
+                    if self.execution_engine_v3:
+                        logger.info("ExecutionEngine V3 initialized successfully")
+                except Exception as exc:
+                    logger.warning("Failed to initialize ExecutionEngine V3: %s", exc)
+                    self.execution_engine_v3 = None
+            
+            # Fall back to ExecutionEngine v2 if V3 not enabled/available
             use_exec_v2 = exec_config.get("use_execution_engine_v2", False)
-            if use_exec_v2:
+            if use_exec_v2 and self.execution_engine_v3 is None:
                 try:
                     from engine.execution_bridge import create_execution_engine_v2
                     logger.info("Initializing ExecutionEngine v2 for paper mode")
@@ -1065,6 +1087,15 @@ class PaperEngine:
                         self.market_data_engine_v2.on_tick(tick_data)
                     except Exception as exc:  # noqa: BLE001
                         logger.debug("MDE v2 tick processing failed for %s: %s", symbol, exc)
+        
+        # Update ExecutionEngine V3 positions with latest prices
+        if self.execution_engine_v3 is not None:
+            try:
+                tick_prices = {sym: data.get("close") for sym, data in ticks.items() if data.get("close")}
+                if tick_prices:
+                    self.execution_engine_v3.update_positions(tick_prices)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("ExecutionEngine V3 position update failed: %s", exc)
 
         # Run strategy engine (v1, v2, or v3 based on initialization)
         if hasattr(self, 'strategy_engine_v3') and self.strategy_engine_v3:
@@ -1707,6 +1738,32 @@ class PaperEngine:
         trade_monitor.increment("orders_submitted")
         
         # Use ExecutionEngine v2 if available
+        # Try ExecutionEngine V3 first, then V2, then legacy
+        if self.execution_engine_v3 is not None:
+            try:
+                from engine.execution_v3_integration import convert_to_order_intent
+                # Convert to ExecutionEngine V3 OrderIntent
+                intent = convert_to_order_intent(
+                    symbol=symbol,
+                    signal=side,
+                    qty=qty,
+                    price=price,
+                    strategy_code=strategy_label,
+                    sl_price=extra_payload.get("sl_price"),
+                    tp_price=extra_payload.get("tp_price"),
+                    time_stop_bars=extra_payload.get("time_stop_bars"),
+                    reason=extra_payload.get("reason", ""),
+                )
+                
+                # Execute via ExecutionEngine V3
+                order = self.execution_engine_v3.process_signal(symbol, intent)
+                if order:
+                    logger.info("Order executed via ExecutionEngine V3: %s", order.order_id)
+                    return
+            except Exception as exc:
+                logger.warning("ExecutionEngine V3 failed, falling back: %s", exc)
+        
+        # Fall back to ExecutionEngine v2
         if self.execution_engine_v2 is not None:
             try:
                 from engine.execution_bridge import convert_strategy_intent_to_execution_intent
