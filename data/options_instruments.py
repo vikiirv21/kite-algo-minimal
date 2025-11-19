@@ -1,13 +1,38 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
-from typing import Dict, List, Sequence, Tuple
+from dataclasses import dataclass
+from datetime import date, datetime
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from broker.kite_client import KiteClient
 from core.kite_http import kite_request
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ATMOptionPair:
+    """
+    Represents an ATM option pair (CE and PE) for a given underlying.
+    
+    This dataclass is used by the expiry-aware ATM option strike resolver.
+    """
+    underlying: str
+    expiry: date
+    strike: float
+    ce_symbol: str
+    pe_symbol: str
+    
+    def to_dict(self) -> Dict[str, any]:
+        """Convert to dictionary for logging/serialization."""
+        return {
+            "underlying": self.underlying,
+            "expiry": self.expiry.isoformat() if self.expiry else None,
+            "strike": self.strike,
+            "ce_symbol": self.ce_symbol,
+            "pe_symbol": self.pe_symbol,
+        }
 
 
 class OptionUniverse:
@@ -126,3 +151,125 @@ class OptionUniverse:
             if res:
                 out[logical] = res
         return out
+    
+    def resolve_atm_option_pair(
+        self,
+        underlying: str,
+        spot: float,
+        dt: Optional[datetime] = None
+    ) -> Optional[ATMOptionPair]:
+        """
+        Resolve ATM option pair using expiry-aware logic.
+        
+        This method uses the expiry calendar to determine the correct expiry date
+        and then finds the ATM CE/PE pair at the nearest strike.
+        
+        Args:
+            underlying: Underlying symbol (NIFTY, BANKNIFTY, FINNIFTY)
+            spot: Current spot price of the underlying
+            dt: Reference datetime (default: now)
+            
+        Returns:
+            ATMOptionPair if successful, None if unable to resolve
+        """
+        try:
+            # Import here to avoid circular dependencies
+            from core.expiry_calendar import get_next_expiry
+            
+            if dt is None:
+                from datetime import datetime
+                import pytz
+                dt = datetime.now(pytz.timezone("Asia/Kolkata"))
+            
+            # Get the next expiry using the expiry calendar
+            next_expiry = get_next_expiry(underlying, dt)
+            
+            # Get all contracts for this underlying
+            key = underlying.upper()
+            contracts = self._by_name.get(key, [])
+            if not contracts:
+                logger.warning("No option contracts found for underlying=%s", underlying)
+                return None
+            
+            # Filter contracts for the target expiry
+            expiry_contracts = [c for c in contracts if c.get("expiry") == next_expiry]
+            if not expiry_contracts:
+                logger.warning(
+                    "No contracts found for underlying=%s on expiry=%s",
+                    underlying, next_expiry
+                )
+                return None
+            
+            # Calculate ATM strike (round to nearest 50 for indices)
+            strike_step = 50.0
+            atm_strike = round(spot / strike_step) * strike_step
+            
+            # Find CE and PE at ATM strike
+            ce_symbol = None
+            pe_symbol = None
+            
+            for c in expiry_contracts:
+                strike = float(c.get("strike", 0.0))
+                if abs(strike - atm_strike) < 0.01:  # Match with small tolerance
+                    ts = c.get("tradingsymbol")
+                    inst_type = (c.get("instrument_type") or "").upper()
+                    
+                    if inst_type == "CE" and not ce_symbol:
+                        ce_symbol = ts
+                    elif inst_type == "PE" and not pe_symbol:
+                        pe_symbol = ts
+            
+            # If exact ATM not found, find nearest strike
+            if not ce_symbol or not pe_symbol:
+                logger.debug(
+                    "Exact ATM strike %.2f not found for %s, finding nearest",
+                    atm_strike, underlying
+                )
+                
+                ce_best: Tuple[float, str] | None = None
+                pe_best: Tuple[float, str] | None = None
+                
+                for c in expiry_contracts:
+                    strike = float(c.get("strike", 0.0))
+                    ts = c.get("tradingsymbol")
+                    inst_type = (c.get("instrument_type") or "").upper()
+                    
+                    if not ts:
+                        continue
+                    
+                    dist = abs(strike - spot)
+                    
+                    if inst_type == "CE":
+                        if ce_best is None or dist < ce_best[0]:
+                            ce_best = (dist, ts)
+                            atm_strike = strike  # Update to actual strike
+                    elif inst_type == "PE":
+                        if pe_best is None or dist < pe_best[0]:
+                            pe_best = (dist, ts)
+                
+                if ce_best:
+                    ce_symbol = ce_best[1]
+                if pe_best:
+                    pe_symbol = pe_best[1]
+            
+            if not ce_symbol or not pe_symbol:
+                logger.warning(
+                    "Unable to resolve ATM pair for underlying=%s spot=%.2f expiry=%s",
+                    underlying, spot, next_expiry
+                )
+                return None
+            
+            return ATMOptionPair(
+                underlying=underlying,
+                expiry=next_expiry,
+                strike=atm_strike,
+                ce_symbol=ce_symbol,
+                pe_symbol=pe_symbol,
+            )
+            
+        except Exception as exc:
+            logger.error(
+                "Failed to resolve ATM option pair for %s: %s",
+                underlying, exc, exc_info=True
+            )
+            return None
