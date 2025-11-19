@@ -38,7 +38,7 @@ trading:
   max_loss_pct_per_trade: 0.01  # per-trade max loss (1% = 0.01) on entry price
   max_notional_multiplier: 1.0  # max total notional as multiple of paper_capital
 
-  max_open_positions: 5
+  max_open_positions: null  # null = unlimited positions
 
 data:
   source: "broker"          # for now, always "broker" (Kite). Later: "nse", "cached".
