@@ -759,25 +759,40 @@ class PaperEngine:
                     )
                     
                     # Initialize MarketContext if enabled
+                    self.market_context = None
+                    self._market_context_thread = None
+                    self._market_context_stop = threading.Event()
+                    
                     if MARKET_CONTEXT_AVAILABLE:
                         mc_config = self.cfg.raw.get("market_context", {})
                         if mc_config.get("enabled", False):
                             try:
-                                self.market_context_builder = initialize_market_context(
+                                self.market_context = initialize_market_context(
                                     config=self.cfg.raw,
                                     kite_client=self.kite,
                                     market_data_engine=self.market_data_engine,
                                 )
-                                logger.info("MarketContext initialized and enabled")
+                                
+                                # Set as global context for API access
+                                from core.market_context import set_market_context
+                                set_market_context(self.market_context)
+                                
+                                # Pass market context to strategy engine
+                                self.strategy_engine_v2.market_context = self.market_context
+                                
+                                # Start background refresh thread
+                                self._start_market_context_refresh()
+                                
+                                logger.info("MarketContext initialized and enabled with background refresh")
                             except Exception as exc:
                                 logger.warning("Failed to initialize MarketContext: %s", exc)
-                                self.market_context_builder = None
+                                self.market_context = None
                         else:
                             logger.info("MarketContext disabled in config")
-                            self.market_context_builder = None
+                            self.market_context = None
                     else:
                         logger.debug("MarketContext module not available")
-                        self.market_context_builder = None
+                        self.market_context = None
                         
                 except Exception as exc:
                     logger.error("Failed to initialize Strategy Engine v2: %s", exc, exc_info=True)
@@ -798,6 +813,43 @@ class PaperEngine:
         
         risk_config = self.cfg.risk or {}
         self.risk_engine = RiskEngine(risk_config, self.state_store.load_checkpoint() or {}, logger)
+
+    # -------------------------------------------------------------------------
+    # MarketContext Management
+    # -------------------------------------------------------------------------
+    
+    def _start_market_context_refresh(self) -> None:
+        """Start background thread for periodic market context refresh."""
+        if self.market_context is None:
+            return
+        
+        self._market_context_stop.clear()
+        self._market_context_thread = threading.Thread(
+            target=self._market_context_refresh_loop,
+            name="market-context-refresh",
+            daemon=True
+        )
+        self._market_context_thread.start()
+        logger.info("MarketContext refresh thread started (30s interval)")
+    
+    def _market_context_refresh_loop(self) -> None:
+        """Background loop that refreshes market context every 30 seconds."""
+        while not self._market_context_stop.is_set():
+            try:
+                if self.market_context is not None:
+                    self.market_context.refresh()
+            except Exception as exc:
+                logger.error("MarketContext refresh error: %s", exc, exc_info=True)
+            
+            # Wait 30 seconds before next refresh
+            self._market_context_stop.wait(30.0)
+    
+    def _stop_market_context_refresh(self) -> None:
+        """Stop the market context refresh thread."""
+        if self._market_context_thread and self._market_context_thread.is_alive():
+            self._market_context_stop.set()
+            self._market_context_thread.join(timeout=5.0)
+            logger.info("MarketContext refresh thread stopped")
 
     # -------------------------------------------------------------------------
     # Strategy instances
