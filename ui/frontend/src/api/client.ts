@@ -22,6 +22,8 @@ import type {
   RiskLimits,
   RiskBreach,
   VaRResponse,
+  RuntimeMetrics,
+  TradingStatus,
 } from '../types/api';
 
 const API_BASE = '/api';
@@ -88,6 +90,12 @@ export const api = {
   
   // Risk
   getRiskSummary: () => fetchApi<RiskSummary>('/risk/summary'),
+  
+  // Performance Metrics
+  getMetrics: () => fetchApi<RuntimeMetrics>('/pm/metrics'),
+  
+  // Trading Status
+  getTradingStatus: () => fetchApi<TradingStatus>('/trading/status'),
   
   // Engine Logs
   getEngineLogs: (engine: string, lines = 200) => 

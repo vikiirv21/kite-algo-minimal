@@ -2760,6 +2760,126 @@ async def api_system_time() -> JSONResponse:
     return JSONResponse({"utc": now})
 
 
+@router.get("/api/pm/metrics")
+async def api_pm_metrics() -> JSONResponse:
+    """
+    Return runtime metrics from artifacts/analytics/runtime_metrics.json.
+    
+    If file doesn't exist, return safe empty defaults.
+    
+    Returns:
+        {
+          "asof": "2025-11-19T10:30:00+05:30",
+          "mode": "paper",
+          "equity": {
+            "starting_capital": 500000.0,
+            "current_equity": 502500.0,
+            "realized_pnl": 2500.0,
+            "unrealized_pnl": 150.0,
+            ...
+          },
+          "overall": {
+            "total_trades": 15,
+            "win_rate": 66.7,
+            ...
+          },
+          "per_strategy": {...},
+          "per_symbol": {...}
+        }
+    """
+    metrics = load_runtime_metrics()
+    
+    if metrics is None:
+        # Return safe empty defaults when file doesn't exist
+        return JSONResponse({
+            "asof": None,
+            "mode": "paper",
+            "equity": {
+                "starting_capital": 0.0,
+                "current_equity": 0.0,
+                "realized_pnl": 0.0,
+                "unrealized_pnl": 0.0,
+                "max_drawdown": 0.0,
+                "max_equity": 0.0,
+                "min_equity": 0.0,
+            },
+            "overall": {
+                "total_trades": 0,
+                "win_trades": 0,
+                "loss_trades": 0,
+                "breakeven_trades": 0,
+                "win_rate": 0.0,
+                "gross_profit": 0.0,
+                "gross_loss": 0.0,
+                "net_pnl": 0.0,
+                "profit_factor": 0.0,
+                "avg_win": 0.0,
+                "avg_loss": 0.0,
+                "avg_r_multiple": 0.0,
+                "biggest_win": 0.0,
+                "biggest_loss": 0.0,
+            },
+            "per_strategy": {},
+            "per_symbol": {},
+        })
+    
+    return JSONResponse(metrics)
+
+
+@router.get("/api/trading/status")
+async def api_trading_status() -> JSONResponse:
+    """
+    Return current trading status with connection, mode, phase, and IST time.
+    
+    Returns:
+        {
+          "connected": true,
+          "mode": "paper",
+          "phase": "TRADING",
+          "ist_time": "2025-11-19 15:30:45"
+        }
+    """
+    try:
+        # Get current mode from runtime
+        mode = get_mode()
+        
+        # Check if engine is running by looking at checkpoint age
+        engine_status = _load_paper_engine_status()
+        is_connected = engine_status.get("running", False)
+        
+        # Determine phase based on engine status and market time
+        market_status = compute_market_status()
+        if not is_connected:
+            phase = "IDLE"
+        elif market_status.get("status") == "OPEN":
+            phase = "TRADING"
+        elif market_status.get("status") == "PRE_OPEN":
+            phase = "SCANNING"
+        else:
+            phase = "IDLE"
+        
+        # Get IST time
+        ist_now = datetime.now(IST_ZONE)
+        ist_time = ist_now.strftime("%Y-%m-%d %H:%M:%S")
+        
+        return JSONResponse({
+            "connected": is_connected,
+            "mode": mode,
+            "phase": phase,
+            "ist_time": ist_time,
+        })
+    except Exception as exc:
+        logger.exception("Failed to get trading status: %s", exc)
+        # Return safe defaults on error
+        ist_now = datetime.now(IST_ZONE)
+        return JSONResponse({
+            "connected": False,
+            "mode": "paper",
+            "phase": "UNKNOWN",
+            "ist_time": ist_now.strftime("%Y-%m-%d %H:%M:%S"),
+        })
+
+
 @router.get("/api/health")
 async def api_health() -> JSONResponse:
     """

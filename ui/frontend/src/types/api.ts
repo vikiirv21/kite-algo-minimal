@@ -228,6 +228,45 @@ export interface RiskSummary {
   current_exposure: number | null;
 }
 
+export interface RuntimeMetrics {
+  asof: string | null;
+  mode: string;
+  equity: {
+    starting_capital: number;
+    current_equity: number;
+    realized_pnl: number;
+    unrealized_pnl: number;
+    max_drawdown: number;
+    max_equity: number;
+    min_equity: number;
+  };
+  overall: {
+    total_trades: number;
+    win_trades: number;
+    loss_trades: number;
+    breakeven_trades: number;
+    win_rate: number;
+    gross_profit: number;
+    gross_loss: number;
+    net_pnl: number;
+    profit_factor: number;
+    avg_win: number;
+    avg_loss: number;
+    avg_r_multiple: number;
+    biggest_win: number;
+    biggest_loss: number;
+  };
+  per_strategy: Record<string, any>;
+  per_symbol: Record<string, any>;
+}
+
+export interface TradingStatus {
+  connected: boolean;
+  mode: 'paper' | 'live';
+  phase: 'IDLE' | 'SCANNING' | 'TRADING' | 'UNKNOWN';
+  ist_time: string;
+}
+
 export interface EngineLogsTailResponse {
   engine: string;
   lines: string[];
