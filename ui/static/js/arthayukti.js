@@ -372,10 +372,11 @@ async function updateSignalsPanel() {
                     <thead>
                         <tr>
                             <th>Strategy</th>
+                            <th>Symbol</th>
+                            <th>TF</th>
                             <th>Signals Today</th>
                             <th>Win Rate</th>
                             <th>Last Signal</th>
-                            <th>Mode</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -387,14 +388,17 @@ async function updateSignalsPanel() {
                 : '--';
             const signalsToday = strat.signals_today || 0;
             const lastSignal = strat.last_signal || 'HOLD';
+            const symbol = strat.symbol || '—';
+            const timeframe = strat.timeframe || '—';
             
             html += `
                 <tr>
                     <td>${strat.strategy_name || '—'}</td>
+                    <td>${symbol}</td>
+                    <td>${timeframe}</td>
                     <td>${signalsToday}</td>
                     <td>${winRate}</td>
                     <td><span class="badge badge-${lastSignal === 'BUY' ? 'success' : lastSignal === 'SELL' ? 'danger' : 'muted'}">${lastSignal}</span></td>
-                    <td>${strat.mode || '—'}</td>
                 </tr>
             `;
         }

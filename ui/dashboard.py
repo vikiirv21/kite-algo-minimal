@@ -2044,50 +2044,70 @@ async def api_stats_strategies(days: int = Query(1, ge=1, le=7)) -> JSONResponse
 @router.get("/api/strategies/health")
 async def api_strategies_health() -> JSONResponse:
     """
-    Get real-time strategy health metrics from telemetry bus.
+    Get real-time strategy health metrics combining telemetry and signal data.
     Returns structured health data for active strategies.
     """
-    bus = get_telemetry_bus()
+    # Get signal quality metrics (win rates from actual trades)
+    quality_metrics = signal_quality_manager.strategy_metrics_snapshot()
     
-    # Get recent engine_health events
+    # Get CSV-based signal stats (for symbol/timeframe info)
+    csv_stats = load_strategy_stats_from_signals(limit_days=1)
+    
+    # Get telemetry for real-time counters
+    bus = get_telemetry_bus()
     recent_events = bus.get_recent_events(event_type="engine_health", limit=10)
     
-    strategies = []
-    
-    # Find the most recent StrategyEngineV2 health event
+    telemetry_data = {}
     for event in reversed(recent_events):
         payload = event.get("payload", {})
         if payload.get("engine_name") == "StrategyEngineV2":
             metrics = payload.get("metrics", {})
-            strategy_metrics = metrics.get("strategies", {})
-            
-            # Convert to frontend-friendly format
-            for strategy_name, stats in strategy_metrics.items():
-                # Skip invalid entries
-                if not strategy_name or strategy_name.startswith("ema50="):
-                    continue
-                
-                win_rate = stats.get("win_rate")
-                signals_today = stats.get("signals_today", 0)
-                last_signal = stats.get("last_signal", "HOLD")
-                last_signal_ts = stats.get("last_signal_ts")
-                regime = stats.get("regime")
-                
-                strategy_entry = {
-                    "strategy_name": strategy_name,
-                    "symbol": "N/A",  # Per-strategy, not per-symbol
-                    "timeframe": "N/A",
-                    "mode": "paper",
-                    "signals_today": signals_today,
-                    "win_rate": win_rate,
-                    "last_signal": last_signal,
-                    "last_signal_ts": last_signal_ts,
-                    "regime": regime,
-                }
-                strategies.append(strategy_entry)
-            
-            # Only use the most recent event
+            telemetry_data = metrics.get("strategies", {})
             break
+    
+    # Build combined strategy health entries
+    strategies = []
+    seen_keys = set()
+    
+    # Process CSV stats (has symbol/timeframe info)
+    for stat in csv_stats:
+        strategy_name = stat.get("strategy", "")
+        symbol = stat.get("symbol", "")
+        timeframe = stat.get("timeframe", "")
+        mode = stat.get("mode", "paper")
+        
+        # Skip invalid entries
+        if not strategy_name or "ema50=None" in str(strategy_name):
+            continue
+        
+        key = (strategy_name, symbol)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        
+        # Get quality metrics for this strategy+symbol
+        quality = quality_metrics.get((strategy_name, symbol), {})
+        win_rate_pct = quality.get("winrate_20", 0.0)
+        win_rate = win_rate_pct / 100.0 if win_rate_pct > 0 else None
+        
+        # Get telemetry data for real-time counters
+        telem = telemetry_data.get(strategy_name, {})
+        signals_today = telem.get("signals_today", stat.get("trades_today", 0))
+        last_signal = stat.get("last_signal", telem.get("last_signal", "HOLD"))
+        last_signal_ts = telem.get("last_signal_ts")
+        
+        strategy_entry = {
+            "strategy_name": strategy_name,
+            "symbol": symbol or "N/A",
+            "timeframe": timeframe or "N/A",
+            "mode": mode,
+            "signals_today": signals_today,
+            "win_rate": win_rate,
+            "last_signal": last_signal,
+            "last_signal_ts": last_signal_ts,
+            "regime": telem.get("regime"),
+        }
+        strategies.append(strategy_entry)
     
     return JSONResponse({"strategies": strategies})
 
