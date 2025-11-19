@@ -357,6 +357,15 @@ class OptionsPaperEngine:
             except Exception as exc:
                 logger.error("Failed to initialize Strategy Engine v2 for options: %s", exc, exc_info=True)
                 self.strategy_engine_v2 = None
+        
+        # Initialize Expiry Risk Adapter
+        try:
+            from core.expiry_risk_adapter import create_expiry_risk_adapter_from_config
+            self.expiry_risk_adapter = create_expiry_risk_adapter_from_config(self.cfg.raw)
+            logger.info("Expiry Risk Adapter initialized for options engine (enabled=%s)", self.expiry_risk_adapter.config.enabled)
+        except Exception as exc:
+            logger.warning("Failed to initialize Expiry Risk Adapter: %s. Continuing without expiry awareness.", exc)
+            self.expiry_risk_adapter = None
     
     def _start_market_context_refresh(self) -> None:
         """Start background thread for periodic market context refresh."""
@@ -747,6 +756,54 @@ class OptionsPaperEngine:
         logical_name = logical or symbol
         prev_position = self.paper_broker.get_position(symbol)
         prev_position_qty = prev_position.quantity if prev_position else 0
+        
+        # Apply expiry risk adapter for new entries (only for BUY/SELL signals)
+        if signal in ("BUY", "SELL") and self.expiry_risk_adapter is not None:
+            try:
+                from datetime import datetime
+                import pytz
+                
+                # Determine the underlying logical name (strip CE/PE suffix)
+                underlying_logical = logical_name
+                for opt_type in ["_CE", "_PE", "CE", "PE"]:
+                    if opt_type in underlying_logical:
+                        underlying_logical = underlying_logical.replace(opt_type, "")
+                        break
+                
+                # Options are always considered as options
+                is_option = True
+                
+                # Evaluate expiry risk
+                now_ist = datetime.now(pytz.timezone("Asia/Kolkata"))
+                expiry_decision = self.expiry_risk_adapter.evaluate(
+                    symbol=underlying_logical,
+                    dt=now_ist,
+                    is_option=is_option,
+                    is_new_entry=True,
+                )
+                
+                # Log decision if significant
+                self.expiry_risk_adapter.log_decision(underlying_logical, expiry_decision)
+                
+                # Block if not allowed
+                if not expiry_decision.allow_new_entry:
+                    logger.warning(
+                        "Expiry risk adapter blocked new option entry for %s: %s",
+                        symbol, expiry_decision.reason
+                    )
+                    return
+                
+                # Apply risk scale to quantity if needed
+                if expiry_decision.risk_scale < 1.0:
+                    original_qty = qty
+                    qty = max(1, int(qty * expiry_decision.risk_scale))
+                    logger.info(
+                        "Expiry risk adapter scaled qty for option %s: %d -> %d (scale=%.2f, reason=%s)",
+                        symbol, original_qty, qty, expiry_decision.risk_scale, expiry_decision.reason
+                    )
+            except Exception as exc:
+                logger.warning("Failed to evaluate expiry risk for option %s: %s", symbol, exc)
+                # Continue with order placement on error (fail-safe)
 
         approved, filter_payload = self._maybe_apply_trade_filters(
             symbol=symbol,
