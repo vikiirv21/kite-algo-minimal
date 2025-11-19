@@ -41,7 +41,8 @@ class EMA2050IntradayV2(BaseStrategy):
         self,
         candle: Dict[str, float],
         series: Dict[str, List[float]],
-        indicators: Dict[str, Any]
+        indicators: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None
     ) -> Optional[Decision]:
         """
         Generate trading signal based on EMA crossover.
@@ -51,10 +52,14 @@ class EMA2050IntradayV2(BaseStrategy):
             series: Historical series (close, high, low, etc.)
             indicators: Pre-computed indicators (ema20, ema50, trend, rsi14, etc.)
                        May also include market_context for broad market awareness
+            context: Optional context dict with expiry info, session time, etc.
+                    May include: is_expiry_day, is_expiry_week, time_to_expiry_minutes, session_time_ist
         
         Returns:
             Decision object (BUY, SELL, EXIT, or HOLD)
         """
+        context = context or {}
+        
         close = candle.get("close", 0.0)
         if close <= 0:
             return Decision(action="HOLD", reason="invalid_price", confidence=0.0)
@@ -157,6 +162,17 @@ class EMA2050IntradayV2(BaseStrategy):
                 if filter_result:
                     # Filter blocked the entry
                     return filter_result
+        
+        # Apply expiry-aware confidence adjustment (light touch, only reduces confidence)
+        if signal in ["BUY", "SELL"] and context:
+            is_expiry_day = context.get("is_expiry_day", False)
+            time_to_expiry_minutes = context.get("time_to_expiry_minutes")
+            
+            # In the last 60 minutes of expiry day, reduce confidence for new entries
+            if is_expiry_day and time_to_expiry_minutes is not None and time_to_expiry_minutes < 60:
+                # Reduce confidence by 10% (multiply by 0.9) in final hour
+                confidence = confidence * 0.9
+                reason = f"{reason}|expiry_last_hour_caution"
         
         # Return final decision
         if signal:
