@@ -1,4 +1,9 @@
-# Strategies and Engines Documentation
+# Strategies Documentation – kite-algo-minimal
+
+> **Status**: CURRENT – Last updated: 2025-11-19  
+> **Purpose**: Complete strategy enumeration and development guide
+
+---
 
 ## Overview
 
@@ -50,14 +55,125 @@ The repository supports two strategy engine architectures:
 - **Location**: `strategies/mean_reversion_intraday.py`
 - **Description**: Additional intraday strategy (implementation details in file)
 
-### Additional Strategy Classes (v3)
-Located in `core/strategies_v3/`:
-- `ema20_50.py`: Core EMA crossover logic
-- `htf_trend.py`: Higher timeframe trend filter
-- `rsi_pullback.py`: RSI-based pullback strategy
-- `trend_strategy.py`: Generic trend following
-- `vol_regime.py`: Volatility regime filter
-- `vwap_filter.py`: VWAP-based filter
+### Strategy Engine v3 Strategies
+
+Located in `core/strategies_v3/`, these are modern, composable strategies designed for the v3 multi-strategy fusion engine.
+
+#### 1. EMA2050Strategy (v3)
+- **File**: `core/strategies_v3/ema20_50.py`
+- **Class**: `EMA2050Strategy`
+- **Strategy ID**: `ema20_50`
+- **Description**: EMA 20/50 crossover with trend alignment
+- **Logic**:
+  - BUY when: EMA20 > EMA50 AND price > EMA20 (bullish alignment)
+  - SELL when: EMA20 < EMA50 AND price < EMA20 (bearish alignment)
+- **Confidence**: 0.7 (base)
+- **Timeframes**: Works on any timeframe (typically 5m or 15m)
+- **Best For**: Trending markets
+
+#### 2. TrendStrategy (v3)
+- **File**: `core/strategies_v3/trend_strategy.py`
+- **Class**: `TrendStrategy`
+- **Strategy ID**: `trend`
+- **Description**: Generic trend following using slope and moving averages
+- **Logic**:
+  - Identifies trend direction using EMA slope
+  - Confirms with price position relative to EMA
+  - Filters out choppy ranges
+- **Confidence**: Variable (0.5-0.9 based on trend strength)
+- **Best For**: Strong directional moves
+
+#### 3. RSIPullbackStrategy (v3)
+- **File**: `core/strategies_v3/rsi_pullback.py`
+- **Class**: `RSIPullbackStrategy`
+- **Strategy ID**: `rsi_pullback`
+- **Description**: Counter-trend pullback entries using RSI
+- **Logic**:
+  - BUY when: Uptrend detected AND RSI < 40 (pullback in uptrend)
+  - SELL when: Downtrend detected AND RSI > 60 (pullback in downtrend)
+- **Confidence**: 0.65
+- **Best For**: Trend + pullback setups
+
+#### 4. VWAPFilterStrategy (v3)
+- **File**: `core/strategies_v3/vwap_filter.py`
+- **Class**: `VWAPFilterStrategy`
+- **Strategy ID**: `vwap_filter`
+- **Description**: VWAP-based entry filter
+- **Logic**:
+  - BUY only if price above VWAP (institutional buying)
+  - SELL only if price below VWAP (institutional selling)
+  - Acts as filter for other strategies
+- **Confidence**: 0.6
+- **Best For**: Institutional flow alignment
+
+#### 5. VolRegimeStrategy (v3)
+- **File**: `core/strategies_v3/vol_regime.py`
+- **Class**: `VolRegimeStrategy`
+- **Strategy ID**: `vol_regime`
+- **Description**: Volatility regime classification
+- **Logic**:
+  - Measures ATR% (ATR / price)
+  - Classifies as: LOW_VOL, NORMAL_VOL, HIGH_VOL
+  - Adjusts strategy behavior based on regime
+- **Confidence**: N/A (filter only)
+- **Best For**: Risk management
+
+#### 6. HTFTrendStrategy (v3)
+- **File**: `core/strategies_v3/htf_trend.py`
+- **Class**: `HTFTrendStrategy`
+- **Strategy ID**: `htf_trend`
+- **Description**: Higher timeframe trend filter
+- **Logic**:
+  - Checks trend on 15m or 1h timeframe
+  - Only allows trades aligned with HTF trend
+  - Prevents counter-trend trades
+- **Confidence**: 0.8
+- **Best For**: Multi-timeframe confirmation
+
+### Strategy Engine v3 Configuration
+
+**Example** (`configs/strategy_engine_v3.yaml`):
+```yaml
+primary_tf: "5m"
+secondary_tf: "15m"
+
+strategies:
+  - id: "ema20_50"
+    enabled: true
+  - id: "vwap_filter"
+    enabled: true
+  - id: "htf_trend"
+    enabled: true
+
+playbooks:
+  trend_follow:
+    description: "Strong trend with HTF alignment"
+    rules:
+      - "ema20_50 signal == BUY"
+      - "htf_trend signal == BUY"
+  pullback:
+    description: "Pullback in trend"
+    rules:
+      - "rsi_pullback signal == BUY"
+      - "trend signal == BUY"
+```
+
+### Strategy Fusion
+
+When multiple v3 strategies agree:
+1. Signals are aggregated by action (BUY/SELL)
+2. Confidence is weighted average of agreeing strategies
+3. Setup is classified using playbooks
+4. Final OrderIntent has combined confidence
+
+**Example**:
+```
+ema20_50: BUY, confidence=0.7
+htf_trend: BUY, confidence=0.8
+vwap_filter: BUY, confidence=0.6
+
+→ Fused: BUY, confidence=0.7, setup="trend_follow"
+```
 
 ## Strategy Engine V2 Architecture
 

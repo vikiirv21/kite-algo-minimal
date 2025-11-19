@@ -1,5 +1,9 @@
 # HFT System Architecture – kite-algo-minimal
 
+> **Status**: PARTIALLY STALE – Last validated: 2025-11-17  
+> **Superseded by**: [docs/ARCHITECTURE.md](./ARCHITECTURE.md) for canonical architecture documentation  
+> **Note**: This document is detailed but some information may be outdated. ARCHITECTURE.md is the current canonical reference.
+
 **High-Level Trading System for Equity, FnO Futures, and Options**
 
 This document describes the architecture of the kite-algo-minimal algorithmic trading system, covering both paper trading (simulation) and live trading modes. The system is designed to handle multiple asset classes (Equity, FnO Futures, Options) with a modular, extensible architecture.
