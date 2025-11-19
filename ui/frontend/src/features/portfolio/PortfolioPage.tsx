@@ -1,10 +1,11 @@
 import { Card, CardSkeleton } from '../../components/Card';
-import { usePortfolioSummary, useOpenPositions } from '../../hooks/useApi';
+import { usePortfolio } from '../../hooks/useApi';
 import { formatCurrency, formatPercent, getPnlClass, getPnlPrefix } from '../../utils/format';
 
 export function PortfolioPage() {
-  const { data: portfolio, isLoading: portfolioLoading } = usePortfolioSummary();
-  const { data: positions, isLoading: positionsLoading } = useOpenPositions();
+  const { data: portfolio, isLoading: portfolioLoading } = usePortfolio();
+  const positions = portfolio?.positions || [];
+  const positionsLoading = portfolioLoading;
   
   // Debug flag - set to true to see raw API data
   const DEBUG_MODE = import.meta.env.DEV || false; // Only in development
@@ -24,22 +25,20 @@ export function PortfolioPage() {
               <div className="text-2xl font-bold">{formatCurrency(portfolio?.equity)}</div>
             </div>
             <div>
-              <div className="text-sm text-text-secondary mb-1">Daily P&L</div>
-              <div className={`text-2xl font-bold ${getPnlClass(portfolio?.daily_pnl)}`}>
-                {getPnlPrefix(portfolio?.daily_pnl)}{formatCurrency(portfolio?.daily_pnl)}
+              <div className="text-sm text-text-secondary mb-1">Unrealized P&L</div>
+              <div className={`text-2xl font-bold ${getPnlClass(portfolio?.unrealized_pnl)}`}>
+                {getPnlPrefix(portfolio?.unrealized_pnl)}{formatCurrency(portfolio?.unrealized_pnl)}
               </div>
             </div>
             <div>
               <div className="text-sm text-text-secondary mb-1">Realized P&L</div>
-              <div className={`text-2xl font-bold ${getPnlClass(portfolio?.total_realized_pnl)}`}>
-                {getPnlPrefix(portfolio?.total_realized_pnl)}{formatCurrency(portfolio?.total_realized_pnl)}
+              <div className={`text-2xl font-bold ${getPnlClass(portfolio?.realized_pnl)}`}>
+                {getPnlPrefix(portfolio?.realized_pnl)}{formatCurrency(portfolio?.realized_pnl)}
               </div>
             </div>
             <div>
-              <div className="text-sm text-text-secondary mb-1">Unrealized P&L</div>
-              <div className={`text-2xl font-bold ${getPnlClass(portfolio?.total_unrealized_pnl)}`}>
-                {getPnlPrefix(portfolio?.total_unrealized_pnl)}{formatCurrency(portfolio?.total_unrealized_pnl)}
-              </div>
+              <div className="text-sm text-text-secondary mb-1">Starting Capital</div>
+              <div className="text-2xl font-bold">{formatCurrency(portfolio?.starting_capital)}</div>
             </div>
             <div>
               <div className="text-sm text-text-secondary mb-1">Total Notional</div>
@@ -47,19 +46,15 @@ export function PortfolioPage() {
             </div>
             <div>
               <div className="text-sm text-text-secondary mb-1">Free Margin</div>
-              <div className="text-lg font-semibold">{formatCurrency(portfolio?.free_notional)}</div>
+              <div className="text-lg font-semibold">{formatCurrency(portfolio?.free_margin)}</div>
             </div>
             <div>
-              <div className="text-sm text-text-secondary mb-1">Exposure</div>
-              <div className="text-lg font-semibold">
-                {(portfolio?.exposure_pct !== null && portfolio?.exposure_pct !== undefined) 
-                  ? formatPercent(portfolio.exposure_pct * 100) 
-                  : '--'}
-              </div>
+              <div className="text-sm text-text-secondary mb-1">Margin Used</div>
+              <div className="text-lg font-semibold">{formatCurrency(portfolio?.margin_used)}</div>
             </div>
             <div>
               <div className="text-sm text-text-secondary mb-1">Positions</div>
-              <div className="text-lg font-semibold">{portfolio?.position_count || 0}</div>
+              <div className="text-lg font-semibold">{positions.length}</div>
             </div>
           </div>
         </Card>
@@ -67,30 +62,17 @@ export function PortfolioPage() {
       
       {/* DEBUG: Raw API Data (Development Only) */}
       {DEBUG_MODE && (
-        <Card title="🔍 DEBUG: Portfolio Summary API Response">
+        <Card title="🔍 DEBUG: Portfolio API Response">
           <div className="text-xs font-mono space-y-2">
             <div className="text-text-secondary mb-2">
-              Raw API data from <code className="bg-border px-1 rounded">/api/portfolio/summary</code>
+              Raw API data from <code className="bg-border px-1 rounded">/api/portfolio</code> (updates every 2 seconds)
             </div>
             <pre className="bg-surface-light p-3 rounded overflow-x-auto text-[10px] leading-tight">
               {JSON.stringify(portfolio, null, 2)}
             </pre>
-          </div>
-        </Card>
-      )}
-      
-      {DEBUG_MODE && positions && positions.length > 0 && (
-        <Card title="🔍 DEBUG: Open Positions API Response (First 2)">
-          <div className="text-xs font-mono space-y-2">
-            <div className="text-text-secondary mb-2">
-              Raw API data from <code className="bg-border px-1 rounded">/api/positions/open</code>
-            </div>
-            <pre className="bg-surface-light p-3 rounded overflow-x-auto text-[10px] leading-tight">
-              {JSON.stringify(positions.slice(0, 2), null, 2)}
-            </pre>
             <div className="text-text-secondary text-[10px] mt-2">
-              ✓ Showing first 2 positions out of {positions.length} total<br/>
-              ✓ Data updates every 3 seconds
+              ✓ Data is being fetched and updated every 2 seconds<br/>
+              ✓ Includes live position data with real-time LTP and unrealized PnL
             </div>
           </div>
         </Card>
@@ -121,9 +103,7 @@ export function PortfolioPage() {
               </thead>
               <tbody>
                 {positions.map((pos, idx) => {
-                  const pnlPct = pos.avg_price > 0 
-                    ? (pos.unrealized_pnl / (pos.avg_price * Math.abs(pos.quantity))) * 100 
-                    : 0;
+                  const pnlPct = pos.pnl_pct !== undefined ? pos.pnl_pct : 0;
                   
                   return (
                     <tr key={idx} className="border-b border-border/50 hover:bg-surface-light">
@@ -136,13 +116,13 @@ export function PortfolioPage() {
                           {pos.side}
                         </span>
                       </td>
-                      <td className="py-3 text-right font-mono">{Math.abs(pos.quantity)}</td>
+                      <td className="py-3 text-right font-mono">{pos.quantity}</td>
                       <td className="py-3 text-right font-mono">{formatCurrency(pos.avg_price)}</td>
                       <td className="py-3 text-right font-mono">{formatCurrency(pos.last_price)}</td>
                       <td className={`py-3 text-right font-mono font-semibold ${getPnlClass(pos.unrealized_pnl)}`}>
                         {getPnlPrefix(pos.unrealized_pnl)}{formatCurrency(pos.unrealized_pnl)}
                       </td>
-                      <td className={`py-3 text-right font-mono ${getPnlClass(pos.unrealized_pnl)}`}>
+                      <td className={`py-3 text-right font-mono ${getPnlClass(pnlPct)}`}>
                         {getPnlPrefix(pnlPct)}{formatPercent(Math.abs(pnlPct))}
                       </td>
                     </tr>

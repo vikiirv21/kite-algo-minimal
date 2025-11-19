@@ -15,6 +15,7 @@ import type {
   EquityCurveData,
   RiskSummary,
   EngineLogsTailResponse,
+  Portfolio,
 } from '../types/api';
 
 const API_BASE = '/api';
@@ -40,6 +41,7 @@ export const api = {
   getEnginesStatus: () => fetchApi<EnginesStatusResponse>('/engines/status'),
   
   // Portfolio
+  getPortfolio: () => fetchApi<Portfolio>('/portfolio'),
   getPortfolioSummary: () => fetchApi<PortfolioSummary>('/portfolio/summary'),
   getOpenPositions: () => fetchApi<Position[]>('/positions/open'),
   
