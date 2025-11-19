@@ -329,13 +329,41 @@ The MarketContext layer adds broad market awareness to trading decisions:
 - Symbol relative volume
 
 ### Implementation Location
-`core/market_context.py` (to be created)
+`core/market_context.py` (✅ implemented)
 
 ### Design Principles
 1. **Conservative**: Only adds filters, never loosens entry rules
 2. **Configurable**: All features can be enabled/disabled in config
 3. **Robust**: Graceful fallback when data is unavailable
 4. **Non-breaking**: Existing strategies work without modification
+
+### Quick Start
+
+#### 1. Enable MarketContext
+Edit `configs/dev.yaml`:
+```yaml
+market_context:
+  enabled: true  # Activate the feature
+```
+
+#### 2. Run Paper Trading
+```bash
+python -m apps.run_fno_paper --config configs/dev.yaml --mode paper
+```
+
+MarketContext will:
+- Fetch India VIX every 60 seconds (cached)
+- Compute breadth from NIFTY50 universe
+- Calculate relative volume for each symbol
+- Apply filters to entry signals
+
+#### 3. Monitor Impact
+Check logs for filtered signals:
+```
+[INFO] Signal: NIFTY BUY blocked - market_context_weak_breadth_25.3%_low_confidence_0.65
+[INFO] Signal: BANKNIFTY SELL blocked - market_context_vix_panic_no_shorts
+[INFO] Signal: FINNIFTY BUY blocked - market_context_low_rvol_0.55
+```
 
 ### MarketContext Dataclass
 ```python
@@ -413,7 +441,7 @@ market_context:
     skip_low_rvol: true
 ```
 
-## Backtest Support
+## Running Backtests
 
 ### Location
 `scripts/run_backtest.py` (primary)
@@ -422,34 +450,52 @@ market_context:
 
 ### Running Backtests
 
-#### Basic Backtest
+#### Basic Backtest (v3 Engine)
 ```bash
-python -m scripts.run_backtest \
+python -m scripts.run_backtest_v3 \
+    --config configs/dev.yaml \
+    --symbols NIFTY,BANKNIFTY \
+    --start 2025-01-01 \
+    --end 2025-01-31 \
+    --timeframe 5m
+```
+
+#### With MarketContext Enabled
+MarketContext works automatically in backtests if enabled in config:
+
+1. **Enable in config** (`configs/dev.yaml`):
+```yaml
+market_context:
+  enabled: true  # Enable for both live and backtest
+```
+
+2. **Run backtest normally**:
+```bash
+python -m scripts.run_backtest_v3 \
     --config configs/dev.yaml \
     --symbols NIFTY,BANKNIFTY \
     --start 2025-01-01 \
     --end 2025-01-31
 ```
 
-#### With MarketContext
-```bash
-python -m scripts.run_backtest \
-    --config configs/dev.yaml \
-    --symbols NIFTY,BANKNIFTY \
-    --start 2025-01-01 \
-    --end 2025-01-31 \
-    --enable-market-context
-```
+The backtest engine will:
+- Build MarketContext for each bar
+- Pass to StrategyEngineV2
+- Apply filters (VIX, breadth, RVOL)
+- Record filtered signals in results
 
 #### Strict Mode (No Parameter Loosening)
-```bash
-python -m scripts.run_backtest \
-    --config configs/dev.yaml \
-    --symbols NIFTY,BANKNIFTY \
-    --start 2025-01-01 \
-    --end 2025-01-31 \
-    --strict-mode
+All MarketContext filters are conservative by default:
+```yaml
+market_context:
+  enabled: true
+  filters:
+    block_shorts_on_panic: true  # Only blocks, never loosens
+    require_stronger_edge_on_weak_breadth: true
+    skip_low_rvol: true
 ```
+
+No additional "strict mode" flag needed - filters are already conservative.
 
 ### Backtest Outputs
 
@@ -462,7 +508,7 @@ artifacts/analytics/backtests/
 ```
 
 **Metrics Included**:
-- Total trades
+- Total trades (with and without MarketContext filters)
 - Win rate
 - Profit factor
 - Max drawdown
@@ -470,10 +516,41 @@ artifacts/analytics/backtests/
 - Total PnL
 - Average trade PnL
 - Max consecutive wins/losses
+- Filter statistics (how many trades blocked by each filter)
+
+### Analyzing MarketContext Impact
+
+To see how MarketContext affects results:
+
+1. **Run without MarketContext**:
+```bash
+# Disable in config
+market_context:
+  enabled: false
+
+python -m scripts.run_backtest_v3 --config configs/dev.yaml ...
+# Save results as baseline
+```
+
+2. **Run with MarketContext**:
+```bash
+# Enable in config
+market_context:
+  enabled: true
+
+python -m scripts.run_backtest_v3 --config configs/dev.yaml ...
+# Compare results
+```
+
+3. **Compare metrics**:
+   - Trade count (how many filtered)
+   - Win rate (quality improvement)
+   - Max drawdown (risk reduction)
+   - Profit factor (efficiency)
 
 ### Backtest Configuration
 ```yaml
-# configs/backtest.dev.yaml
+# configs/backtest.dev.yaml (optional - overrides dev.yaml)
 backtest:
   data_source: "csv"  # or "kite_historical"
   data_directory: "data/historical"
@@ -484,13 +561,43 @@ backtest:
   strategy_engine:
     # ... same as dev.yaml
   
-  # Enable/disable components
+  # MarketContext (uses same config as live)
   market_context:
     enabled: true
+    # ... same settings as dev.yaml
   
   # Backtest-specific settings
   initial_capital: 500000
   commission_per_trade: 40  # Round-trip brokerage
+  
+  # Write detailed logs
+  verbose_logging: true
+  log_filtered_signals: true  # Log signals blocked by MarketContext
+```
+
+### Example: Testing MarketContext VIX Filter
+
+```bash
+# 1. Baseline: No MarketContext
+python -m scripts.run_backtest_v3 \
+    --config configs/dev.yaml \
+    --symbols NIFTY,BANKNIFTY \
+    --start 2020-03-01 \
+    --end 2020-05-31 \
+    --timeframe 5m
+# Note: March 2020 had COVID volatility spike
+
+# 2. With VIX filter
+# Edit config to enable market_context
+python -m scripts.run_backtest_v3 \
+    --config configs/dev.yaml \
+    --symbols NIFTY,BANKNIFTY \
+    --start 2020-03-01 \
+    --end 2020-05-31 \
+    --timeframe 5m
+
+# Expected result: Fewer short entries during panic period
+# Better risk-adjusted returns
 ```
 
 ## Analytics and Monitoring
