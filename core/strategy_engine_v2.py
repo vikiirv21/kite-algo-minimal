@@ -241,7 +241,8 @@ class BaseStrategy(ABC):
         self, 
         candle: Dict[str, float], 
         series: Dict[str, List[float]], 
-        indicators: Dict[str, Any]
+        indicators: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None
     ) -> Optional[Decision]:
         """
         Generate trading signal based on current candle, historical series, and indicators.
@@ -250,6 +251,8 @@ class BaseStrategy(ABC):
             candle: Current candle dict with keys: open, high, low, close, volume
             series: Historical series dict with keys: open, high, low, close, volume (lists)
             indicators: Pre-computed indicators dict (EMA, RSI, ATR, etc.)
+            context: Optional context dict with expiry info, session time, etc.
+                    May include: is_expiry_day, is_expiry_week, time_to_expiry_minutes, session_time_ist
         
         Returns:
             Decision object or None
@@ -611,8 +614,8 @@ class StrategyEngineV2:
             # Build series dict (empty for now - strategies should use indicators)
             series = {}
             
-            # Call strategy's generate_signal method
-            decision = strategy.generate_signal(candle, series, indicators)
+            # Call strategy's generate_signal method with context
+            decision = strategy.generate_signal(candle, series, indicators, context)
             
             # Convert Decision to OrderIntent
             if decision and decision.action and decision.action != "HOLD":
