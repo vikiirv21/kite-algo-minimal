@@ -23,7 +23,7 @@ export interface ConfigSummary {
   risk_per_trade_pct: number;
   max_daily_loss: number;
   max_exposure_pct: number;
-  max_positions: number;
+  max_positions: number | null;  // null = unlimited positions
   risk_profile: string;
   meta_enabled: boolean;
 }
@@ -54,6 +54,9 @@ export interface PortfolioSummary {
   daily_pnl: number | null;
   has_positions: boolean;
   position_count: number;
+  position_limit: number | null;  // null = unlimited positions
+  open_positions: number;
+  position_used_pct: number;
   note: string;
 }
 
