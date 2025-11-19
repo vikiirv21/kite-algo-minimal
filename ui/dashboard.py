@@ -1701,10 +1701,118 @@ def _state_path() -> Path:
 # ======================= API =======================
 @router.get("/api/state")
 def api_state() -> JSONResponse:
-    state = store.load_checkpoint()
-    if state is None:
-        return JSONResponse({"engines": {}, "pnl": {}, "ts": None})
-    return JSONResponse(state)
+    """
+    Return engine status based on available runtime state.
+    
+    Fields required:
+    - mode: "paper" | "live" | "unknown"
+    - engine_status: "running" | "stopped" | "unknown"
+    - last_heartbeat_ts: ISO timestamp or null
+    - last_update_age_seconds: Number (0 if unknown)
+    - active_engines: Array of engine identifiers
+    - positions_count: Number of open positions
+    
+    Checks artifacts/checkpoints/* or any engine state file.
+    Graceful fallback to defaults.
+    Never throws exceptions.
+    """
+    try:
+        # Get current mode
+        mode = get_mode()
+        
+        # Try to load checkpoint
+        state = store.load_checkpoint()
+        
+        # Get checkpoint path to check age
+        checkpoint_path = _resolve_checkpoint_path()
+        
+        # Calculate age and determine engine status
+        last_heartbeat_ts = None
+        last_update_age_seconds = 0
+        engine_status = "unknown"
+        
+        if checkpoint_path and checkpoint_path.exists():
+            try:
+                # Get timestamp from file
+                raw_ts = None
+                if state and isinstance(state, dict):
+                    raw_ts = state.get("timestamp") or state.get("ts") or state.get("updated_at")
+                
+                if raw_ts:
+                    try:
+                        checkpoint_dt = datetime.fromisoformat(str(raw_ts).replace("Z", "+00:00"))
+                    except Exception:
+                        checkpoint_dt = None
+                else:
+                    # Fall back to file mtime
+                    checkpoint_dt = datetime.fromtimestamp(checkpoint_path.stat().st_mtime, tz=timezone.utc)
+                
+                if checkpoint_dt:
+                    if checkpoint_dt.tzinfo is None:
+                        checkpoint_dt = checkpoint_dt.replace(tzinfo=timezone.utc)
+                    else:
+                        checkpoint_dt = checkpoint_dt.astimezone(timezone.utc)
+                    
+                    last_heartbeat_ts = checkpoint_dt.isoformat()
+                    now_utc = datetime.now(timezone.utc)
+                    last_update_age_seconds = int((now_utc - checkpoint_dt).total_seconds())
+                    
+                    # Determine engine status based on age
+                    if last_update_age_seconds < 180:  # Less than 3 minutes
+                        engine_status = "running"
+                    else:
+                        engine_status = "stopped"
+            except Exception as e:
+                logger.warning("Failed to determine checkpoint age: %s", e)
+        else:
+            engine_status = "stopped"
+        
+        # Count positions
+        positions_count = 0
+        active_engines = []
+        
+        if state and isinstance(state, dict):
+            # Count positions
+            positions_data = state.get("positions") or []
+            if isinstance(positions_data, dict):
+                positions_list = list(positions_data.values())
+            else:
+                positions_list = list(positions_data)
+            
+            positions_count = sum(
+                1 for pos in positions_list 
+                if isinstance(pos, dict) and _safe_float(pos.get("quantity"), 0.0) != 0.0
+            )
+            
+            # Determine active engines
+            if engine_status == "running":
+                if mode == "paper":
+                    active_engines = ["paper_engine"]
+                elif mode == "live":
+                    active_engines = ["live_engine"]
+                else:
+                    active_engines = [f"{mode}_engine"]
+        
+        return JSONResponse({
+            "mode": mode,
+            "engine_status": engine_status,
+            "last_heartbeat_ts": last_heartbeat_ts,
+            "last_update_age_seconds": last_update_age_seconds,
+            "active_engines": active_engines,
+            "positions_count": positions_count,
+        })
+    
+    except Exception as exc:
+        logger.error("api_state failed: %s", exc, exc_info=True)
+        # Return safe defaults on any error
+        return JSONResponse({
+            "mode": "unknown",
+            "engine_status": "unknown",
+            "last_heartbeat_ts": None,
+            "last_update_age_seconds": 0,
+            "active_engines": [],
+            "positions_count": 0,
+        })
 
 
 @router.get("/api/meta")
@@ -2914,24 +3022,114 @@ async def api_health() -> JSONResponse:
 
 @router.get("/api/risk/summary")
 def api_risk_summary() -> JSONResponse:
-    state = store.load_checkpoint()
-    cfg = load_app_config()
-    risk_config = cfg.risk or {}
-    risk_state = state.get("risk", {}) if state else {}
-    portfolio_summary = load_paper_portfolio_summary()
-
-    return JSONResponse(
-        {
-            "mode": risk_config.get("mode", "paper"),
-            "per_trade_risk_pct": risk_config.get("per_trade_risk_pct"),
-            "max_daily_loss_abs": risk_config.get("max_daily_loss_abs"),
-            "max_daily_loss_pct": risk_config.get("max_daily_loss_pct"),
-            "trading_halted": risk_state.get("trading_halted", False),
-            "halt_reason": risk_state.get("halt_reason"),
-            "current_day_pnl": portfolio_summary.get("daily_pnl"),
-            "current_exposure": portfolio_summary.get("total_notional"),
-        }
-    )
+    """
+    Return risk summary with all required fields.
+    
+    Backend must not crash when clicking the Risk tab.
+    
+    Returns:
+    - max_daily_loss: number (from config)
+    - used_loss: number (current day PnL)
+    - remaining_loss: number (max_daily_loss + used_loss, since used_loss is negative)
+    - max_exposure_pct: number (from config)
+    - current_exposure_pct: number (from portfolio)
+    - risk_per_trade_pct: number (from config)
+    - status: "ok" | "empty" | "stale"
+    
+    Sources:
+    - config from configs/dev.yaml (or via HFT_CONFIG path)
+    - PnL from analytics (runtime_metrics.json)
+    
+    Rules:
+    - Default to zeros if any field missing
+    - Must always return JSON with correct fields
+    - Never crash
+    """
+    try:
+        # Load config
+        try:
+            cfg = load_app_config()
+            risk_config = cfg.risk or {}
+            trading_config = cfg.trading or {}
+        except Exception as e:
+            logger.warning("Failed to load config: %s", e)
+            risk_config = {}
+            trading_config = {}
+        
+        # Load portfolio summary for current exposure
+        try:
+            portfolio_summary = load_paper_portfolio_summary()
+        except Exception as e:
+            logger.warning("Failed to load portfolio summary: %s", e)
+            portfolio_summary = {}
+        
+        # Load runtime metrics for PnL
+        try:
+            runtime_metrics = load_runtime_metrics()
+            if runtime_metrics:
+                equity = runtime_metrics.get("equity", {})
+                realized_pnl = equity.get("realized_pnl", 0.0)
+                status = "ok"
+            else:
+                realized_pnl = portfolio_summary.get("total_realized_pnl", 0.0)
+                status = "empty"
+        except Exception as e:
+            logger.warning("Failed to load runtime metrics: %s", e)
+            realized_pnl = portfolio_summary.get("total_realized_pnl", 0.0)
+            status = "stale"
+        
+        # Get risk parameters from config
+        max_daily_loss = float(trading_config.get("max_daily_loss", 3000.0))
+        risk_per_trade_pct = float(risk_config.get("risk_per_trade_pct", 0.005))
+        max_exposure_pct = float(
+            risk_config.get(
+                "max_gross_exposure_pct",
+                risk_config.get("max_exposure_pct", trading_config.get("max_notional_multiplier", 2.0))
+            )
+        )
+        
+        # Convert max_notional_multiplier to percentage if needed
+        if max_exposure_pct <= 10.0:  # Likely a multiplier, convert to percentage
+            max_exposure_pct = max_exposure_pct * 100.0
+        
+        # Calculate used loss (negative value)
+        used_loss = realized_pnl if realized_pnl < 0 else 0.0
+        
+        # Calculate remaining loss (how much more loss is allowed)
+        remaining_loss = max_daily_loss + used_loss  # used_loss is negative
+        
+        # Calculate current exposure percentage
+        equity = portfolio_summary.get("equity", 0.0)
+        total_notional = portfolio_summary.get("total_notional", 0.0)
+        
+        if equity > 0:
+            current_exposure_pct = (total_notional / equity) * 100.0
+        else:
+            current_exposure_pct = 0.0
+        
+        # Build response with all required fields
+        return JSONResponse({
+            "max_daily_loss": max_daily_loss,
+            "used_loss": used_loss,
+            "remaining_loss": max(0.0, remaining_loss),
+            "max_exposure_pct": max_exposure_pct,
+            "current_exposure_pct": current_exposure_pct,
+            "risk_per_trade_pct": risk_per_trade_pct,
+            "status": status,
+        })
+    
+    except Exception as exc:
+        logger.error("api_risk_summary failed: %s", exc, exc_info=True)
+        # Return safe defaults on any error - never crash
+        return JSONResponse({
+            "max_daily_loss": 0.0,
+            "used_loss": 0.0,
+            "remaining_loss": 0.0,
+            "max_exposure_pct": 0.0,
+            "current_exposure_pct": 0.0,
+            "risk_per_trade_pct": 0.0,
+            "status": "empty",
+        })
 
 
 @router.get("/api/strategy_performance")
@@ -3081,58 +3279,165 @@ def api_resync() -> JSONResponse:
 @router.get("/api/analytics/summary")
 def api_analytics_summary() -> JSONResponse:
     """
-    Return combined analytics summary:
-        {
-          'daily': {...},
-          'strategies': {...},
-          'symbols': {...},
-        }
+    Return combined analytics summary from runtime_metrics.json.
+    
+    Uses artifacts/analytics/runtime_metrics.json as the main source.
+    Falls back to today's YYYY-MM-DD-metrics.json if runtime file missing.
+    
+    Returns all analytics fields:
+    - equity metrics (starting_capital, current_equity, realized_pnl, unrealized_pnl, max_drawdown, etc.)
+    - P&L (overall metrics: total_trades, win_rate, gross_profit, gross_loss, net_pnl, profit_factor, etc.)
+    - per-strategy breakdown
+    - per-symbol breakdown
+    - status: "ok" | "stale" | "empty" based on asof timestamp
+    
+    Never crashes if files missing or malformed.
+    Converts datetime to ISO strings.
     """
     try:
-        from analytics.strategy_analytics import StrategyAnalyticsEngine
+        # Try to load runtime_metrics.json first
+        runtime_metrics = load_runtime_metrics()
         
-        mode = get_mode()
-        journal_store = JournalStateStore(mode=mode)
-        state_store = store  # Use global StateStore instance
+        # If not available, try today's metrics file
+        if runtime_metrics is None:
+            today = now_ist().date()
+            today_metrics_path = ANALYTICS_DIR / f"{today.isoformat()}-metrics.json"
+            if today_metrics_path.exists():
+                try:
+                    with today_metrics_path.open("r", encoding="utf-8") as f:
+                        runtime_metrics = json.load(f)
+                except Exception as e:
+                    logger.warning("Failed to load today's metrics from %s: %s", today_metrics_path, e)
+                    runtime_metrics = None
         
-        # Load config
-        try:
-            cfg = load_app_config()
-            config_dict = cfg.__dict__ if hasattr(cfg, "__dict__") else {}
-        except Exception:
-            config_dict = {}
+        # If we have metrics, process them
+        if runtime_metrics:
+            # Determine status based on asof timestamp
+            asof = runtime_metrics.get("asof")
+            status = "empty"
+            if asof:
+                try:
+                    asof_dt = datetime.fromisoformat(asof.replace("Z", "+00:00"))
+                    now_utc = datetime.now(timezone.utc)
+                    age_seconds = (now_utc - asof_dt.astimezone(timezone.utc)).total_seconds()
+                    if age_seconds < 300:  # Less than 5 minutes
+                        status = "ok"
+                    elif age_seconds < 3600:  # Less than 1 hour
+                        status = "stale"
+                    else:
+                        status = "empty"
+                except Exception:
+                    status = "stale"
+            
+            # Ensure all required fields are present with defaults
+            equity = runtime_metrics.get("equity", {})
+            overall = runtime_metrics.get("overall", {})
+            per_strategy = runtime_metrics.get("per_strategy", {})
+            per_symbol = runtime_metrics.get("per_symbol", {})
+            
+            # Build response with all required fields
+            response = {
+                "asof": asof,
+                "status": status,
+                "mode": runtime_metrics.get("mode", "paper"),
+                "equity": {
+                    "starting_capital": equity.get("starting_capital", 0.0),
+                    "current_equity": equity.get("current_equity", 0.0),
+                    "realized_pnl": equity.get("realized_pnl", 0.0),
+                    "unrealized_pnl": equity.get("unrealized_pnl", 0.0),
+                    "max_drawdown": equity.get("max_drawdown", 0.0),
+                    "max_equity": equity.get("max_equity", 0.0),
+                    "min_equity": equity.get("min_equity", 0.0),
+                },
+                "overall": {
+                    "total_trades": overall.get("total_trades", 0),
+                    "win_trades": overall.get("win_trades", 0),
+                    "loss_trades": overall.get("loss_trades", 0),
+                    "breakeven_trades": overall.get("breakeven_trades", 0),
+                    "win_rate": overall.get("win_rate", 0.0),
+                    "gross_profit": overall.get("gross_profit", 0.0),
+                    "gross_loss": overall.get("gross_loss", 0.0),
+                    "net_pnl": overall.get("net_pnl", 0.0),
+                    "profit_factor": overall.get("profit_factor", 0.0),
+                    "avg_win": overall.get("avg_win", 0.0),
+                    "avg_loss": overall.get("avg_loss", 0.0),
+                    "avg_r_multiple": overall.get("avg_r_multiple", 0.0),
+                    "biggest_win": overall.get("biggest_win", 0.0),
+                    "biggest_loss": overall.get("biggest_loss", 0.0),
+                },
+                "per_strategy": per_strategy,
+                "per_symbol": per_symbol,
+            }
+            
+            return JSONResponse(response)
         
-        # Create engine
-        engine = StrategyAnalyticsEngine(
-            journal_store=journal_store,
-            state_store=state_store,
-            logger=logger,
-            config=config_dict,
-        )
-        
-        # Load fills and generate payload
-        engine.load_fills(today_only=True)
-        payload = engine.generate_dashboard_payload()
-        
-        return JSONResponse(payload)
-    except Exception as exc:
-        logger.error("Analytics summary failed: %s", exc, exc_info=True)
-        # Return empty analytics on error
+        # No metrics available - return safe empty defaults
         return JSONResponse({
-            "daily": {
+            "asof": None,
+            "status": "empty",
+            "mode": "paper",
+            "equity": {
+                "starting_capital": 0.0,
+                "current_equity": 0.0,
                 "realized_pnl": 0.0,
-                "num_trades": 0,
+                "unrealized_pnl": 0.0,
+                "max_drawdown": 0.0,
+                "max_equity": 0.0,
+                "min_equity": 0.0,
+            },
+            "overall": {
+                "total_trades": 0,
+                "win_trades": 0,
+                "loss_trades": 0,
+                "breakeven_trades": 0,
                 "win_rate": 0.0,
-                "loss_rate": 0.0,
+                "gross_profit": 0.0,
+                "gross_loss": 0.0,
+                "net_pnl": 0.0,
+                "profit_factor": 0.0,
                 "avg_win": 0.0,
                 "avg_loss": 0.0,
-                "pnl_distribution": {"wins": 0, "losses": 0, "breakeven": 0},
-                "biggest_winner": 0.0,
-                "biggest_loser": 0.0,
+                "avg_r_multiple": 0.0,
+                "biggest_win": 0.0,
+                "biggest_loss": 0.0,
             },
-            "strategies": {},
-            "symbols": {},
-            "error": str(exc),
+            "per_strategy": {},
+            "per_symbol": {},
+        })
+    except Exception as exc:
+        logger.error("Analytics summary failed: %s", exc, exc_info=True)
+        # Return safe empty defaults on any error
+        return JSONResponse({
+            "asof": None,
+            "status": "empty",
+            "mode": "paper",
+            "equity": {
+                "starting_capital": 0.0,
+                "current_equity": 0.0,
+                "realized_pnl": 0.0,
+                "unrealized_pnl": 0.0,
+                "max_drawdown": 0.0,
+                "max_equity": 0.0,
+                "min_equity": 0.0,
+            },
+            "overall": {
+                "total_trades": 0,
+                "win_trades": 0,
+                "loss_trades": 0,
+                "breakeven_trades": 0,
+                "win_rate": 0.0,
+                "gross_profit": 0.0,
+                "gross_loss": 0.0,
+                "net_pnl": 0.0,
+                "profit_factor": 0.0,
+                "avg_win": 0.0,
+                "avg_loss": 0.0,
+                "avg_r_multiple": 0.0,
+                "biggest_win": 0.0,
+                "biggest_loss": 0.0,
+            },
+            "per_strategy": {},
+            "per_symbol": {},
         })
 
 @router.get("/api/analytics/equity_curve")
