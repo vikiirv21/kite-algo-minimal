@@ -1074,6 +1074,37 @@ class OptionsPaperEngine:
             meta["regime_snapshot"] = self.regime_detector.snapshot()
         else:
             meta["market_regime"] = Regime.UNKNOWN.value
+        
+        # Add expiry status for active underlyings
+        try:
+            from core.expiry_calendar import build_expiry_context
+            from datetime import datetime
+            import pytz
+            
+            now_ist = datetime.now(pytz.timezone("Asia/Kolkata"))
+            expiry_status = {}
+            is_expiry_day_any = False
+            
+            # Collect expiry info for all underlyings
+            for logical in self.logical_underlyings:
+                try:
+                    context = build_expiry_context(logical, now_ist)
+                    expiry_status[logical] = {
+                        "is_expiry_day": context.get("is_expiry_day", False),
+                        "is_expiry_week": context.get("is_expiry_week", False),
+                        "next_expiry": context.get("next_expiry_dt"),
+                    }
+                    if context.get("is_expiry_day"):
+                        is_expiry_day_any = True
+                except Exception as exc:
+                    logger.debug("Failed to get expiry info for %s: %s", logical, exc)
+            
+            if expiry_status:
+                meta["expiry_status"] = expiry_status
+                meta["is_expiry_day_any"] = is_expiry_day_any
+        except Exception as exc:
+            logger.debug("Failed to add expiry status to meta: %s", exc)
+        
         return meta
 
     def _refresh_last_prices_for_positions(self, force: bool = False) -> None:
