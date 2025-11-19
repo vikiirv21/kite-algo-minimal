@@ -34,6 +34,7 @@ from analytics.risk_service import (
     compute_breaches,
     compute_var,
 )
+from apps import api_strategies
 from broker.live_broker import LiveBroker
 from core.config import AppConfig, load_config
 from core.history_loader import _resolve_instrument_token  # type: ignore import
@@ -3303,6 +3304,7 @@ if STATIC_DIR.exists():
 
 # Include all API routes BEFORE mounting the React UI at root
 app.include_router(router)
+app.include_router(api_strategies.router, prefix="/api/strategies", tags=["strategies"])
 
 # Mount React UI static assets BEFORE catch-all route
 # This serves JS, CSS, images, etc. from /assets/
