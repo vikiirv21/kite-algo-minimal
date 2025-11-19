@@ -348,7 +348,12 @@ def summarize_config(cfg: AppConfig) -> Dict[str, Any]:
             risk.get("max_exposure_pct", trading.get("max_notional_multiplier", 2.0)),
         )
     )
-    max_positions = int(trading.get("max_positions", risk.get("max_positions", 5)))
+    # Handle max_positions: null means unlimited
+    max_positions_raw = trading.get("max_open_positions") or trading.get("max_positions") or risk.get("max_positions")
+    if max_positions_raw is None:
+        max_positions = None
+    else:
+        max_positions = int(max_positions_raw) if max_positions_raw else 5
 
     if risk_per_trade_pct <= 0.004 and max_exposure_pct <= 1.5:
         risk_profile = "Conservative"
@@ -928,6 +933,9 @@ def _default_portfolio_summary() -> Dict[str, Any]:
         "daily_pnl": None,
         "has_positions": False,
         "position_count": 0,
+        "position_limit": None,
+        "open_positions": 0,
+        "position_used_pct": 0.0,
         "note": "No data",
     }
 
@@ -1044,6 +1052,19 @@ def load_paper_portfolio_summary() -> Dict[str, Any]:
         1 for pos in positions_list if isinstance(pos, dict) and _safe_float(pos.get("quantity"), 0.0) != 0.0
     )
 
+    # Get position limit from config
+    cfg = load_app_config()
+    trading = cfg.trading or {}
+    risk = cfg.risk or {}
+    max_positions_raw = trading.get("max_open_positions") or trading.get("max_positions") or risk.get("max_positions")
+    position_limit = int(max_positions_raw) if max_positions_raw is not None else None
+    
+    # Calculate position_used_pct: 0.0 when unlimited (position_limit is None)
+    if position_limit is None or position_limit == 0:
+        position_used_pct = 0.0
+    else:
+        position_used_pct = (position_count / position_limit) * 100.0
+
     return {
         "paper_capital": paper_capital,
         "total_realized_pnl": total_realized,
@@ -1055,6 +1076,9 @@ def load_paper_portfolio_summary() -> Dict[str, Any]:
         "daily_pnl": daily_pnl,
         "has_positions": position_count > 0,
         "position_count": position_count,
+        "position_limit": position_limit,
+        "open_positions": position_count,
+        "position_used_pct": position_used_pct,
         "note": "",
     }
 

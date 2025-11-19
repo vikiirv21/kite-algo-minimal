@@ -51,10 +51,13 @@ export function RiskPage() {
   const currentExposure = portfolio?.exposure_pct || 0;
   const exposureUsedPct = (currentExposure / maxExposure) * 100;
   
-  // Get max_positions from config (now available from backend)
-  const maxPositions = config?.max_positions || 5;
-  const currentPositions = portfolio?.position_count || 0;
-  const positionsUsedPct = (currentPositions / maxPositions) * 100;
+  // Get max_positions from config or portfolio (may be null for unlimited)
+  const maxPositions = portfolio?.position_limit ?? config?.max_positions ?? null;
+  const currentPositions = portfolio?.open_positions ?? portfolio?.position_count ?? 0;
+  
+  // Position limit handling: null or 0 means unlimited
+  const isUnlimitedPositions = maxPositions === null || maxPositions === 0;
+  const positionsUsedPct = isUnlimitedPositions ? 0 : (currentPositions / maxPositions) * 100;
   
   const lossStatus = getRiskLevelStatus(lossUsedPct);
   const exposureStatus = getRiskLevelStatus(exposureUsedPct);
@@ -152,29 +155,47 @@ export function RiskPage() {
         {/* Position Limit */}
         <Card title="Position Limit">
           <div className="space-y-4">
-            <div>
-              <div className="flex items-baseline justify-between mb-2">
-                <span className="text-2xl font-bold">{currentPositions}</span>
-                <span className="text-text-secondary text-sm">
-                  of {maxPositions} positions
-                </span>
-              </div>
-              <div className="w-full bg-border rounded-full h-3">
-                <div 
-                  className={`rounded-full h-3 transition-all ${getRiskLevelColor(positionsUsedPct)}`}
-                  style={{ width: `${Math.min(100, positionsUsedPct)}%` }}
-                />
-              </div>
-              <div className="text-xs text-text-secondary mt-1">
-                {positionsUsedPct.toFixed(1)}% used
-              </div>
-            </div>
-            <div className={`text-sm ${positionStatus.class}`}>
-              {positionStatus.text}
-              <div className="text-text-secondary mt-1">
-                {maxPositions - currentPositions} positions available
-              </div>
-            </div>
+            {isUnlimitedPositions ? (
+              // Unlimited positions case
+              <>
+                <div>
+                  <div className="text-lg font-semibold mb-2">No hard limit configured</div>
+                  <div className="text-text-secondary text-sm">
+                    Open positions: {currentPositions}
+                  </div>
+                </div>
+                <div className="text-sm text-positive">
+                  ✓ Unlimited positions enabled
+                </div>
+              </>
+            ) : (
+              // Finite position limit case
+              <>
+                <div>
+                  <div className="flex items-baseline justify-between mb-2">
+                    <span className="text-2xl font-bold">{currentPositions}</span>
+                    <span className="text-text-secondary text-sm">
+                      of {maxPositions} positions
+                    </span>
+                  </div>
+                  <div className="w-full bg-border rounded-full h-3">
+                    <div 
+                      className={`rounded-full h-3 transition-all ${getRiskLevelColor(positionsUsedPct)}`}
+                      style={{ width: `${Math.min(100, positionsUsedPct)}%` }}
+                    />
+                  </div>
+                  <div className="text-xs text-text-secondary mt-1">
+                    {positionsUsedPct.toFixed(1)}% used
+                  </div>
+                </div>
+                <div className={`text-sm ${positionStatus.class}`}>
+                  {positionStatus.text}
+                  <div className="text-text-secondary mt-1">
+                    {maxPositions - currentPositions} positions available
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </Card>
       </div>
