@@ -1,5 +1,4 @@
 import { Card, CardSkeleton } from '../../components/Card';
-import { EngineLogsPanel } from '../../components/EngineLogsPanel';
 import { useConfigSummary, useAuthStatus } from '../../hooks/useApi';
 
 export function SystemPage() {
@@ -80,11 +79,17 @@ export function SystemPage() {
         </Card>
       )}
       
-      {/* Engine Logs Panel */}
-      <div>
-        <h2 className="text-2xl font-bold mb-4">Engine Logs</h2>
-        <EngineLogsPanel />
-      </div>
+      {/* Logs Information */}
+      <Card title="Engine Logs">
+        <div className="space-y-3">
+          <p className="text-text-secondary">
+            For detailed real-time engine logs (FNO, Equity, Options), please visit the <strong>Logs</strong> tab.
+          </p>
+          <p className="text-sm text-text-secondary">
+            The Logs tab provides live log streaming with filtering, search capabilities, and auto-scroll functionality.
+          </p>
+        </div>
+      </Card>
       
       {/* Raw Config JSON */}
       <Card title="Raw Configuration (Debug)">
