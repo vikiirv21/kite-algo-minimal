@@ -4,6 +4,7 @@ import {
   usePortfolioSummary,
   useRecentSignals,
   useTodaySummary,
+  useMetrics,
 } from '../../hooks/useApi';
 import { formatCurrency, formatTimestamp, formatPercent, getPnlClass, getPnlPrefix } from '../../utils/format';
 import { deriveModeFromEngines } from '../../utils/mode';
@@ -13,8 +14,15 @@ export function OverviewPage() {
   const { data: portfolio, isLoading: portfolioLoading, error: portfolioError } = usePortfolioSummary();
   const { data: signals, isLoading: signalsLoading, error: signalsError } = useRecentSignals(10);
   const { data: today, isLoading: todayLoading, error: todayError } = useTodaySummary();
+  const { data: metrics, isLoading: metricsLoading } = useMetrics();
   
   const tradingMode = deriveModeFromEngines(engines?.engines);
+  
+  // Use metrics when available, fallback to today
+  const equityValue = metrics?.equity?.current_equity ?? portfolio?.equity ?? 0;
+  const realizedPnl = metrics?.equity?.realized_pnl ?? today?.realized_pnl ?? 0;
+  const totalTrades = metrics?.overall?.total_trades ?? today?.num_trades ?? 0;
+  const winRate = metrics?.overall?.win_rate ?? today?.win_rate ?? 0;
   
   // Debug flag - set to true to see raw API data
   const DEBUG_MODE = import.meta.env.DEV || false; // Only in development
@@ -65,7 +73,7 @@ export function OverviewPage() {
         )}
         
         {/* Portfolio Snapshot */}
-        {portfolioLoading ? (
+        {portfolioLoading || metricsLoading ? (
           <CardSkeleton />
         ) : portfolioError ? (
           <CardError title="Portfolio" error={portfolioError} />
@@ -74,24 +82,22 @@ export function OverviewPage() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-text-secondary">Equity:</span>
-                <span className="font-semibold">{formatCurrency(portfolio?.equity)}</span>
+                <span className="font-semibold">{formatCurrency(equityValue)}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-text-secondary">Daily P&L:</span>
-                <span className={`font-semibold ${getPnlClass(portfolio?.daily_pnl)}`}>
-                  {getPnlPrefix(portfolio?.daily_pnl)}{formatCurrency(portfolio?.daily_pnl)}
+                <span className="text-text-secondary">Realized P&L:</span>
+                <span className={`font-semibold ${getPnlClass(realizedPnl)}`}>
+                  {getPnlPrefix(realizedPnl)}{formatCurrency(realizedPnl)}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-text-secondary">Positions:</span>
-                <span className="font-semibold">{portfolio?.position_count || 0}</span>
+                <span className="text-text-secondary">Total Trades:</span>
+                <span className="font-semibold">{totalTrades}</span>
               </div>
-              {portfolio?.exposure_pct !== null && portfolio?.exposure_pct !== undefined && (
-                <div className="flex items-center justify-between">
-                  <span className="text-text-secondary">Exposure:</span>
-                  <span className="font-semibold">{formatPercent(portfolio.exposure_pct * 100)}</span>
-                </div>
-              )}
+              <div className="flex items-center justify-between">
+                <span className="text-text-secondary">Win Rate:</span>
+                <span className="font-semibold">{formatPercent(winRate)}</span>
+              </div>
             </div>
           </Card>
         )}
