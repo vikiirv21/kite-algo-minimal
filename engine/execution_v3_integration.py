@@ -25,7 +25,7 @@ def create_execution_engine_v3(
     
     Args:
         config: Configuration dictionary
-        market_data_engine: Market data engine instance
+        market_data_engine: Market data engine instance (used as broker_feed)
         trade_recorder: Trade recorder instance
         state_store: State store instance
         
@@ -43,12 +43,21 @@ def create_execution_engine_v3(
         # Import ExecutionEngineV3
         from execution.engine_v3 import ExecutionEngineV3
         
-        logger.info("Creating ExecutionEngine V3")
+        logger.info("Creating ExecutionEngine V3 (Step 1 - minimal)")
+        
+        # Get trading config for default_quantity
+        trading_config = config.get("trading", {})
+        exec_cfg_with_defaults = {
+            **exec_config,
+            "default_quantity": trading_config.get("default_quantity", 1),
+        }
+        
         engine = ExecutionEngineV3(
-            config=config,
-            market_data_engine=market_data_engine,
-            trade_recorder=trade_recorder,
+            cfg=exec_cfg_with_defaults,
             state_store=state_store,
+            trade_recorder=trade_recorder,
+            broker_feed=market_data_engine,  # BrokerFeed is market_data_engine in this context
+            logger_instance=logger,
         )
         
         logger.info("ExecutionEngine V3 initialized successfully")
@@ -68,14 +77,19 @@ def convert_to_order_intent(
     qty: int,
     price: float,
     strategy_code: str = "",
+    logical_symbol: str = "",
+    product: str = "MIS",
+    mode: str = "paper",
+    timeframe: str = "5m",
+    exchange: str = "NFO",
     sl_price: Optional[float] = None,
     tp_price: Optional[float] = None,
     time_stop_bars: Optional[int] = None,
     reason: str = "",
     **kwargs
-) -> Any:
+) -> tuple:
     """
-    Convert signal parameters to OrderIntent-like object for ExecutionEngine V3.
+    Convert signal parameters to (OrderIntent, ExecutionContext) tuple for ExecutionEngine V3.
     
     Args:
         symbol: Trading symbol
@@ -83,18 +97,33 @@ def convert_to_order_intent(
         qty: Order quantity
         price: Current price
         strategy_code: Strategy identifier
-        sl_price: Stop loss price
-        tp_price: Take profit price
-        time_stop_bars: Time stop in bars
+        logical_symbol: Logical underlying (e.g., "NIFTY")
+        product: Product type (default: "MIS")
+        mode: Trading mode (default: "paper")
+        timeframe: Timeframe (default: "5m")
+        exchange: Exchange (default: "NFO")
+        sl_price: Stop loss price (not used in Step 1)
+        tp_price: Take profit price (not used in Step 1)
+        time_stop_bars: Time stop in bars (not used in Step 1)
         reason: Signal reason
         **kwargs: Additional metadata
         
     Returns:
-        OrderIntent-like object
+        Tuple of (OrderIntent, ExecutionContext)
     """
     from types import SimpleNamespace
+    from datetime import datetime, timezone
+    from execution.engine_v3 import ExecutionContext
     
-    # Create a simple namespace that mimics OrderIntent
+    # Infer logical_symbol from symbol if not provided
+    if not logical_symbol:
+        # Simple heuristic: extract from symbol (e.g., "NIFTY24DECFUT" -> "NIFTY")
+        if "NIFTY" in symbol.upper():
+            logical_symbol = "BANKNIFTY" if "BANK" in symbol.upper() else "FINNIFTY" if "FIN" in symbol.upper() else "NIFTY"
+        else:
+            logical_symbol = symbol  # Fallback to symbol itself
+    
+    # Create OrderIntent-like object for signal processing
     intent = SimpleNamespace(
         symbol=symbol,
         signal=signal,
@@ -111,7 +140,20 @@ def convert_to_order_intent(
         metadata=kwargs,
     )
     
-    return intent
+    # Create ExecutionContext for the new minimal V3 API
+    context = ExecutionContext(
+        symbol=symbol,
+        logical_symbol=logical_symbol,
+        product=product,
+        strategy_id=strategy_code,
+        mode=mode,
+        timestamp=datetime.now(timezone.utc),
+        timeframe=timeframe,
+        exchange=exchange,
+        fixed_qty=qty,  # Pass the qty as fixed_qty so the engine uses it
+    )
+    
+    return (intent, context)
 
 
 def should_use_v3(config: Dict[str, Any], exec_engine_v3: Any) -> bool:
