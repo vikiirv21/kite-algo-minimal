@@ -322,6 +322,10 @@ class EquityPaperEngine:
                                 market_data_engine=self.market_data_engine,
                             )
                             
+                            # Set as global context for API access
+                            from core.market_context import set_market_context
+                            set_market_context(self.market_context)
+                            
                             # Pass market context to strategy engine
                             self.strategy_engine_v2.market_context = self.market_context
                             
