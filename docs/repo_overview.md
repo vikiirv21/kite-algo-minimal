@@ -1,5 +1,9 @@
 # Repository Overview -- kite-algo-minimal
 
+> **Status**: PARTIALLY STALE – Last validated: 2025-11-19  
+> **Superseded by**: [docs/REPO_OVERVIEW.md](./REPO_OVERVIEW.md) for canonical repository overview  
+> **Note**: This document contains some outdated paths. REPO_OVERVIEW.md is the current canonical reference.
+
 This document summarizes the repository layout, backend/frontend split, and runtime artifacts.
 
 ---

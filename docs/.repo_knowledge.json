@@ -1,0 +1,390 @@
+{
+  "repository": "kite-algo-minimal",
+  "last_scan": "2025-11-19T07:32:13Z",
+  "version": "1.0",
+  "purpose": "Machine-readable knowledge base for the kite-algo-minimal trading system",
+  
+  "structure": {
+    "primary_languages": ["Python", "TypeScript", "JavaScript"],
+    "framework": "FastAPI backend, React frontend",
+    "architecture": "Multi-engine trading system with paper/live execution"
+  },
+  
+  "engines": {
+    "equity_paper": {
+      "file": "engine/equity_paper_engine.py",
+      "status": "production",
+      "asset_class": "stocks",
+      "universe": "NIFTY 50/100",
+      "strategy_engine": "v2",
+      "execution": "paper_broker_via_execution_engine_v3"
+    },
+    "fno_paper": {
+      "file": "engine/paper_engine.py",
+      "status": "production",
+      "asset_class": "index_futures",
+      "universe": ["NIFTY", "BANKNIFTY", "FINNIFTY"],
+      "strategy_engine": "v1_multi_timeframe",
+      "execution": "paper_broker_legacy"
+    },
+    "options_paper": {
+      "file": "engine/options_paper_engine.py",
+      "status": "production",
+      "asset_class": "index_options",
+      "universe": ["NIFTY", "BANKNIFTY", "FINNIFTY"],
+      "strategy_engine": "v1",
+      "execution": "paper_broker"
+    },
+    "live": {
+      "file": "engine/live_engine.py",
+      "status": "experimental",
+      "asset_class": "all",
+      "execution": "kite_connect_live"
+    },
+    "backtest": {
+      "file": "backtest/engine_v3.py",
+      "status": "production",
+      "asset_class": "all",
+      "execution": "backtest_broker"
+    }
+  },
+  
+  "strategy_engines": {
+    "v1": {
+      "file": "core/strategy_engine.py",
+      "status": "legacy",
+      "type": "bar_based",
+      "strategies": ["fno_intraday_trend", "equity_intraday_simple", "mean_reversion"]
+    },
+    "v2": {
+      "file": "core/strategy_engine_v2.py",
+      "status": "production",
+      "type": "indicator_based",
+      "strategies": ["ema20_50_intraday_v2"],
+      "features": ["unified_indicators", "conflict_resolution", "confidence_scoring"]
+    },
+    "v3": {
+      "file": "core/strategy_engine_v3.py",
+      "status": "production",
+      "type": "multi_strategy_fusion",
+      "strategies": ["ema20_50", "trend", "rsi_pullback", "vwap_filter", "vol_regime", "htf_trend"],
+      "features": ["multi_timeframe", "signal_fusion", "playbook_classification"]
+    }
+  },
+  
+  "strategies": {
+    "ema20_50_intraday_v2": {
+      "file": "strategies/ema20_50_intraday_v2.py",
+      "engine": "v2",
+      "status": "production",
+      "type": "trend_following",
+      "timeframe": "5m",
+      "indicators": ["ema20", "ema50", "rsi"]
+    },
+    "ema20_50": {
+      "file": "core/strategies_v3/ema20_50.py",
+      "engine": "v3",
+      "status": "production",
+      "type": "trend_following",
+      "confidence": 0.7
+    },
+    "trend": {
+      "file": "core/strategies_v3/trend_strategy.py",
+      "engine": "v3",
+      "status": "production",
+      "type": "trend_following",
+      "confidence": "variable"
+    },
+    "rsi_pullback": {
+      "file": "core/strategies_v3/rsi_pullback.py",
+      "engine": "v3",
+      "status": "production",
+      "type": "counter_trend",
+      "confidence": 0.65
+    },
+    "vwap_filter": {
+      "file": "core/strategies_v3/vwap_filter.py",
+      "engine": "v3",
+      "status": "production",
+      "type": "filter",
+      "confidence": 0.6
+    },
+    "vol_regime": {
+      "file": "core/strategies_v3/vol_regime.py",
+      "engine": "v3",
+      "status": "production",
+      "type": "filter"
+    },
+    "htf_trend": {
+      "file": "core/strategies_v3/htf_trend.py",
+      "engine": "v3",
+      "status": "production",
+      "type": "filter",
+      "confidence": 0.8
+    },
+    "fno_intraday_trend": {
+      "file": "strategies/fno_intraday_trend.py",
+      "engine": "v1",
+      "status": "production",
+      "type": "multi_timeframe_trend"
+    }
+  },
+  
+  "core_modules": {
+    "execution_engine_v3": {
+      "file": "core/execution_engine_v3.py",
+      "lines": 1121,
+      "purpose": "Unified paper/live execution layer",
+      "status": "production"
+    },
+    "portfolio_engine": {
+      "file": "core/portfolio_engine.py",
+      "lines": 619,
+      "purpose": "Position tracking and capital allocation",
+      "status": "production"
+    },
+    "risk_engine_v2": {
+      "file": "core/risk_engine_v2.py",
+      "lines": 366,
+      "purpose": "Circuit breakers and risk limits",
+      "status": "production"
+    },
+    "regime_engine": {
+      "file": "core/regime_engine.py",
+      "lines": 426,
+      "purpose": "Market regime detection",
+      "status": "production"
+    },
+    "indicators": {
+      "file": "core/indicators.py",
+      "lines": 608,
+      "purpose": "Technical indicator calculations",
+      "status": "production"
+    },
+    "trade_guardian": {
+      "file": "core/trade_guardian.py",
+      "lines": 248,
+      "purpose": "Pre-execution safety gate",
+      "status": "production"
+    },
+    "universe_builder": {
+      "file": "core/universe_builder.py",
+      "lines": 169,
+      "purpose": "Daily universe construction",
+      "status": "production"
+    },
+    "state_store": {
+      "file": "core/state_store.py",
+      "lines": 712,
+      "purpose": "State persistence",
+      "status": "production"
+    }
+  },
+  
+  "analytics_modules": {
+    "telemetry_bus": {
+      "file": "analytics/telemetry_bus.py",
+      "lines": 508,
+      "purpose": "Event-driven telemetry",
+      "status": "production"
+    },
+    "performance_v2": {
+      "file": "analytics/performance_v2.py",
+      "lines": 428,
+      "purpose": "Performance metrics",
+      "status": "production"
+    },
+    "trade_journal": {
+      "file": "analytics/trade_journal.py",
+      "lines": 126,
+      "purpose": "Per-trade logging",
+      "status": "production"
+    },
+    "trade_recorder": {
+      "file": "analytics/trade_recorder.py",
+      "lines": 532,
+      "purpose": "CSV-based trade logging",
+      "status": "production"
+    }
+  },
+  
+  "dashboard": {
+    "backend": {
+      "file": "apps/server.py",
+      "framework": "FastAPI",
+      "port": 9000,
+      "status": "production"
+    },
+    "frontend": {
+      "directory": "ui/frontend",
+      "framework": "React",
+      "language": "TypeScript",
+      "styling": "Tailwind CSS",
+      "status": "production",
+      "pages": ["Overview", "Trading", "Portfolio", "Signals", "Analytics", "System", "Logs"]
+    },
+    "api_endpoints": {
+      "state": "/api/state",
+      "positions": "/api/positions",
+      "orders": "/api/orders",
+      "signals": "/api/signals",
+      "logs": "/api/logs",
+      "analytics_summary": "/api/analytics/summary",
+      "analytics_equity_curve": "/api/analytics/equity_curve",
+      "engines_status": "/api/engines/status",
+      "health": "/api/health"
+    }
+  },
+  
+  "entry_points": {
+    "session_orchestrator": {
+      "script": "scripts/run_session.py",
+      "purpose": "Complete trading session (pre-market, trading, post-market)",
+      "command": "python -m scripts.run_session --mode paper --config configs/dev.yaml"
+    },
+    "individual_engines": {
+      "equity": "python -m apps.run_equity_paper --config configs/dev.yaml",
+      "fno": "python -m apps.run_fno_paper --config configs/dev.yaml",
+      "options": "python -m apps.run_options_paper --config configs/dev.yaml"
+    },
+    "dashboard": {
+      "command": "python -m uvicorn apps.server:app --host 0.0.0.0 --port 9000",
+      "url": "http://localhost:9000"
+    },
+    "backtest": {
+      "script": "scripts/run_backtest_v3.py",
+      "command": "python -m scripts.run_backtest_v3 --config configs/dev.yaml --symbols NIFTY,BANKNIFTY --start 2025-01-01 --end 2025-01-05"
+    },
+    "analytics": {
+      "script": "scripts/run_analytics.py",
+      "command": "python -m scripts.run_analytics --config configs/dev.yaml"
+    },
+    "login": {
+      "script": "scripts/login_kite.py",
+      "command": "python -m scripts.login_kite"
+    },
+    "scanner": {
+      "script": "scripts/run_indicator_scanner.py",
+      "command": "python -m scripts.run_indicator_scanner --config configs/dev.yaml"
+    }
+  },
+  
+  "configuration": {
+    "main_config": "configs/dev.yaml",
+    "backtest_config": "configs/backtest.dev.yaml",
+    "strategy_v3_config": "configs/strategy_engine_v3.yaml",
+    "risk_overrides": "configs/risk_overrides.yaml",
+    "learned_overrides": "configs/learned_overrides.yaml"
+  },
+  
+  "artifacts": {
+    "checkpoints": "artifacts/checkpoints/runtime_state_latest.json",
+    "orders": "artifacts/orders_<engine>_<date>.csv",
+    "snapshots": "artifacts/snapshots/positions_<timestamp>.json",
+    "logs": "artifacts/logs/",
+    "reports": "artifacts/reports/daily/<date>.json",
+    "scanner": "artifacts/scanner/<date>/universe.json",
+    "journal": "artifacts/journal/<date>/trades.jsonl"
+  },
+  
+  "documentation": {
+    "REPO_OVERVIEW": {
+      "file": "docs/REPO_OVERVIEW.md",
+      "status": "current",
+      "last_updated": "2025-11-19",
+      "purpose": "High-level repository summary"
+    },
+    "ARCHITECTURE": {
+      "file": "docs/ARCHITECTURE.md",
+      "status": "current",
+      "last_updated": "2025-11-19",
+      "purpose": "Detailed architecture and processes"
+    },
+    "MODULES": {
+      "file": "docs/MODULES.md",
+      "status": "current",
+      "last_updated": "2025-11-19",
+      "purpose": "Module-by-module developer reference"
+    },
+    "ENGINES": {
+      "file": "docs/ENGINES.md",
+      "status": "current",
+      "last_updated": "2025-11-19",
+      "purpose": "Trading engine deep-dive"
+    },
+    "STRATEGIES": {
+      "file": "docs/STRATEGIES.md",
+      "status": "current",
+      "last_updated": "2025-11-19",
+      "purpose": "Strategy enumeration and guide"
+    },
+    "DASHBOARD": {
+      "file": "docs/DASHBOARD.md",
+      "status": "current",
+      "last_updated": "2025-11-19",
+      "purpose": "Dashboard API and UI documentation"
+    },
+    "RUNBOOKS": {
+      "file": "docs/RUNBOOKS.md",
+      "status": "current",
+      "last_updated": "2025-11-19",
+      "purpose": "Operational runbook"
+    },
+    "legacy_docs": {
+      "count": 90,
+      "status": "mixed",
+      "note": "Many legacy docs exist. Core docs (above) are current and canonical."
+    }
+  },
+  
+  "trading_modes": {
+    "paper": {
+      "description": "Simulated execution with realistic fills",
+      "broker": "PaperBroker",
+      "capital": 500000,
+      "slippage": "5 bps"
+    },
+    "live": {
+      "description": "Real broker orders via Kite Connect",
+      "broker": "LiveBroker",
+      "status": "use with caution"
+    }
+  },
+  
+  "process_layouts": {
+    "single": {
+      "description": "All engines as threads in one process",
+      "default": true,
+      "command": "python -m scripts.run_session --mode paper"
+    },
+    "multi": {
+      "description": "Each engine as separate process",
+      "default": false,
+      "command": "python -m scripts.run_session --mode paper --layout multi"
+    }
+  },
+  
+  "dependencies": {
+    "core": ["pandas", "numpy", "kiteconnect", "fastapi", "uvicorn", "pydantic"],
+    "frontend": ["react", "typescript", "tailwindcss", "react-query", "recharts"]
+  },
+  
+  "testing": {
+    "directory": "tests/",
+    "status": "partial",
+    "note": "Unit tests exist for some modules"
+  },
+  
+  "known_issues": [
+    "FnO paper engine (paper_engine.py) is legacy and complex (3000+ lines)",
+    "Live options and equity engines not yet implemented",
+    "WebSocket support planned but not yet implemented"
+  ],
+  
+  "future_enhancements": [
+    "Multi-process architecture with Redis IPC",
+    "WebSocket for real-time dashboard updates",
+    "Live equity and options engines",
+    "Enhanced backtest analytics"
+  ]
+}
