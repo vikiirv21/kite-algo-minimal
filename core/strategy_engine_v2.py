@@ -339,6 +339,7 @@ class StrategyEngineV2:
         state_store=None,
         analytics=None,
         regime_engine=None,
+        market_context=None,
         **kwargs,
     ):
         # Backward compatibility: accept market_data_engine_v2 via kwargs
@@ -358,6 +359,7 @@ class StrategyEngineV2:
         market_data_engine_v2 = kwargs.get("market_data_engine_v2", None)
         
         self.config = config or {}
+        self.market_context = market_context
         self.market_data_engine = market_data_engine
         self.state_store = state_store
         self.analytics = analytics
@@ -538,6 +540,12 @@ class StrategyEngineV2:
             debug_payload always includes indicators (ema20, ema50, ema100, ema200, rsi14, atr)
         """
         context = context or {}
+        
+        # Use instance market_context if not provided
+        if market_context is None and self.market_context is not None:
+            # Get current snapshot from market context
+            if hasattr(self.market_context, "snapshot"):
+                market_context = self.market_context.snapshot
         
         # Add market_context to indicators if provided
         if market_context is not None:

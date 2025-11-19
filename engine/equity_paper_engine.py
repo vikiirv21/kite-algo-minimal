@@ -63,13 +63,18 @@ try:
     from core.strategy_engine_v2 import StrategyEngineV2, StrategyState
     from strategies.ema20_50_intraday_v2 import EMA2050IntradayV2
     from core.market_data_engine import MarketDataEngine
+    from core.market_context import MarketContext, initialize_market_context
     STRATEGY_ENGINE_V2_AVAILABLE = True
+    MARKET_CONTEXT_AVAILABLE = True
 except ImportError:
     STRATEGY_ENGINE_V2_AVAILABLE = False
+    MARKET_CONTEXT_AVAILABLE = False
     StrategyEngineV2 = None
     StrategyState = None
     EMA2050IntradayV2 = None
     MarketDataEngine = None
+    MarketContext = None
+    initialize_market_context = None
 
 logger = logging.getLogger("engine.equity_paper_engine")
 
@@ -301,9 +306,79 @@ class EquityPaperEngine:
                     "Strategy Engine v2 initialized for equity with %d strategies",
                     len(self.strategy_engine_v2.strategies)
                 )
+                
+                # Initialize MarketContext if enabled
+                self.market_context = None
+                self._market_context_thread = None
+                self._market_context_stop = threading.Event()
+                
+                if MARKET_CONTEXT_AVAILABLE:
+                    mc_config = self.cfg.raw.get("market_context", {})
+                    if mc_config.get("enabled", False):
+                        try:
+                            self.market_context = initialize_market_context(
+                                config=self.cfg.raw,
+                                kite_client=self.kite,
+                                market_data_engine=self.market_data_engine,
+                            )
+                            
+                            # Set as global context for API access
+                            from core.market_context import set_market_context
+                            set_market_context(self.market_context)
+                            
+                            # Pass market context to strategy engine
+                            self.strategy_engine_v2.market_context = self.market_context
+                            
+                            # Start background refresh thread
+                            self._start_market_context_refresh()
+                            
+                            logger.info("MarketContext initialized and enabled with background refresh")
+                        except Exception as exc:
+                            logger.warning("Failed to initialize MarketContext: %s", exc)
+                            self.market_context = None
+                    else:
+                        logger.info("MarketContext disabled in config")
+                        self.market_context = None
+                else:
+                    logger.debug("MarketContext module not available")
+                    self.market_context = None
+                
             except Exception as exc:
                 logger.error("Failed to initialize Strategy Engine v2 for equity: %s", exc, exc_info=True)
                 self.strategy_engine_v2 = None
+    
+    def _start_market_context_refresh(self) -> None:
+        """Start background thread for periodic market context refresh."""
+        if self.market_context is None:
+            return
+        
+        self._market_context_stop.clear()
+        self._market_context_thread = threading.Thread(
+            target=self._market_context_refresh_loop,
+            name="market-context-refresh",
+            daemon=True
+        )
+        self._market_context_thread.start()
+        logger.info("MarketContext refresh thread started (30s interval)")
+    
+    def _market_context_refresh_loop(self) -> None:
+        """Background loop that refreshes market context every 30 seconds."""
+        while not self._market_context_stop.is_set():
+            try:
+                if self.market_context is not None:
+                    self.market_context.refresh()
+            except Exception as exc:
+                logger.error("MarketContext refresh error: %s", exc, exc_info=True)
+            
+            # Wait 30 seconds before next refresh
+            self._market_context_stop.wait(30.0)
+    
+    def _stop_market_context_refresh(self) -> None:
+        """Stop the market context refresh thread."""
+        if self._market_context_thread and self._market_context_thread.is_alive():
+            self._market_context_stop.set()
+            self._market_context_thread.join(timeout=5.0)
+            logger.info("MarketContext refresh thread stopped")
 
     def _build_strategy_instances(self) -> List[FnoIntradayTrendStrategy]:
         instances: List[FnoIntradayTrendStrategy] = []
