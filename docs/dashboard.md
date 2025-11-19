@@ -1,5 +1,9 @@
 # Web Dashboard
 
+> **Status**: OBSOLETE – Last validated: 2025-11-19  
+> **Superseded by**: [docs/DASHBOARD.md](./DASHBOARD.md)  
+> **Note**: This document contains outdated information. Please refer to DASHBOARD.md for current dashboard documentation.
+
 ## Overview
 
 The web dashboard provides real-time monitoring and control of the trading system via a FastAPI-based web interface.
