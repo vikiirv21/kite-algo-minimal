@@ -1,9 +1,10 @@
 import { Card, CardSkeleton } from '../../components/Card';
-import { useRecentOrders } from '../../hooks/useApi';
+import { useRecentOrders, useTradingStatus } from '../../hooks/useApi';
 import { formatTimestamp, formatCurrency, getPnlClass, getPnlPrefix } from '../../utils/format';
 
 export function TradingPage() {
   const { data: ordersData, isLoading } = useRecentOrders(50);
+  const { data: tradingStatus } = useTradingStatus();
   
   // Debug flag - set to true to see raw API data
   const DEBUG_MODE = import.meta.env.DEV || false; // Only in development
@@ -18,7 +19,35 @@ export function TradingPage() {
   
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold">Trading</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold">Trading</h1>
+        
+        {/* Trading Status Card */}
+        {tradingStatus && (
+          <div className="flex items-center gap-6 bg-surface-light px-6 py-3 rounded-lg border border-border">
+            <div className="flex items-center gap-2">
+              <span className={`w-3 h-3 rounded-full ${tradingStatus.connected ? 'bg-positive animate-pulse' : 'bg-negative'}`}></span>
+              <span className="text-sm text-text-secondary">
+                {tradingStatus.connected ? 'Connected' : 'Disconnected'}
+              </span>
+            </div>
+            <div className="border-l border-border pl-6">
+              <span className="text-sm text-text-secondary mr-2">Mode:</span>
+              <span className={`font-bold uppercase ${tradingStatus.mode === 'live' ? 'text-negative' : 'text-warning'}`}>
+                {tradingStatus.mode}
+              </span>
+            </div>
+            <div className="border-l border-border pl-6">
+              <span className="text-sm text-text-secondary mr-2">Phase:</span>
+              <span className="font-semibold">{tradingStatus.phase}</span>
+            </div>
+            <div className="border-l border-border pl-6">
+              <span className="text-sm text-text-secondary mr-2">IST:</span>
+              <span className="font-mono font-semibold">{tradingStatus.ist_time}</span>
+            </div>
+          </div>
+        )}
+      </div>
       
       {/* DEBUG: Raw API Data (Development Only) */}
       {DEBUG_MODE && ordersData && (
