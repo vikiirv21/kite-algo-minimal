@@ -237,3 +237,37 @@ export function useEngineLogs(engine: string, lines = 200, enabled = true) {
     enabled, // Only fetch when enabled (active tab)
   });
 }
+
+// Strategy Lab hooks
+export function useStrategies() {
+  return useQuery({
+    queryKey: ['strategies'] as const,
+    queryFn: api.getStrategies,
+    refetchInterval: 5000, // 5 seconds
+  });
+}
+
+// Advanced Risk hooks
+export function useRiskLimits() {
+  return useQuery({
+    queryKey: ['risk', 'limits'] as const,
+    queryFn: api.getRiskLimits,
+    refetchInterval: 10000, // 10 seconds
+  });
+}
+
+export function useRiskBreaches() {
+  return useQuery({
+    queryKey: ['risk', 'breaches'] as const,
+    queryFn: api.getRiskBreaches,
+    refetchInterval: 5000, // 5 seconds - check frequently for breaches
+  });
+}
+
+export function useVaR(horizonDays = 1, confidence = 0.95) {
+  return useQuery({
+    queryKey: ['risk', 'var', horizonDays, confidence] as const,
+    queryFn: () => api.getVaR(horizonDays, confidence),
+    refetchInterval: 30000, // 30 seconds - VaR doesn't change rapidly
+  });
+}
