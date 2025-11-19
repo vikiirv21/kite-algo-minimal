@@ -813,6 +813,15 @@ class PaperEngine:
         
         risk_config = self.cfg.risk or {}
         self.risk_engine = RiskEngine(risk_config, self.state_store.load_checkpoint() or {}, logger)
+        
+        # Initialize Expiry Risk Adapter
+        try:
+            from core.expiry_risk_adapter import create_expiry_risk_adapter_from_config
+            self.expiry_risk_adapter = create_expiry_risk_adapter_from_config(self.cfg.raw)
+            logger.info("Expiry Risk Adapter initialized (enabled=%s)", self.expiry_risk_adapter.config.enabled)
+        except Exception as exc:
+            logger.warning("Failed to initialize Expiry Risk Adapter: %s. Continuing without expiry awareness.", exc)
+            self.expiry_risk_adapter = None
 
     # -------------------------------------------------------------------------
     # MarketContext Management
@@ -1189,7 +1198,23 @@ class PaperEngine:
                     logger.debug("Indicators not ready for %s, skipping", symbol)
                     continue
                 
-                # Call evaluate with market_context
+                # Build expiry context for the underlying
+                expiry_context = {}
+                try:
+                    from core.expiry_calendar import build_expiry_context
+                    from datetime import datetime
+                    import pytz
+                    
+                    now_ist = datetime.now(pytz.timezone("Asia/Kolkata"))
+                    expiry_context = build_expiry_context(logical, now_ist)
+                except Exception as exc:
+                    logger.debug("Failed to build expiry context for %s: %s", logical, exc)
+                    expiry_context = {}
+                
+                # Merge with existing context
+                full_context = {"ltp": ltp, **expiry_context}
+                
+                # Call evaluate with market_context and expiry context
                 try:
                     intent, debug = self.strategy_engine_v2.evaluate(
                         logical=logical,
@@ -1199,7 +1224,7 @@ class PaperEngine:
                         indicators=indicators,
                         mode=self.mode.value,
                         profile=_profile_from_tf(tf),
-                        context={"ltp": ltp},
+                        context=full_context,
                         market_context=market_context,  # Pass MarketContext here
                     )
                     
@@ -1390,6 +1415,69 @@ class PaperEngine:
         if signal not in ("BUY", "SELL"):  # Allow exits
             pass
         else:
+            # Apply expiry risk adapter for new entries (BUY/SELL only)
+            if self.expiry_risk_adapter is not None:
+                try:
+                    from datetime import datetime
+                    import pytz
+                    
+                    # Determine if this is an option instrument
+                    # Simple heuristic: symbol contains "CE" or "PE"
+                    is_option = "CE" in symbol.upper() or "PE" in symbol.upper()
+                    
+                    # Get the underlying logical name
+                    underlying_logical = logical or self.logical_alias.get(symbol, symbol)
+                    
+                    # Evaluate expiry risk
+                    now_ist = datetime.now(pytz.timezone("Asia/Kolkata"))
+                    expiry_decision = self.expiry_risk_adapter.evaluate(
+                        symbol=underlying_logical,
+                        dt=now_ist,
+                        is_option=is_option,
+                        is_new_entry=True,
+                    )
+                    
+                    # Log decision if significant
+                    self.expiry_risk_adapter.log_decision(underlying_logical, expiry_decision)
+                    
+                    # Block if not allowed
+                    if not expiry_decision.allow_new_entry:
+                        logger.warning(
+                            "Expiry risk adapter blocked new entry for %s: %s",
+                            symbol, expiry_decision.reason
+                        )
+                        log_event(
+                            "EXPIRY_RISK_BLOCK",
+                            expiry_decision.reason,
+                            symbol=symbol,
+                            strategy_id=strategy_label,
+                            extra={"is_option": is_option, "underlying": underlying_logical},
+                        )
+                        return
+                    
+                    # Apply risk scale to quantity if needed
+                    if expiry_decision.risk_scale < 1.0:
+                        original_qty = qty
+                        qty = max(1, int(qty * expiry_decision.risk_scale))
+                        logger.info(
+                            "Expiry risk adapter scaled qty for %s: %d -> %d (scale=%.2f, reason=%s)",
+                            symbol, original_qty, qty, expiry_decision.risk_scale, expiry_decision.reason
+                        )
+                        log_event(
+                            "EXPIRY_RISK_SCALE",
+                            expiry_decision.reason,
+                            symbol=symbol,
+                            strategy_id=strategy_label,
+                            extra={
+                                "original_qty": original_qty,
+                                "scaled_qty": qty,
+                                "risk_scale": expiry_decision.risk_scale,
+                            },
+                        )
+                except Exception as exc:
+                    logger.warning("Failed to evaluate expiry risk for %s: %s", symbol, exc)
+                    # Continue with order placement on error (fail-safe)
+            
             order_intent = {
                 "symbol": symbol,
                 "signal": signal,
@@ -2733,6 +2821,37 @@ class PaperEngine:
             meta["regime_snapshot"] = self.regime_detector.snapshot()
         else:
             meta["market_regime"] = Regime.UNKNOWN.value
+        
+        # Add expiry status for active underlyings
+        try:
+            from core.expiry_calendar import build_expiry_context
+            from datetime import datetime
+            import pytz
+            
+            now_ist = datetime.now(pytz.timezone("Asia/Kolkata"))
+            expiry_status = {}
+            is_expiry_day_any = False
+            
+            # Collect expiry info for all underlyings
+            for logical in self.logical_underlyings:
+                try:
+                    context = build_expiry_context(logical, now_ist)
+                    expiry_status[logical] = {
+                        "is_expiry_day": context.get("is_expiry_day", False),
+                        "is_expiry_week": context.get("is_expiry_week", False),
+                        "next_expiry": context.get("next_expiry_dt"),
+                    }
+                    if context.get("is_expiry_day"):
+                        is_expiry_day_any = True
+                except Exception as exc:
+                    logger.debug("Failed to get expiry info for %s: %s", logical, exc)
+            
+            if expiry_status:
+                meta["expiry_status"] = expiry_status
+                meta["is_expiry_day_any"] = is_expiry_day_any
+        except Exception as exc:
+            logger.debug("Failed to add expiry status to meta: %s", exc)
+        
         return meta
 
     def _build_signal_context(
