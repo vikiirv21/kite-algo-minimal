@@ -440,7 +440,7 @@ class OptionsPaperEngine:
                 logger.exception("Error fetching FUT LTP for logical=%s symbol=%s: %s", logical_base, fut_ts, exc)
 
         if not spots:
-            logger.warning("No underlying spots available this loop; skipping.")
+            logger.debug("No underlying spots available this loop; skipping.")
             return
 
         # Step 2: resolve ATM options for each underlying
