@@ -1,4 +1,5 @@
 import { Card, CardSkeleton } from '../../components/Card';
+import { EngineLogsPanel } from '../../components/EngineLogsPanel';
 import { useConfigSummary, useAuthStatus } from '../../hooks/useApi';
 
 export function SystemPage() {
@@ -78,6 +79,12 @@ export function SystemPage() {
           </div>
         </Card>
       )}
+      
+      {/* Engine Logs Panel */}
+      <div>
+        <h2 className="text-2xl font-bold mb-4">Engine Logs</h2>
+        <EngineLogsPanel />
+      </div>
       
       {/* Raw Config JSON */}
       <Card title="Raw Configuration (Debug)">

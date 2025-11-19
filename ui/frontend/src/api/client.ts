@@ -14,6 +14,7 @@ import type {
   AnalyticsSummary,
   EquityCurveData,
   RiskSummary,
+  EngineLogsTailResponse,
 } from '../types/api';
 
 const API_BASE = '/api';
@@ -79,4 +80,8 @@ export const api = {
   
   // Risk
   getRiskSummary: () => fetchApi<RiskSummary>('/risk/summary'),
+  
+  // Engine Logs
+  getEngineLogs: (engine: string, lines = 200) => 
+    fetchApi<EngineLogsTailResponse>(`/logs/tail?engine=${engine}&lines=${lines}`),
 };
