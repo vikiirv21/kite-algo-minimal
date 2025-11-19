@@ -210,3 +210,12 @@ export interface RiskSummary {
   current_day_pnl: number | null;
   current_exposure: number | null;
 }
+
+export interface EngineLogsTailResponse {
+  engine: string;
+  lines: string[];
+  count: number;
+  file: string;
+  exists: boolean;
+  warning: string | null;
+}
