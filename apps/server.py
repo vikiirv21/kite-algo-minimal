@@ -497,6 +497,51 @@ def get_portfolio_limits() -> JSONResponse:
         }, status_code=500)
 
 
+@app.get("/api/market/context")
+def get_market_context() -> JSONResponse:
+    """
+    Get current market context snapshot.
+    
+    Returns NIFTY/BANKNIFTY trend, volatility regime, breadth, and relative volume.
+    This endpoint requires MarketContext to be enabled in the running engine.
+    """
+    try:
+        # Try to get market context from global singleton
+        from core.market_context import get_market_context
+        
+        market_context = get_market_context()
+        
+        if market_context is None:
+            return JSONResponse({
+                "ok": False,
+                "error": "MarketContext not initialized. Enable in config under market_context.enabled"
+            }, status_code=404)
+        
+        snapshot = market_context.snapshot
+        
+        if snapshot is None:
+            # Try to refresh
+            try:
+                snapshot = market_context.refresh()
+            except Exception as exc:
+                return JSONResponse({
+                    "ok": False,
+                    "error": f"Failed to refresh market context: {exc}"
+                }, status_code=500)
+        
+        return JSONResponse({
+            "ok": True,
+            "data": snapshot.to_dict()
+        })
+        
+    except Exception as exc:
+        logger.error("Failed to get market context: %s", exc, exc_info=True)
+        return JSONResponse({
+            "ok": False,
+            "error": str(exc)
+        }, status_code=500)
+
+
 @app.get("/api/telemetry/stream")
 async def telemetry_stream(event_type: Optional[str] = None) -> StreamingResponse:
     """
