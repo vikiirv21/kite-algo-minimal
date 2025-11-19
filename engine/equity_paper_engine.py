@@ -470,7 +470,7 @@ class EquityPaperEngine:
                     current_candle = window[-1]
                     
                     # Compute indicators
-                    indicators = self.strategy_engine_v2.compute_indicators(series)
+                    indicators = self.strategy_engine_v2.compute_indicators(series, symbol=symbol, timeframe=tf)
                     
                     # Safety check
                     if not current_candle or current_candle.get("close") is None:
