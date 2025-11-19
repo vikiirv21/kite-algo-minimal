@@ -16,7 +16,6 @@ from core.market_session import is_market_open
 from ui import dashboard as dashboard_module
 from apps import dashboard_logs
 from apps import api_strategies
-from apps import api_risk
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 TEMPLATES_DIR = BASE_DIR / "templates"
@@ -203,6 +202,5 @@ if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.include_router(router)
 app.include_router(api_strategies.router, prefix="/api/strategies", tags=["strategies"])
-app.include_router(api_risk.router, prefix="/api/risk", tags=["risk"])
 
 __all__ = ["router", "app"]
