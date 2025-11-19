@@ -80,7 +80,7 @@ export function SystemPage() {
       )}
       
       {/* Logs Information */}
-      <Card title="Engine Logs">
+      <Card title="Where to Find Logs">
         <div className="space-y-3">
           <p className="text-text-secondary">
             For detailed real-time engine logs (FNO, Equity, Options), please visit the <strong>Logs</strong> tab.
