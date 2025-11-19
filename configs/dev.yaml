@@ -247,3 +247,34 @@ strategies:
     #   end: "14:55"
     # Optional: allowed days
     # allowed_days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+
+# Market Context Layer Configuration
+market_context:
+  enabled: false  # Set to true to enable market context filters
+  
+  # India VIX regime classification
+  vix:
+    enabled: true
+    symbol: "INDIA VIX"  # Kite instrument symbol
+    low_threshold: 12.0      # VIX < 12 = low volatility
+    normal_threshold: 18.0   # VIX 12-18 = normal
+    high_threshold: 25.0     # VIX 18-25 = high
+    panic_threshold: 35.0    # VIX > 35 = panic
+  
+  # Market breadth metrics
+  breadth:
+    enabled: true
+    universe: "NIFTY50"  # Universe to compute breadth for
+    ema_periods: [20, 50]  # Track % of stocks above these EMAs
+  
+  # Relative volume filters
+  relative_volume:
+    enabled: true
+    lookback_periods: 20  # Average volume over N periods
+    min_rvol: 0.7  # Minimum relative volume threshold (0.7 = 70% of average)
+  
+  # Conservative filters (only restrict, never loosen)
+  filters:
+    block_shorts_on_panic: true  # Block short entries when VIX > panic_threshold
+    require_stronger_edge_on_weak_breadth: true  # Require confidence > 0.7 when breadth < 30%
+    skip_low_rvol: true  # Skip entries when symbol RVOL < min_rvol
