@@ -80,6 +80,15 @@ export function useEnginesStatus() {
   });
 }
 
+export function usePortfolio() {
+  return useQuery({
+    queryKey: ['portfolio', 'full'] as const,
+    queryFn: api.getPortfolio,
+    refetchInterval: 2000, // 2 seconds - live portfolio updates
+    refetchIntervalInBackground: true,
+  });
+}
+
 export function usePortfolioSummary() {
   return useQuery({
     queryKey: queryKeys.portfolio,
