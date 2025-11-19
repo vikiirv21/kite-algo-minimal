@@ -164,6 +164,12 @@ class StrategyState:
         self.recent_pnl: float = 0.0
         self.last_signal_time: Optional[datetime] = None
         self.recent_decisions: List[Dict[str, Any]] = []  # Last N signal decisions
+        
+        # Health tracking fields for dashboard
+        self.signals_today: int = 0
+        self.last_signal: str = "HOLD"
+        self.last_signal_ts: Optional[datetime] = None
+        self.regime: Optional[str] = None
     
     def is_position_open(self, symbol: str) -> bool:
         """Check if position is open for symbol."""
@@ -922,6 +928,13 @@ class StrategyEngineV2:
                 )
                 intents.append(intent)
                 
+                # Update strategy state with signal info
+                if strategy_code in self.strategy_states:
+                    state = self.strategy_states[strategy_code]
+                    state.signals_today += 1
+                    state.last_signal = decision.action
+                    state.last_signal_ts = datetime.now(timezone.utc)
+                
                 # Publish signal event to telemetry
                 if self._enable_telemetry:
                     publish_signal_event(
@@ -1482,7 +1495,8 @@ class StrategyEngineV2:
                 wins = getattr(state, "win_count", 0)
                 losses = getattr(state, "loss_count", 0)
                 total_trades = wins + losses
-                win_rate = wins / total_trades if total_trades > 0 else 0.0
+                win_rate = wins / total_trades if total_trades > 0 else None
+                
                 strategy_metrics[strategy_code] = {
                     "win_count": wins,
                     "loss_count": losses,
@@ -1490,6 +1504,10 @@ class StrategyEngineV2:
                     "loss_streak": state.loss_streak,
                     "win_streak": state.win_streak,
                     "open_positions": len(state.positions),
+                    "signals_today": getattr(state, "signals_today", 0),
+                    "last_signal": getattr(state, "last_signal", "HOLD"),
+                    "last_signal_ts": getattr(state, "last_signal_ts", None).isoformat() if getattr(state, "last_signal_ts", None) else None,
+                    "regime": getattr(state, "regime", None),
                 }
             
             metrics["strategies"] = strategy_metrics

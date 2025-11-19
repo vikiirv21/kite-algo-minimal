@@ -345,14 +345,14 @@ async function updateLogsPanel() {
 
 async function updateSignalsPanel() {
     const signalsData = await apiGet('/api/signals/recent?limit=50');
-    const strategiesData = await apiGet('/api/stats/strategies?days=1');
+    const healthData = await apiGet('/api/strategies/health');
     const panelBody = document.getElementById('signals-panel-body');
     const badge = document.getElementById('signals-count-badge');
     
     if (!panelBody) return;
     
     const signals = signalsData || [];
-    const strategies = strategiesData || [];
+    const strategies = (healthData && healthData.strategies) || [];
     
     // Update badge
     if (badge) {
@@ -361,7 +361,7 @@ async function updateSignalsPanel() {
     
     let html = '';
     
-    // Strategies section
+    // Strategies section - using real-time health data
     if (strategies.length > 0) {
         html += `
             <div class="mb-lg">
@@ -373,23 +373,32 @@ async function updateSignalsPanel() {
                         <tr>
                             <th>Strategy</th>
                             <th>Symbol</th>
-                            <th>Last Signal</th>
                             <th>TF</th>
-                            <th>B/S/X/H</th>
+                            <th>Signals Today</th>
+                            <th>Win Rate</th>
+                            <th>Last Signal</th>
                         </tr>
                     </thead>
                     <tbody>
         `;
         
         for (const strat of strategies.slice(0, 10)) {
-            const counts = `${strat.buy_count || 0}/${strat.sell_count || 0}/${strat.exit_count || 0}/${strat.hold_count || 0}`;
+            const winRate = strat.win_rate !== null && strat.win_rate !== undefined 
+                ? `${(strat.win_rate * 100).toFixed(1)}%` 
+                : '--';
+            const signalsToday = strat.signals_today || 0;
+            const lastSignal = strat.last_signal || 'HOLD';
+            const symbol = strat.symbol || '—';
+            const timeframe = strat.timeframe || '—';
+            
             html += `
                 <tr>
-                    <td>${strat.logical || strat.strategy || '—'}</td>
-                    <td>${strat.symbol || '—'}</td>
-                    <td><span class="badge badge-${strat.last_signal === 'BUY' ? 'success' : strat.last_signal === 'SELL' ? 'danger' : 'muted'}">${strat.last_signal || '—'}</span></td>
-                    <td>${strat.timeframe || '—'}</td>
-                    <td>${counts}</td>
+                    <td>${strat.strategy_name || '—'}</td>
+                    <td>${symbol}</td>
+                    <td>${timeframe}</td>
+                    <td>${signalsToday}</td>
+                    <td>${winRate}</td>
+                    <td><span class="badge badge-${lastSignal === 'BUY' ? 'success' : lastSignal === 'SELL' ? 'danger' : 'muted'}">${lastSignal}</span></td>
                 </tr>
             `;
         }
