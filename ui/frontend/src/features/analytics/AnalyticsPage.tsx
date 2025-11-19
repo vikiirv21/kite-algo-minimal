@@ -10,13 +10,25 @@
  */
 
 import { Card, CardSkeleton } from '../../components/Card';
-import { useAnalyticsSummary, useAnalyticsEquityCurve } from '../../hooks/useApi';
+import { useAnalyticsSummary, useAnalyticsEquityCurve, useMetrics } from '../../hooks/useApi';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ComposedChart, Area } from 'recharts';
 import { formatCurrency, getPnlClass, getPnlPrefix } from '../../utils/format';
 
 export function AnalyticsPage() {
   const { data: analytics, isLoading: analyticsLoading } = useAnalyticsSummary();
   const { data: equityCurveData, isLoading: equityCurveLoading } = useAnalyticsEquityCurve();
+  const { data: metrics } = useMetrics();
+  
+  // Use metrics as primary source, fallback to analytics
+  const dailyPnl = metrics?.equity?.realized_pnl ?? analytics?.daily?.realized_pnl ?? 0;
+  const totalTrades = metrics?.overall?.total_trades ?? analytics?.daily?.num_trades ?? 0;
+  const winRate = metrics?.overall?.win_rate ?? analytics?.daily?.win_rate ?? 0;
+  const winTrades = metrics?.overall?.win_trades ?? analytics?.daily?.pnl_distribution?.wins ?? 0;
+  const lossTrades = metrics?.overall?.loss_trades ?? analytics?.daily?.pnl_distribution?.losses ?? 0;
+  const avgWin = metrics?.overall?.avg_win ?? analytics?.daily?.avg_win ?? 0;
+  const avgLoss = metrics?.overall?.avg_loss ?? analytics?.daily?.avg_loss ?? 0;
+  const biggestWin = metrics?.overall?.biggest_win ?? analytics?.daily?.biggest_winner ?? 0;
+  const biggestLoss = metrics?.overall?.biggest_loss ?? analytics?.daily?.biggest_loser ?? 0;
   
   // Format data for equity curve chart
   const chartData = equityCurveData?.equity_curve?.map(point => ({
@@ -46,49 +58,49 @@ export function AnalyticsPage() {
       {/* Daily Analytics Summary */}
       {analyticsLoading ? (
         <CardSkeleton />
-      ) : analytics?.daily ? (
+      ) : (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <Card title="Today's P&L">
-            <div className={`text-3xl font-bold ${getPnlClass(analytics.daily.realized_pnl)}`}>
-              {getPnlPrefix(analytics.daily.realized_pnl)}{formatCurrency(analytics.daily.realized_pnl)}
+            <div className={`text-3xl font-bold ${getPnlClass(dailyPnl)}`}>
+              {getPnlPrefix(dailyPnl)}{formatCurrency(dailyPnl)}
             </div>
             <div className="text-sm text-text-secondary mt-2">
-              {analytics.daily.num_trades} trades
+              {totalTrades} trades
             </div>
           </Card>
           
           <Card title="Win Rate">
             <div className="text-3xl font-bold">
-              {analytics.daily.win_rate.toFixed(1)}%
+              {winRate.toFixed(1)}%
             </div>
             <div className="text-sm text-text-secondary mt-2">
-              W: {analytics.daily.pnl_distribution.wins} / L: {analytics.daily.pnl_distribution.losses}
+              W: {winTrades} / L: {lossTrades}
             </div>
           </Card>
           
           <Card title="Avg Win / Loss">
             <div className="space-y-1">
-              <div className={`text-lg font-semibold ${getPnlClass(analytics.daily.avg_win)}`}>
-                Win: {formatCurrency(analytics.daily.avg_win)}
+              <div className={`text-lg font-semibold ${getPnlClass(avgWin)}`}>
+                Win: {formatCurrency(avgWin)}
               </div>
-              <div className={`text-lg font-semibold ${getPnlClass(analytics.daily.avg_loss)}`}>
-                Loss: {formatCurrency(analytics.daily.avg_loss)}
+              <div className={`text-lg font-semibold ${getPnlClass(avgLoss)}`}>
+                Loss: {formatCurrency(avgLoss)}
               </div>
             </div>
           </Card>
           
           <Card title="Best / Worst">
             <div className="space-y-1">
-              <div className={`text-lg font-semibold ${getPnlClass(analytics.daily.biggest_winner)}`}>
-                Best: {formatCurrency(analytics.daily.biggest_winner)}
+              <div className={`text-lg font-semibold ${getPnlClass(biggestWin)}`}>
+                Best: {formatCurrency(biggestWin)}
               </div>
-              <div className={`text-lg font-semibold ${getPnlClass(analytics.daily.biggest_loser)}`}>
-                Worst: {formatCurrency(analytics.daily.biggest_loser)}
+              <div className={`text-lg font-semibold ${getPnlClass(biggestLoss)}`}>
+                Worst: {formatCurrency(biggestLoss)}
               </div>
             </div>
           </Card>
         </div>
-      ) : null}
+      )}
       
       {/* Equity Curve */}
       <Card title="Equity Curve">

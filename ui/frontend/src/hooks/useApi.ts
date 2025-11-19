@@ -271,3 +271,23 @@ export function useVaR(horizonDays = 1, confidence = 0.95) {
     refetchInterval: 30000, // 30 seconds - VaR doesn't change rapidly
   });
 }
+
+// Performance Metrics hook
+export function useMetrics() {
+  return useQuery({
+    queryKey: ['pm', 'metrics'] as const,
+    queryFn: api.getMetrics,
+    refetchInterval: 5000, // 5 seconds
+    refetchIntervalInBackground: true,
+  });
+}
+
+// Trading Status hook
+export function useTradingStatus() {
+  return useQuery({
+    queryKey: ['trading', 'status'] as const,
+    queryFn: api.getTradingStatus,
+    refetchInterval: 3000, // 3 seconds
+    refetchIntervalInBackground: true,
+  });
+}
