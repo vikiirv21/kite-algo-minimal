@@ -50,6 +50,7 @@ class EMA2050IntradayV2(BaseStrategy):
             candle: Current candle with open, high, low, close, volume
             series: Historical series (close, high, low, etc.)
             indicators: Pre-computed indicators (ema20, ema50, trend, rsi14, etc.)
+                       May also include market_context for broad market awareness
         
         Returns:
             Decision object (BUY, SELL, EXIT, or HOLD)
@@ -112,34 +113,56 @@ class EMA2050IntradayV2(BaseStrategy):
         has_long = self.position_is_long(symbol)
         has_short = self.position_is_short(symbol)
         
-        # Generate signals
+        # Generate base signals
+        signal = None
+        reason = ""
+        
         if bullish_cross:
             if has_short:
                 # Exit short and go long
-                return Decision(action="EXIT", reason="bearish_to_bullish_cross", confidence=confidence)
+                signal = "EXIT"
+                reason = "bearish_to_bullish_cross"
             elif not has_long:
                 # Enter long
+                signal = "BUY"
                 reason = self._build_reason("bullish_cross", indicators)
-                return Decision(action="BUY", reason=reason, confidence=confidence)
         
         elif bearish_cross:
             if has_long:
                 # Exit long and go short
-                return Decision(action="EXIT", reason="bullish_to_bearish_cross", confidence=confidence)
+                signal = "EXIT"
+                reason = "bullish_to_bearish_cross"
             elif not has_short:
                 # Enter short
+                signal = "SELL"
                 reason = self._build_reason("bearish_cross", indicators)
-                return Decision(action="SELL", reason=reason, confidence=confidence)
         
         # Check exit conditions (RSI extremes)
         rsi = indicators.get("rsi14")
-        if rsi:
+        if rsi and not signal:
             if has_long and rsi > 75:
-                return Decision(action="EXIT", reason="rsi_overbought", confidence=confidence)
-            if has_short and rsi < 25:
-                return Decision(action="EXIT", reason="rsi_oversold", confidence=confidence)
+                signal = "EXIT"
+                reason = "rsi_overbought"
+            elif has_short and rsi < 25:
+                signal = "EXIT"
+                reason = "rsi_oversold"
         
-        return Decision(action="HOLD", reason="no_signal", confidence=confidence)
+        # Apply MarketContext filters if available (conservative - only blocks entries)
+        if signal in ["BUY", "SELL"]:
+            market_context = indicators.get("market_context")
+            if market_context:
+                filter_result = self._apply_market_context_filters(
+                    signal, confidence, symbol, market_context
+                )
+                if filter_result:
+                    # Filter blocked the entry
+                    return filter_result
+        
+        # Return final decision
+        if signal:
+            return Decision(action=signal, reason=reason, confidence=confidence)
+        else:
+            return Decision(action="HOLD", reason="no_signal", confidence=confidence)
     
     def _calculate_confidence(
         self,
@@ -211,6 +234,61 @@ class EMA2050IntradayV2(BaseStrategy):
             parts.append(f"atr:{atr:.2f}")
         
         return "|".join(parts)
+    
+    def _apply_market_context_filters(
+        self,
+        signal: str,
+        confidence: float,
+        symbol: str,
+        market_context: Any,
+    ) -> Optional[Decision]:
+        """
+        Apply MarketContext filters to proposed entry signal.
+        
+        Conservative approach: Only blocks entries, never loosens rules.
+        
+        Args:
+            signal: "BUY" or "SELL"
+            confidence: Signal confidence (0-1)
+            symbol: Trading symbol
+            market_context: MarketContext instance
+        
+        Returns:
+            Decision to block entry (HOLD) or None to allow
+        """
+        # VIX Filter: Block short entries in panic regime
+        if signal in ["SELL", "SHORT"]:
+            vix_regime = getattr(market_context, "vix_regime", "unknown")
+            if vix_regime in ["panic", "very_high"]:
+                return Decision(
+                    action="HOLD",
+                    reason=f"market_context_vix_{vix_regime}_no_shorts",
+                    confidence=0.0
+                )
+        
+        # Breadth Filter: Require stronger confidence when breadth is weak
+        if signal in ["BUY", "LONG"]:
+            pct_above_20ema = getattr(market_context, "pct_above_20ema", 100.0)
+            if pct_above_20ema < 30.0:  # Less than 30% above 20 EMA
+                if confidence < 0.7:  # Require high confidence
+                    return Decision(
+                        action="HOLD",
+                        reason=f"market_context_weak_breadth_{pct_above_20ema:.1f}%_low_confidence_{confidence:.2f}",
+                        confidence=confidence
+                    )
+        
+        # Relative Volume Filter: Skip low RVOL entries
+        symbol_rvol = getattr(market_context, "symbol_rvol", {})
+        rvol = symbol_rvol.get(symbol, 1.0)
+        if rvol < 0.7:  # Below 70% of average volume
+            return Decision(
+                action="HOLD",
+                reason=f"market_context_low_rvol_{rvol:.2f}",
+                confidence=confidence
+            )
+        
+        # All filters passed
+        return None
 
 
 # Factory function for easy instantiation

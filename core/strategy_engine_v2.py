@@ -516,7 +516,8 @@ class StrategyEngineV2:
         indicators: Dict[str, Any],
         mode: str,
         profile: str,
-        context: Optional[Dict[str, Any]] = None
+        context: Optional[Dict[str, Any]] = None,
+        market_context: Optional[Any] = None
     ) -> Tuple[OrderIntent, Dict[str, Any]]:
         """
         Evaluate trading decision using primary strategy.
@@ -530,12 +531,17 @@ class StrategyEngineV2:
             mode: Trading mode (e.g., "PAPER", "LIVE")
             profile: Trading profile (e.g., "INTRADAY", "SWING")
             context: Optional additional context
+            market_context: Optional MarketContext for broad market awareness
             
         Returns:
             Tuple of (OrderIntent, debug_payload)
             debug_payload always includes indicators (ema20, ema50, ema100, ema200, rsi14, atr)
         """
         context = context or {}
+        
+        # Add market_context to indicators if provided
+        if market_context is not None:
+            indicators = {**indicators, "market_context": market_context}
         
         # Build debug payload with indicators
         debug_payload = {
@@ -556,6 +562,10 @@ class StrategyEngineV2:
             },
             "context": context,
         }
+        
+        # Add market context to debug payload if present
+        if market_context is not None:
+            debug_payload["market_context"] = market_context.to_dict() if hasattr(market_context, "to_dict") else str(market_context)
         
         # Get primary strategy
         strategy_id = self.primary_strategy_id
