@@ -84,6 +84,17 @@ STATE_PATH = ARTIFACTS_DIR / "paper_state.json"
 PROFILE_INTRADAY = {"1m", "3m", "5m"}
 PROFILE_SWING = {"15m", "30m", "1h", "60m"}
 
+
+def _safe_int(value, default):
+    """Convert to int safely, falling back if value is None or invalid."""
+    try:
+        if value is None:
+            raise TypeError("None not allowed")
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _profile_from_tf(tf: str) -> str:
     tf_norm = (tf or "").lower()
     if tf_norm in PROFILE_INTRADAY:
@@ -1163,7 +1174,10 @@ class OptionsPaperEngine:
             risk_per_trade_pct=float(risk_cfg.get("risk_per_trade_pct", 0.005)),
             min_order_notional=float(risk_cfg.get("min_order_notional", 5000.0)),
             max_order_notional_pct=float(risk_cfg.get("max_order_notional_pct", 0.2)),
-            max_trades=int(risk_cfg.get("max_concurrent_trades", trading_cfg.get("max_open_positions", 10))),
+            max_trades=_safe_int(
+                risk_cfg.get("max_concurrent_trades", trading_cfg.get("max_open_positions", 10)),
+                10
+            ),
             risk_scale_min=float(risk_cfg.get("risk_scale_min", 0.3)),
             risk_scale_max=float(risk_cfg.get("risk_scale_max", 2.0)),
             risk_down_threshold=float(risk_cfg.get("risk_down_threshold", -0.02)),
