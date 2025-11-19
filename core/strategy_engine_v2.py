@@ -396,6 +396,10 @@ class StrategyEngineV2:
         self._telemetry_stop = threading.Event()
         self._start_telemetry_thread()
         
+        # Indicator warmup tracking: set of (symbol, indicator_name, timeframe) tuples
+        # to log warmup only once per combination
+        self._indicator_warmup_logged: set = set()
+        
         self.logger.info("StrategyEngineV2 initialized with %d strategies", len(self.enabled_strategies))
         if self.regime_engine:
             self.logger.info("StrategyEngineV2: RegimeEngine enabled")
@@ -705,7 +709,9 @@ class StrategyEngineV2:
     def compute_indicators(
         self,
         series: Dict[str, List[float]],
-        config: Optional[Dict[str, Any]] = None
+        config: Optional[Dict[str, Any]] = None,
+        symbol: Optional[str] = None,
+        timeframe: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Compute standard indicators from price series.
@@ -713,10 +719,14 @@ class StrategyEngineV2:
         Args:
             series: Dict with keys: open, high, low, close, volume (lists)
             config: Optional indicator configuration
+            symbol: Optional symbol name for warmup logging
+            timeframe: Optional timeframe for warmup logging
         
         Returns:
             Dict of computed indicators
         """
+        from core.indicators import IndicatorWarmupError
+        
         close = series.get("close", [])
         high = series.get("high", [])
         low = series.get("low", [])
@@ -779,7 +789,23 @@ class StrategyEngineV2:
             if "ema20" in ind and "ema50" in ind:
                 ind["trend"] = "up" if ind["ema20"] > ind["ema50"] else "down"
             
+        except IndicatorWarmupError as e:
+            # This is expected during warmup - only log once per (symbol, indicator, timeframe)
+            warmup_key = (symbol or "unknown", e.indicator_name, timeframe or "unknown")
+            if warmup_key not in self._indicator_warmup_logged:
+                self._indicator_warmup_logged.add(warmup_key)
+                self.logger.info(
+                    "Indicator warmup: %s on %s (%s) requires %d bars, currently have %d",
+                    e.indicator_name,
+                    symbol or "unknown",
+                    timeframe or "unknown",
+                    e.required,
+                    e.actual
+                )
+            # Skip this indicator for now, continue with others
+            pass
         except Exception as e:
+            # Other errors (math errors, NaNs, etc.) should still be logged as warnings
             self.logger.warning("Indicator calculation error: %s", e)
         
         return ind
@@ -840,7 +866,7 @@ class StrategyEngineV2:
             current_candle = window[-1]
             
             # Compute indicators
-            ind = self.compute_indicators(series)
+            ind = self.compute_indicators(series, symbol=symbol, timeframe=timeframe)
             
             # Publish indicator event to telemetry
             if self._enable_telemetry:
@@ -1367,7 +1393,7 @@ class StrategyEngineV2:
                 }
                 
                 # Compute indicators
-                indicators = self.compute_indicators(series)
+                indicators = self.compute_indicators(series, symbol=symbol, timeframe=timeframe)
                 
                 # Run strategy
                 decision = strategy.generate_signal(candle, series, indicators)

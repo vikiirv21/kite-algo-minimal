@@ -1075,7 +1075,7 @@ class PaperEngine:
                 current_candle = window[-1]
                 
                 # Compute indicators using the strategy engine
-                indicators = self.strategy_engine_v2.compute_indicators(series)
+                indicators = self.strategy_engine_v2.compute_indicators(series, symbol=symbol, timeframe=tf)
                 
                 # Safety check: validate candle and indicators
                 if not current_candle or current_candle.get("close") is None:
