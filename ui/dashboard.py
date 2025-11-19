@@ -1858,7 +1858,19 @@ async def api_portfolio() -> JSONResponse:
         equity_data = state.get("equity") or {}
         pnl_data = state.get("pnl") or {}
         
+        # Try to get paper capital from equity, pnl, or config
         starting_capital = _safe_float(equity_data.get("paper_capital"), 0.0)
+        if starting_capital == 0.0:
+            starting_capital = _safe_float(pnl_data.get("paper_capital"), 0.0)
+        if starting_capital == 0.0:
+            # Fallback to config
+            try:
+                cfg = load_app_config()
+                trading_section = cfg.trading or {}
+                starting_capital = _safe_float(trading_section.get("paper_capital"), 500_000.0)
+            except Exception:
+                starting_capital = 500_000.0
+        
         realized_pnl = _safe_float(equity_data.get("realized_pnl"), 0.0)
         
         # Process positions to compute live unrealized PnL
