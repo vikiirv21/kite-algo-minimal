@@ -7,7 +7,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.indicators import (
-    ema, sma, rsi, atr, supertrend, bollinger, vwap, slope, hl2, hl3
+    ema, sma, rsi, atr, supertrend, bollinger, vwap, slope, hl2, hl3,
+    IndicatorWarmupError
 )
 
 
@@ -146,6 +147,67 @@ def test_hl3_basic():
     assert len(series) == len(high)
 
 
+def test_warmup_error_ema():
+    """Test that EMA raises IndicatorWarmupError when series is too short"""
+    data = [100.0, 102.0, 104.0, 103.0, 105.0]  # Only 5 values
+    
+    try:
+        # Try to calculate EMA(50) with only 5 values
+        result = ema(data, period=50)
+        assert False, "Expected IndicatorWarmupError to be raised"
+    except IndicatorWarmupError as e:
+        assert e.indicator_name == "EMA(50)"
+        assert e.required == 50
+        assert e.actual == 5
+        assert "EMA(50) requires at least 50 values, got 5" in str(e)
+
+
+def test_warmup_error_rsi():
+    """Test that RSI raises IndicatorWarmupError when series is too short"""
+    data = [100.0, 102.0, 104.0]  # Only 3 values
+    
+    try:
+        # Try to calculate RSI(14) with only 3 values
+        result = rsi(data, period=14)
+        assert False, "Expected IndicatorWarmupError to be raised"
+    except IndicatorWarmupError as e:
+        assert e.indicator_name == "RSI(14)"
+        assert e.required == 15  # RSI needs period + 1
+        assert e.actual == 3
+
+
+def test_warmup_error_atr():
+    """Test that ATR raises IndicatorWarmupError when series is too short"""
+    high = [105.0, 107.0]
+    low = [95.0, 97.0]
+    close = [100.0, 102.0]
+    
+    try:
+        # Try to calculate ATR(14) with only 2 values
+        result = atr(high, low, close, period=14)
+        assert False, "Expected IndicatorWarmupError to be raised"
+    except IndicatorWarmupError as e:
+        assert e.indicator_name == "ATR(14)"
+        assert e.required == 14
+        assert e.actual == 2
+
+
+def test_no_warmup_error_when_enough_data():
+    """Test that indicators work normally when there's enough data"""
+    # This should not raise IndicatorWarmupError
+    data = [100.0 + i * 0.5 for i in range(60)]
+    
+    # All these should work without errors
+    result_ema20 = ema(data, period=20)
+    assert isinstance(result_ema20, float)
+    
+    result_ema50 = ema(data, period=50)
+    assert isinstance(result_ema50, float)
+    
+    result_rsi14 = rsi(data, period=14)
+    assert isinstance(result_rsi14, float)
+
+
 def run_all_tests():
     """Run all tests and report results"""
     tests = [
@@ -159,6 +221,10 @@ def run_all_tests():
         test_slope_basic,
         test_hl2_basic,
         test_hl3_basic,
+        test_warmup_error_ema,
+        test_warmup_error_rsi,
+        test_warmup_error_atr,
+        test_no_warmup_error_when_enough_data,
     ]
     
     passed = 0

@@ -15,6 +15,26 @@ NumericSeries = Union[List[float], List[int]]
 NumericValue = Union[float, int]
 
 
+class IndicatorWarmupError(Exception):
+    """
+    Exception raised when an indicator cannot be calculated due to insufficient data.
+    
+    This is a normal condition during the warmup period when historical data is being
+    accumulated. It should be handled gracefully by engines, not treated as an error.
+    
+    Attributes:
+        indicator_name: Name of the indicator (e.g., 'EMA', 'RSI', 'ATR')
+        required: Minimum number of data points required
+        actual: Actual number of data points available
+    """
+    
+    def __init__(self, indicator_name: str, required: int, actual: int):
+        self.indicator_name = indicator_name
+        self.required = required
+        self.actual = actual
+        super().__init__(f"{indicator_name} requires at least {required} values, got {actual}")
+
+
 def _ensure_list(series: Any) -> List[float]:
     """Convert input to list of floats."""
     if hasattr(series, 'tolist'):  # numpy array
@@ -22,10 +42,21 @@ def _ensure_list(series: Any) -> List[float]:
     return [float(x) for x in series]
 
 
-def _validate_series(series: NumericSeries, min_length: int = 1) -> None:
-    """Validate that series has sufficient data."""
+def _validate_series(series: NumericSeries, min_length: int = 1, indicator_name: str = "Indicator") -> None:
+    """
+    Validate that series has sufficient data.
+    
+    Args:
+        series: The data series to validate
+        min_length: Minimum required length
+        indicator_name: Name of the indicator for error reporting
+    
+    Raises:
+        IndicatorWarmupError: When series length is less than min_length (warmup condition)
+    """
     if not series or len(series) < min_length:
-        raise ValueError(f"Series must have at least {min_length} values, got {len(series) if series else 0}")
+        actual_len = len(series) if series else 0
+        raise IndicatorWarmupError(indicator_name, min_length, actual_len)
 
 
 def ema(series: NumericSeries, period: int, return_series: bool = False) -> Union[float, List[float]]:
@@ -40,7 +71,7 @@ def ema(series: NumericSeries, period: int, return_series: bool = False) -> Unio
     Returns:
         Latest EMA value (float) or full EMA series (list)
     """
-    _validate_series(series, period)
+    _validate_series(series, period, f"EMA({period})")
     data = _ensure_list(series)
     
     if period <= 1:
@@ -73,7 +104,7 @@ def sma(series: NumericSeries, period: int, return_series: bool = False) -> Unio
     Returns:
         Latest SMA value (float) or full SMA series (list)
     """
-    _validate_series(series, period)
+    _validate_series(series, period, f"SMA({period})")
     data = _ensure_list(series)
     
     if period <= 1:
@@ -105,7 +136,7 @@ def rsi(series: NumericSeries, period: int = 14, return_series: bool = False) ->
     Returns:
         Latest RSI value (float) or full RSI series (list)
     """
-    _validate_series(series, period + 1)
+    _validate_series(series, period + 1, f"RSI({period})")
     data = _ensure_list(series)
     
     rsi_values = []
@@ -159,9 +190,9 @@ def atr(high: NumericSeries, low: NumericSeries, close: NumericSeries,
     Returns:
         Latest ATR value (float) or full ATR series (list)
     """
-    _validate_series(high, period)
-    _validate_series(low, period)
-    _validate_series(close, period)
+    _validate_series(high, period, f"ATR({period})")
+    _validate_series(low, period, f"ATR({period})")
+    _validate_series(close, period, f"ATR({period})")
     
     high_data = _ensure_list(high)
     low_data = _ensure_list(low)
@@ -219,9 +250,9 @@ def supertrend(high: NumericSeries, low: NumericSeries, close: NumericSeries,
         Dict with 'supertrend', 'direction' (+1 for uptrend, -1 for downtrend), 'upper_band', 'lower_band'
         or list of such dicts if return_series=True
     """
-    _validate_series(high, period)
-    _validate_series(low, period)
-    _validate_series(close, period)
+    _validate_series(high, period, f"SuperTrend(period={period})")
+    _validate_series(low, period, f"SuperTrend(period={period})")
+    _validate_series(close, period, f"SuperTrend(period={period})")
     
     high_data = _ensure_list(high)
     low_data = _ensure_list(low)
@@ -304,7 +335,7 @@ def bollinger(close: NumericSeries, period: int = 20, stddev: float = 2.0,
     Returns:
         Dict with 'middle', 'upper', 'lower' or list of such dicts if return_series=True
     """
-    _validate_series(close, period)
+    _validate_series(close, period, f"Bollinger({period})")
     data = _ensure_list(close)
     
     # Calculate SMA (middle band)
@@ -352,8 +383,8 @@ def vwap(close: NumericSeries, volume: NumericSeries,
     Returns:
         Latest VWAP value (float) or full VWAP series (list)
     """
-    _validate_series(close, 1)
-    _validate_series(volume, 1)
+    _validate_series(close, 1, "VWAP")
+    _validate_series(volume, 1, "VWAP")
     
     close_data = _ensure_list(close)
     volume_data = _ensure_list(volume)
@@ -391,7 +422,7 @@ def slope(series: NumericSeries, period: int,
     Returns:
         Latest slope value (float) or full slope series (list)
     """
-    _validate_series(series, period)
+    _validate_series(series, period, f"Slope({period})")
     data = _ensure_list(series)
     
     slope_values = []
@@ -436,8 +467,8 @@ def hl2(high: NumericSeries, low: NumericSeries,
     Returns:
         Latest HL2 value (float) or full HL2 series (list)
     """
-    _validate_series(high, 1)
-    _validate_series(low, 1)
+    _validate_series(high, 1, "HL2")
+    _validate_series(low, 1, "HL2")
     
     high_data = _ensure_list(high)
     low_data = _ensure_list(low)
@@ -464,9 +495,9 @@ def hl3(high: NumericSeries, low: NumericSeries, close: NumericSeries,
     Returns:
         Latest HL3 value (float) or full HL3 series (list)
     """
-    _validate_series(high, 1)
-    _validate_series(low, 1)
-    _validate_series(close, 1)
+    _validate_series(high, 1, "HL3")
+    _validate_series(low, 1, "HL3")
+    _validate_series(close, 1, "HL3")
     
     high_data = _ensure_list(high)
     low_data = _ensure_list(low)
