@@ -1,0 +1,53 @@
+{
+  "timestamp": "2025-11-18T09:49:59.602091",
+  "broker": {
+    "positions": [],
+    "orders": []
+  },
+  "meta": {
+    "paper_capital": 500000.0,
+    "total_realized_pnl": 0.0,
+    "total_unrealized_pnl": 0.0,
+    "equity": 500000.0,
+    "total_notional": 0.0,
+    "free_notional": 500000.0,
+    "market_regime": "UNKNOWN",
+    "regime_snapshot": {
+      "RELIANCE": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-18T09:49:58.921245+00:00",
+        "short_ema": 1517.500826446281,
+        "long_ema": 1517.5001275510203,
+        "atr": 0.026446280991711486
+      },
+      "TCS": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-18T09:49:59.081419+00:00",
+        "short_ema": 3082.8501946588344,
+        "long_ema": 3082.8793232312055,
+        "atr": 0.04822758008332136
+      },
+      "INFY": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-18T09:49:59.215723+00:00",
+        "short_ema": 1484.8343419165358,
+        "long_ema": 1484.8725539163372,
+        "atr": 0.023434191653590467
+      },
+      "HDFCBANK": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-18T09:49:59.379911+00:00",
+        "short_ema": 992.6382829041733,
+        "long_ema": 992.644952705253,
+        "atr": 0.012092753227227578
+      },
+      "ICICIBANK": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-18T09:49:59.553304+00:00",
+        "short_ema": 1372.1413223140496,
+        "long_ema": 1372.1757653061227,
+        "atr": 0.09504132231406087
+      }
+    }
+  }
+}
