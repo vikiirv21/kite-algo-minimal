@@ -218,3 +218,13 @@ export function useRiskSummary() {
     refetchInterval: 5000, // 5 seconds
   });
 }
+
+// Engine Logs hook
+export function useEngineLogs(engine: string, lines = 200, enabled = true) {
+  return useQuery({
+    queryKey: ['engine-logs', engine, lines] as const,
+    queryFn: () => api.getEngineLogs(engine, lines),
+    refetchInterval: 2000, // 2 seconds
+    enabled, // Only fetch when enabled (active tab)
+  });
+}
