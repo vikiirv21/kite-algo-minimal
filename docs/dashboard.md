@@ -109,18 +109,6 @@ Description: [Auto-extracted endpoint]
 
 Description: [Auto-extracted endpoint]
 
-### `/api/market_data/latest_tick`
-
-Description: [Auto-extracted endpoint]
-
-### `/api/market_data/candles`
-
-Description: [Auto-extracted endpoint]
-
-### `/api/market_data/v2/stats`
-
-Description: [Auto-extracted endpoint]
-
 ### `/api/backtests/list`
 
 Description: [Auto-extracted endpoint]
@@ -182,14 +170,6 @@ Description: [Auto-extracted endpoint]
 Description: [Auto-extracted endpoint]
 
 ### `/api/resync`
-
-Description: [Auto-extracted endpoint]
-
-### `/api/analytics/summary`
-
-Description: [Auto-extracted endpoint]
-
-### `/api/analytics/equity_curve`
 
 Description: [Auto-extracted endpoint]
 
@@ -290,5 +270,11 @@ uvicorn ui.dashboard:app --reload --port 8000
 3. Update frontend templates
 4. Test endpoint
 
+## See Also
+
+- **System Architecture**: For overall system design, see [HFT-System-Architecture-kite-algo-minimal.md](HFT-System-Architecture-kite-algo-minimal.md)
+- **Commands Reference**: See [Commands.md](Commands.md) for CLI usage and workflows
+- **API Documentation**: See [API_ENDPOINTS.md](API_ENDPOINTS.md) for detailed endpoint specifications
+
 ---
-*Auto-generated on 2025-11-17T19:09:52.567436+00:00*
+*Auto-generated on 2025-11-15T21:51:37.969511+00:00*
