@@ -24,8 +24,8 @@ from analytics.benchmarks import load_benchmarks
 from analytics.diagnostics import load_diagnostics
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-TEMPLATES_DIR = BASE_DIR / "templates"
-STATIC_DIR = BASE_DIR / "static"
+TEMPLATES_DIR = BASE_DIR / "ui" / "templates"
+STATIC_DIR = BASE_DIR / "ui" / "static"
 DEFAULT_CONFIG_PATH = BASE_DIR / "configs" / "dev.yaml"
 CONFIG_PATH = Path(
     os.environ.get("HFT_CONFIG", os.environ.get("KITE_DASHBOARD_CONFIG", str(DEFAULT_CONFIG_PATH)))
@@ -99,26 +99,12 @@ def summarize_config(cfg: AppConfig) -> dict[str, Any]:
 @router.get("/", response_class=HTMLResponse)
 async def dashboard_page(request: Request) -> HTMLResponse:
     """
-    Render the main dashboard shell with optional config YAML injection.
+    Render the HFT-style dashboard.
     """
-    config_yaml = ""
-    try:
-        candidate_paths = [
-            CONFIG_PATH,
-            DEFAULT_CONFIG_PATH,
-        ]
-        for path in candidate_paths:
-            if path.exists():
-                config_yaml = path.read_text(encoding="utf-8")
-                break
-    except Exception:
-        config_yaml = ""
-
     context: dict[str, Any] = {
         "request": request,
-        "config_yaml": config_yaml,
     }
-    return templates.TemplateResponse("dashboard.html", context)
+    return templates.TemplateResponse("index_hft.html", context)
 
 
 @router.get("/api/meta")
