@@ -100,6 +100,9 @@ class MarketDataEngineV2:
         self.replay_thread: Optional[threading.Thread] = None
         self.replay_speed = cfg.get("replay_speed", 1.0)
         
+        # Candle close event handlers
+        self.on_candle_close_handlers: List[Any] = []
+        
         self.logger.info(
             "MarketDataEngineV2 initialized: feed=%s, timeframes=%s, symbols=%d, tokens_resolved=%d",
             self.feed_mode,
@@ -140,6 +143,17 @@ class MarketDataEngineV2:
                     self._warned_missing.add(symbol_upper)
         
         return tokens
+    
+    def register_on_candle_close(self, handler) -> None:
+        """
+        Register a handler to be called when a candle closes.
+        
+        Args:
+            handler: Callable with signature (symbol: str, timeframe: str, candle: dict)
+        """
+        if handler not in self.on_candle_close_handlers:
+            self.on_candle_close_handlers.append(handler)
+            self.logger.info("Registered candle close handler: %s", handler.__name__)
     
     def start(self) -> None:
         """Start the market data engine."""
@@ -246,6 +260,21 @@ class MarketDataEngineV2:
     def _close_bar(self, key: tuple[str, str], bar: dict) -> None:
         """Close and store a completed bar."""
         self.candles[key].append(bar)
+        
+        # Invoke candle close handlers
+        symbol, timeframe = key
+        for handler in self.on_candle_close_handlers:
+            try:
+                handler(symbol, timeframe, bar)
+            except Exception as exc:
+                self.logger.error(
+                    "Error in candle close handler %s for %s/%s: %s",
+                    getattr(handler, "__name__", "unknown"),
+                    symbol,
+                    timeframe,
+                    exc,
+                    exc_info=True
+                )
     
     def _floor_to_timeframe(self, ts: datetime, timeframe: str) -> datetime:
         """Floor timestamp to the start of the timeframe period."""
