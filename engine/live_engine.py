@@ -173,6 +173,33 @@ class LiveEngine:
                 logger.warning("Failed to initialize PortfolioEngine v1: %s", exc, exc_info=True)
                 self.portfolio_engine = None
         
+        # Initialize Runtime Metrics Tracker for unified analytics
+        try:
+            from analytics.runtime_metrics import RuntimeMetricsTracker
+            from analytics.equity_curve import EquityCurveWriter
+            
+            # Get starting capital from config
+            live_capital = float(cfg.raw.get("trading", {}).get("live_capital", 500000))
+            
+            self.metrics_tracker = RuntimeMetricsTracker(
+                starting_capital=live_capital,
+                mode="live",
+                artifacts_dir=self.artifacts_dir,
+                equity_curve_maxlen=500,
+            )
+            
+            self.equity_curve_writer = EquityCurveWriter(
+                artifacts_dir=self.artifacts_dir,
+                filename="snapshots.csv",
+                min_interval_sec=5.0,
+            )
+            
+            logger.info("Runtime metrics tracker initialized for live mode")
+        except Exception as exc:
+            logger.warning("Failed to initialize runtime metrics tracker: %s. Continuing without analytics.", exc)
+            self.metrics_tracker = None
+            self.equity_curve_writer = None
+        
         logger.info("✅ LiveEngine initialized (mode=LIVE)")
         logger.warning("⚠️ LIVE TRADING MODE ACTIVE - REAL ORDERS WILL BE PLACED ⚠️")
     
@@ -291,6 +318,44 @@ class LiveEngine:
                 if now - last_snapshot >= snapshot_interval:
                     self._snapshot_state("periodic")
                     last_snapshot = now
+                
+                # Update metrics with unrealized PnL and push equity snapshot
+                if self.metrics_tracker:
+                    try:
+                        # Get current positions from broker
+                        positions = self.broker.get_positions()
+                        
+                        # Calculate total unrealized PnL from positions
+                        total_unrealized = 0.0
+                        for pos in positions:
+                            symbol = pos.get("tradingsymbol")
+                            qty = pos.get("quantity", 0)
+                            avg_price = pos.get("average_price", 0)
+                            last_price = self.last_prices.get(symbol, avg_price)
+                            
+                            if qty != 0 and avg_price and last_price:
+                                if qty > 0:
+                                    unrealized = (last_price - avg_price) * qty
+                                else:
+                                    unrealized = (avg_price - last_price) * abs(qty)
+                                total_unrealized += unrealized
+                        
+                        # Update unrealized PnL
+                        self.metrics_tracker.update_unrealized_pnl(total_unrealized)
+                        
+                        # Push equity snapshot (rate-limited to every 5 seconds)
+                        self.metrics_tracker.push_equity_snapshot(min_interval_sec=5.0)
+                        
+                        # Write to equity curve CSV (rate-limited to every 5 seconds)
+                        if self.equity_curve_writer:
+                            metrics = self.metrics_tracker.get_metrics()
+                            self.equity_curve_writer.append_snapshot(
+                                equity=metrics.current_equity,
+                                realized_pnl=metrics.realized_pnl,
+                                unrealized_pnl=metrics.unrealized_pnl,
+                            )
+                    except Exception as exc:
+                        logger.debug("Failed to update metrics in event loop: %s", exc)
                 
                 # Sleep to avoid tight loop
                 time.sleep(5)
@@ -602,6 +667,38 @@ class LiveEngine:
             # If filled or rejected, remove from pending
             if status in ("COMPLETE", "REJECTED", "CANCELLED"):
                 self.pending_orders.pop(order_id, None)
+        
+        # Update metrics after fill
+        if status == "COMPLETE" and self.metrics_tracker:
+            try:
+                symbol = order_update.get("tradingsymbol", "")
+                side = order_update.get("transaction_type", "")
+                qty = order_update.get("filled_quantity", 0)
+                fill_price = order_update.get("average_price", 0)
+                
+                # Get strategy from pending order info
+                strategy = "unknown"
+                if order_id in self.pending_orders:
+                    strategy = self.pending_orders[order_id].get("intent", {}).get("strategy", "unknown")
+                
+                # Calculate realized PnL from fill (rough estimate - actual PnL calculation would need position tracking)
+                # For now, we'll update after we get the position update
+                realized_pnl = 0.0
+                
+                # Update metrics
+                self.metrics_tracker.update_after_fill(
+                    symbol=symbol,
+                    strategy=strategy,
+                    realized_pnl=realized_pnl,
+                    fill_price=fill_price,
+                    qty=qty,
+                    side=side,
+                )
+                
+                # Save metrics to JSON
+                self.metrics_tracker.save()
+            except Exception as exc:
+                logger.debug("Failed to update metrics after fill: %s", exc)
         
         # Journal the update
         self._journal_order_update(order_update)
