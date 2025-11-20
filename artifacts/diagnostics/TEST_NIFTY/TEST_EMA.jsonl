@@ -1,0 +1,1 @@
+{"price": 19500.0, "ema20": 19450.0, "ema50": 19400.0, "trend_strength": 0.85, "confidence": 0.75, "rr": 2.5, "regime": "trend", "risk_block": "none", "decision": "BUY", "reason": "Strong uptrend with EMA20 > EMA50", "ts": "2025-11-20T06:56:05.213797+00:00"}
