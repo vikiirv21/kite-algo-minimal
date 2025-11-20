@@ -321,6 +321,38 @@ class MarketDataEngineV2:
         candles_list = list(history)
         return candles_list[-limit:] if limit < len(candles_list) else candles_list
     
+    def get_candles(self, symbol: str, timeframe: str, window: int) -> List[dict]:
+        """
+        Get the most recent `window` candles for symbol and timeframe.
+        
+        This is a thin wrapper over get_history() for compatibility with StrategyEngineV2.
+        Transforms short key names (o, h, l, c, v) to full names (open, high, low, close, volume).
+        
+        Args:
+            symbol: Trading symbol
+            timeframe: Timeframe (e.g., "1m", "5m")
+            window: Number of recent candles to return
+        
+        Returns:
+            List of candles (dicts) in chronological order (oldest to newest)
+            Each candle has keys: open, high, low, close, volume, ts (timestamp)
+        """
+        raw_candles = self.get_history(symbol, timeframe, window)
+        
+        # Transform short keys to full keys for strategy engine compatibility
+        transformed = []
+        for candle in raw_candles:
+            transformed.append({
+                "open": candle.get("o", 0.0),
+                "high": candle.get("h", 0.0),
+                "low": candle.get("l", 0.0),
+                "close": candle.get("c", 0.0),
+                "volume": candle.get("v", 0.0),
+                "ts": candle.get("ts", ""),
+            })
+        
+        return transformed
+    
     def get_health_snapshot(self, now: Optional[datetime] = None) -> List[dict]:
         """
         Get health snapshot for all symbol/timeframe combinations.
