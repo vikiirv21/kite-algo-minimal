@@ -17,6 +17,7 @@ from ui import dashboard as dashboard_module
 from apps import dashboard_logs
 from apps import api_strategies
 from analytics.risk_metrics import load_risk_limits, compute_risk_breaches, compute_var
+from analytics.benchmarks import load_benchmarks
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 TEMPLATES_DIR = BASE_DIR / "templates"
@@ -454,6 +455,29 @@ async def get_risk_var(confidence: float = 0.95) -> JSONResponse:
             "status": "error",
             "error": str(exc),
         })
+
+
+@router.get("/api/benchmarks")
+async def get_benchmarks(days: int = 1) -> JSONResponse:
+    """
+    Return benchmark time-series for NIFTY / BANKNIFTY / FINNIFTY
+    for the last `days` days.
+    
+    Args:
+        days: Number of days to look back (default: 1, max: 10)
+        
+    Returns:
+        Array of benchmark objects with ts, nifty, banknifty, finnifty fields
+    """
+    try:
+        records = load_benchmarks(days=days)
+        return JSONResponse(records)
+    except Exception:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.exception("Failed to load benchmarks")
+        # Return empty list instead of crashing
+        return JSONResponse([])
 
 
 @router.post("/api/risk/limits")
