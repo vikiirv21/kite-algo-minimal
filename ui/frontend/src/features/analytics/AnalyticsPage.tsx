@@ -15,8 +15,8 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { formatCurrency, getPnlClass, getPnlPrefix } from '../../utils/format';
 
 export function AnalyticsPage() {
-  const { data: analytics, isLoading: analyticsLoading } = useAnalyticsSummary();
-  const { data: equityCurveData, isLoading: equityCurveLoading } = useAnalyticsEquityCurve();
+  const { data: analytics, isLoading: analyticsLoading, dataUpdatedAt: analyticsUpdatedAt } = useAnalyticsSummary();
+  const { data: equityCurveData, isLoading: equityCurveLoading, dataUpdatedAt: equityCurveUpdatedAt } = useAnalyticsEquityCurve();
   const { data: metrics } = useMetrics();
   
   // Use analytics as primary source (now the canonical source), fallback to metrics
@@ -103,7 +103,7 @@ export function AnalyticsPage() {
       )}
       
       {/* Equity Curve */}
-      <Card title="Equity Curve">
+      <Card title="Equity Curve" lastUpdated={equityCurveUpdatedAt}>
         {equityCurveLoading ? (
           <CardSkeleton />
         ) : chartData.length === 0 ? (
@@ -206,7 +206,7 @@ export function AnalyticsPage() {
       
       {/* Per-Strategy Performance */}
       {analytics?.per_strategy && Object.keys(analytics.per_strategy).length > 0 ? (
-        <Card title="Strategy Performance">
+        <Card title="Strategy Performance" lastUpdated={analyticsUpdatedAt}>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -236,7 +236,7 @@ export function AnalyticsPage() {
       
       {/* Per-Symbol Performance */}
       {analytics?.per_symbol && Object.keys(analytics.per_symbol).length > 0 ? (
-        <Card title="Symbol Performance">
+        <Card title="Symbol Performance" lastUpdated={analyticsUpdatedAt}>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
