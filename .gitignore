@@ -26,3 +26,4 @@ ui/frontend/dist/
 # Uncomment the line below if you want to ignore build outputs:
 # ui/static-react/
 artifacts/checkpoints/
+artifacts/diagnostics/
