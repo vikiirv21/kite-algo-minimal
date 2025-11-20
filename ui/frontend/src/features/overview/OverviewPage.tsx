@@ -4,7 +4,7 @@ import {
   usePortfolioSummary,
   useRecentSignals,
   useTodaySummary,
-  useMetrics,
+  useAnalyticsSummary,
 } from '../../hooks/useApi';
 import { formatCurrency, formatTimestamp, formatPercent, getPnlClass, getPnlPrefix } from '../../utils/format';
 import { deriveModeFromEngines } from '../../utils/mode';
@@ -14,15 +14,20 @@ export function OverviewPage() {
   const { data: portfolio, isLoading: portfolioLoading, error: portfolioError } = usePortfolioSummary();
   const { data: signals, isLoading: signalsLoading, error: signalsError } = useRecentSignals(10);
   const { data: today, isLoading: todayLoading, error: todayError } = useTodaySummary();
-  const { data: metrics, isLoading: metricsLoading } = useMetrics();
+  const { data: analytics, isLoading: analyticsLoading, error: analyticsError } = useAnalyticsSummary();
   
   const tradingMode = deriveModeFromEngines(engines?.engines);
   
-  // Use metrics when available, fallback to today
-  const equityValue = metrics?.equity?.current_equity ?? portfolio?.equity ?? 0;
-  const realizedPnl = metrics?.equity?.realized_pnl ?? today?.realized_pnl ?? 0;
-  const totalTrades = metrics?.overall?.total_trades ?? today?.num_trades ?? 0;
-  const winRate = metrics?.overall?.win_rate ?? today?.win_rate ?? 0;
+  // Prefer analytics summary as canonical source, fall back to portfolio/today
+  const equityValue = analytics?.equity?.current_equity ?? portfolio?.equity ?? 0;
+  const realizedPnl = analytics?.equity?.realized_pnl ?? today?.realized_pnl ?? 0;
+  const unrealizedPnl = analytics?.equity?.unrealized_pnl ?? 0;
+  const totalNotional = analytics?.equity?.total_notional ?? portfolio?.total_notional ?? 0;
+  const totalTrades = analytics?.overall?.total_trades ?? today?.num_trades ?? 0;
+  const winRate = analytics?.overall?.win_rate ?? today?.win_rate ?? 0;
+  
+  // Calculate daily P&L as sum of realized + unrealized (or from today if no analytics)
+  const dailyPnl = (realizedPnl + unrealizedPnl) || today?.realized_pnl || 0;
   
   // Debug flag - set to true to see raw API data
   const DEBUG_MODE = import.meta.env.DEV || false; // Only in development
@@ -72,11 +77,11 @@ export function OverviewPage() {
           </Card>
         )}
         
-        {/* Portfolio Snapshot */}
-        {portfolioLoading || metricsLoading ? (
+        {/* Portfolio Snapshot - using analytics summary as canonical source */}
+        {portfolioLoading || analyticsLoading ? (
           <CardSkeleton />
-        ) : portfolioError ? (
-          <CardError title="Portfolio" error={portfolioError} />
+        ) : portfolioError && analyticsError ? (
+          <CardError title="Portfolio" error={portfolioError || analyticsError} />
         ) : (
           <Card title="Portfolio">
             <div className="space-y-2">
@@ -85,19 +90,33 @@ export function OverviewPage() {
                 <span className="font-semibold">{formatCurrency(equityValue)}</span>
               </div>
               <div className="flex items-center justify-between">
+                <span className="text-text-secondary">Daily P&L:</span>
+                <span className={`font-semibold ${getPnlClass(dailyPnl)}`}>
+                  {getPnlPrefix(dailyPnl)}{formatCurrency(dailyPnl)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
                 <span className="text-text-secondary">Realized P&L:</span>
                 <span className={`font-semibold ${getPnlClass(realizedPnl)}`}>
                   {getPnlPrefix(realizedPnl)}{formatCurrency(realizedPnl)}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-text-secondary">Total Trades:</span>
-                <span className="font-semibold">{totalTrades}</span>
+                <span className="text-text-secondary">Unrealized P&L:</span>
+                <span className={`font-semibold ${getPnlClass(unrealizedPnl)}`}>
+                  {getPnlPrefix(unrealizedPnl)}{formatCurrency(unrealizedPnl)}
+                </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-text-secondary">Win Rate:</span>
-                <span className="font-semibold">{formatPercent(winRate)}</span>
+                <span className="text-text-secondary">Total Notional:</span>
+                <span className="font-semibold">{formatCurrency(totalNotional)}</span>
               </div>
+              {analytics?.status === 'stale' && (
+                <div className="text-xs text-warning">⚠ Data may be stale</div>
+              )}
+              {analytics?.status === 'empty' && (
+                <div className="text-xs text-text-secondary">ℹ No data yet</div>
+              )}
             </div>
           </Card>
         )}
@@ -111,19 +130,27 @@ export function OverviewPage() {
           <Card title="Today's Trading">
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-text-secondary">Realized P&L:</span>
-                <span className={`font-semibold ${getPnlClass(today?.realized_pnl)}`}>
-                  {getPnlPrefix(today?.realized_pnl)}{formatCurrency(today?.realized_pnl)}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
                 <span className="text-text-secondary">Trades:</span>
-                <span className="font-semibold">{today?.num_trades || 0}</span>
+                <span className="font-semibold">{totalTrades}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-text-secondary">Win Rate:</span>
-                <span className="font-semibold">{formatPercent(today?.win_rate)}</span>
+                <span className="font-semibold">{formatPercent(winRate)}</span>
               </div>
+              {analytics?.overall && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-secondary">Win/Loss:</span>
+                    <span className="font-semibold text-sm">
+                      {analytics.overall.win_trades}/{analytics.overall.loss_trades}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-secondary">Profit Factor:</span>
+                    <span className="font-semibold">{analytics.overall.profit_factor.toFixed(2)}</span>
+                  </div>
+                </>
+              )}
               {today?.avg_r !== undefined && (
                 <div className="flex items-center justify-between">
                   <span className="text-text-secondary">Avg R:</span>
@@ -146,14 +173,14 @@ export function OverviewPage() {
             <div className="flex items-center justify-between">
               <span className="text-text-secondary">Used:</span>
               <span className="font-semibold">
-                {formatCurrency(Math.abs(Math.min(0, today?.realized_pnl || 0)))}
+                {formatCurrency(Math.abs(Math.min(0, realizedPnl)))}
               </span>
             </div>
             <div className="w-full bg-border rounded-full h-2 mt-2">
               <div 
                 className="bg-warning rounded-full h-2 transition-all"
                 style={{ 
-                  width: `${Math.min(100, Math.abs(Math.min(0, today?.realized_pnl || 0)) / 3000 * 100)}%` 
+                  width: `${Math.min(100, Math.abs(Math.min(0, realizedPnl)) / 3000 * 100)}%` 
                 }}
               ></div>
             </div>
@@ -162,39 +189,34 @@ export function OverviewPage() {
       </div>
       
       {/* DEBUG: Raw API Data (Development Only) */}
-      {DEBUG_MODE && (
-        <Card title="🔍 DEBUG: Portfolio API Response">
+      {DEBUG_MODE && analytics && (
+        <Card title="🔍 DEBUG: Analytics Summary API Response">
           <div className="text-xs font-mono space-y-2">
             <div className="text-text-secondary mb-2">
-              This debug block shows raw API data from <code className="bg-border px-1 rounded">/api/portfolio/summary</code>
+              This debug block shows raw API data from <code className="bg-border px-1 rounded">/api/analytics/summary</code>
             </div>
             <pre className="bg-surface-light p-3 rounded overflow-x-auto text-[10px] leading-tight">
-              {JSON.stringify(portfolio, null, 2)}
+              {JSON.stringify(analytics, null, 2)}
             </pre>
             <div className="text-text-secondary text-[10px] mt-2">
-              ✓ Data is being fetched and updated every 2 seconds<br/>
-              ✓ Check Network tab to see API calls<br/>
-              {portfolio?.equity ? '✓ Equity value is present' : '⚠️ Equity is null/missing'}<br/>
-              {portfolio?.daily_pnl !== undefined && portfolio?.daily_pnl !== null ? '✓ Daily P&L is present' : '⚠️ Daily P&L is null/missing'}
+              ✓ Data is being fetched and updated every 5 seconds<br/>
+              Status: <strong>{analytics.status}</strong><br/>
+              {analytics.equity ? '✓ Equity data is present' : '⚠️ Equity is null/missing'}<br/>
+              {analytics.overall ? '✓ Overall metrics present' : '⚠️ Overall metrics missing'}
             </div>
           </div>
         </Card>
       )}
       
-      {DEBUG_MODE && (
-        <Card title="🔍 DEBUG: Today's Summary API Response">
+      {DEBUG_MODE && portfolio && (
+        <Card title="🔍 DEBUG: Portfolio API Response (legacy)">
           <div className="text-xs font-mono space-y-2">
             <div className="text-text-secondary mb-2">
-              This debug block shows raw API data from <code className="bg-border px-1 rounded">/api/summary/today</code>
+              Legacy endpoint data from <code className="bg-border px-1 rounded">/api/portfolio/summary</code>
             </div>
             <pre className="bg-surface-light p-3 rounded overflow-x-auto text-[10px] leading-tight">
-              {JSON.stringify(today, null, 2)}
+              {JSON.stringify(portfolio, null, 2)}
             </pre>
-            <div className="text-text-secondary text-[10px] mt-2">
-              ✓ Data is being fetched and updated every 3 seconds<br/>
-              {today?.realized_pnl !== undefined && today?.realized_pnl !== null ? '✓ Realized P&L is present' : '⚠️ Realized P&L is null/missing'}<br/>
-              {today?.num_trades ? '✓ Trade count is present' : '⚠️ Trade count is 0 or missing'}
-            </div>
           </div>
         </Card>
       )}

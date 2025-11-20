@@ -2,13 +2,13 @@
 Analyze paper trading performance based on artifacts.
 
 Reads:
-- artifacts/paper_state.json
-- artifacts/orders.csv
+- artifacts/analytics/runtime_metrics.json (canonical source)
+- Falls back to computing from orders.csv if needed
 
 Prints:
 - portfolio meta (capital, P&L, equity, notional)
-- per-symbol realized/unrealized PnL
-- per-symbol order stats (count, buy/sell, notional, avg trade price)
+- per-symbol stats from metrics
+- overall performance metrics
 
 Usage:
     python -m scripts.analyze_performance
@@ -21,65 +21,128 @@ if __name__ == "__main__" and __package__ is None:
     from pathlib import Path
     sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from analytics.performance import load_state, load_order_stats
+import json
+from pathlib import Path
+from analytics.performance_v2 import update_runtime_metrics
+
+
+# Paths
+BASE_DIR = Path(__file__).resolve().parents[1]
+ARTIFACTS_DIR = BASE_DIR / "artifacts"
+ANALYTICS_DIR = ARTIFACTS_DIR / "analytics"
+RUNTIME_METRICS_PATH = ANALYTICS_DIR / "runtime_metrics.json"
+ORDERS_PATH = ARTIFACTS_DIR / "orders.csv"
+CHECKPOINTS_DIR = ARTIFACTS_DIR / "checkpoints"
+STATE_PATH = CHECKPOINTS_DIR / "paper_state_latest.json"
 
 
 def _fmt_pnl(x: float) -> str:
     return f"{x:,.2f}"
 
 
+def _fmt_pct(x: float) -> str:
+    return f"{x:.2f}%"
+
+
+def load_runtime_metrics() -> dict | None:
+    """Load metrics from runtime_metrics.json."""
+    if not RUNTIME_METRICS_PATH.exists():
+        return None
+    try:
+        with RUNTIME_METRICS_PATH.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"⚠️  Failed to load runtime metrics: {e}")
+        return None
+
+
 def main() -> None:
-    meta, positions = load_state()
-    order_stats = load_order_stats()
-
-    print("=== Performance Summary (paper) ===")
-    if meta is None:
-        print("No paper_state.json found. Run an engine first.")
-        return
-
-    print(f"Snapshot time     : {meta.timestamp}")
-    print(f"Capital           : {_fmt_pnl(meta.capital)}")
-    print(f"Realized PnL      : {_fmt_pnl(meta.realized)}")
-    print(f"Unrealized PnL    : {_fmt_pnl(meta.unrealized)}")
-    print(f"Equity            : {_fmt_pnl(meta.equity)}")
-    print(f"Total notional    : {_fmt_pnl(meta.notional)}")
-    print()
-
-    print("Per-symbol positions & PnL:")
-    if not positions:
-        print("  (No open positions in snapshot.)")
-    else:
-        print(f"{'Symbol':15} {'Qty':>6} {'Avg':>10} {'Last':>10} {'RealPnL':>12} {'UnrealPnL':>12}")
-        tot_r = tot_u = 0.0
-        for p in positions:
-            tot_r += p.realized_pnl
-            tot_u += p.unrealized_pnl
-            print(
-                f"{p.symbol:15} "
-                f"{p.quantity:6d} "
-                f"{p.avg_price:10.2f} "
-                f"{p.last_price:10.2f} "
-                f"{p.realized_pnl:12.2f} "
-                f"{p.unrealized_pnl:12.2f}"
+    print("=== Performance Summary (from runtime_metrics.json) ===\n")
+    
+    # Try to load existing runtime metrics
+    metrics = load_runtime_metrics()
+    
+    # If missing or invalid, compute from orders
+    if metrics is None:
+        print("ℹ️  Runtime metrics not found. Computing from orders.csv...")
+        try:
+            # Default starting capital (can be read from config if needed)
+            starting_capital = 500_000.0
+            
+            # Update runtime metrics (creates the file)
+            metrics = update_runtime_metrics(
+                orders_path=ORDERS_PATH,
+                state_path=STATE_PATH if STATE_PATH.exists() else None,
+                starting_capital=starting_capital,
+                output_path=RUNTIME_METRICS_PATH,
             )
-        print(f"{'-' * 70}")
-        print(f"{'TOTAL':15} {'':6} {'':10} {'':10} {_fmt_pnl(tot_r):>12} {_fmt_pnl(tot_u):>12}")
+            print(f"✓ Runtime metrics computed and saved to {RUNTIME_METRICS_PATH}")
+        except Exception as e:
+            print(f"❌ Failed to compute metrics: {e}")
+            print("\nNo data available. Run an engine first to generate orders.")
+            return
+    
+    # Extract metrics
+    equity = metrics.get("equity", {})
+    overall = metrics.get("overall", {})
+    per_symbol = metrics.get("per_symbol", {})
+    per_strategy = metrics.get("per_strategy", {})
+    
+    # Print equity summary
+    print(f"As of               : {metrics.get('asof', 'N/A')}")
+    print(f"Mode                : {metrics.get('mode', 'paper')}")
+    print(f"Starting Capital    : {_fmt_pnl(equity.get('starting_capital', 0.0))}")
+    print(f"Current Equity      : {_fmt_pnl(equity.get('current_equity', 0.0))}")
+    print(f"Realized PnL        : {_fmt_pnl(equity.get('realized_pnl', 0.0))}")
+    print(f"Unrealized PnL      : {_fmt_pnl(equity.get('unrealized_pnl', 0.0))}")
+    print(f"Total Notional      : {_fmt_pnl(equity.get('total_notional', 0.0))}")
+    print(f"Max Drawdown        : {_fmt_pnl(equity.get('max_drawdown', 0.0))}")
     print()
-
-    print("Per-symbol order stats (from orders.csv):")
-    if not order_stats:
-        print("  (No orders recorded yet.)")
+    
+    # Print overall performance
+    print("Overall Performance:")
+    print(f"  Total Trades      : {overall.get('total_trades', 0)}")
+    print(f"  Win Trades        : {overall.get('win_trades', 0)}")
+    print(f"  Loss Trades       : {overall.get('loss_trades', 0)}")
+    print(f"  Win Rate          : {_fmt_pct(overall.get('win_rate', 0.0))}")
+    print(f"  Gross Profit      : {_fmt_pnl(overall.get('gross_profit', 0.0))}")
+    print(f"  Gross Loss        : {_fmt_pnl(overall.get('gross_loss', 0.0))}")
+    print(f"  Net PnL           : {_fmt_pnl(overall.get('net_pnl', 0.0))}")
+    print(f"  Profit Factor     : {overall.get('profit_factor', 0.0):.2f}")
+    print(f"  Avg Win           : {_fmt_pnl(overall.get('avg_win', 0.0))}")
+    print(f"  Avg Loss          : {_fmt_pnl(overall.get('avg_loss', 0.0))}")
+    print(f"  Biggest Win       : {_fmt_pnl(overall.get('biggest_win', 0.0))}")
+    print(f"  Biggest Loss      : {_fmt_pnl(overall.get('biggest_loss', 0.0))}")
+    print()
+    
+    # Print per-symbol stats
+    if per_symbol:
+        print("Per-Symbol Performance:")
+        print(f"{'Symbol':20} {'Trades':>8} {'Win%':>8} {'Net PnL':>15} {'PF':>8}")
+        print("-" * 70)
+        for symbol, stats in sorted(per_symbol.items()):
+            trades = stats.get("trades", 0)
+            win_rate = stats.get("win_rate", 0.0)
+            net_pnl = stats.get("net_pnl", 0.0)
+            pf = stats.get("profit_factor", 0.0)
+            print(f"{symbol:20} {trades:8d} {win_rate:7.1f}% {net_pnl:15.2f} {pf:7.2f}")
     else:
-        print(f"{'Symbol':15} {'Orders':>6} {'Buys':>6} {'Sells':>6} {'Notional':>14} {'AvgPrice':>10}")
-        for sym, s in sorted(order_stats.items()):
-            print(
-                f"{sym:15} "
-                f"{s.total_orders:6d} "
-                f"{s.buys:6d} "
-                f"{s.sells:6d} "
-                f"{s.total_notional:14.2f} "
-                f"{s.avg_price:10.2f}"
-            )
+        print("  (No per-symbol data available)")
+    print()
+    
+    # Print per-strategy stats
+    if per_strategy:
+        print("Per-Strategy Performance:")
+        print(f"{'Strategy':20} {'Trades':>8} {'Win%':>8} {'Net PnL':>15} {'PF':>8}")
+        print("-" * 70)
+        for strategy, stats in sorted(per_strategy.items()):
+            trades = stats.get("trades", 0)
+            win_rate = stats.get("win_rate", 0.0)
+            net_pnl = stats.get("net_pnl", 0.0)
+            pf = stats.get("profit_factor", 0.0)
+            print(f"{strategy:20} {trades:8d} {win_rate:7.1f}% {net_pnl:15.2f} {pf:7.2f}")
+    else:
+        print("  (No per-strategy data available)")
 
 
 if __name__ == "__main__":
