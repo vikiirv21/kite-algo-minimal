@@ -610,18 +610,24 @@ class PaperEngine:
         if use_mde_v2:
             try:
                 from core.market_data_engine_v2 import MarketDataEngineV2
-                logger.info("Initializing Market Data Engine v2")
+                
+                # Get universe metadata from scanner
+                universe_meta = universe_snapshot.get("meta", {}) if isinstance(universe_snapshot, dict) else {}
+                
+                logger.info(
+                    "MarketDataEngineV2 enabled for FnO engine with symbols: %s",
+                    self.universe
+                )
+                
+                # Initialize MDE v2 with proper parameters
                 self.market_data_engine_v2 = MarketDataEngineV2(
-                    config=self.cfg.raw,
-                    broker=self.kite,
+                    cfg=data_config,
+                    kite=self.kite,
+                    universe=self.universe,
+                    meta=universe_meta,
                     logger_instance=logger,
                 )
-                # Subscribe to universe symbols
-                if self.universe:
-                    self.market_data_engine_v2.subscribe_symbols(self.universe)
-                # Set timeframes from config
-                timeframes = data_config.get("timeframes", ["1m", "5m"])
-                self.market_data_engine_v2.set_timeframes(timeframes)
+                
                 # Start the engine
                 self.market_data_engine_v2.start()
                 logger.info("Market Data Engine v2 started successfully")
@@ -1035,6 +1041,14 @@ class PaperEngine:
             )
             raise
         finally:
+            # Stop MDE v2 if running
+            if self.market_data_engine_v2:
+                try:
+                    self.market_data_engine_v2.stop()
+                    logger.info("Market Data Engine v2 stopped")
+                except Exception as exc:
+                    logger.warning("Error stopping MDE v2: %s", exc)
+            
             # Publish engine shutdown telemetry
             publish_engine_health(
                 "paper_engine",
@@ -1075,18 +1089,18 @@ class PaperEngine:
                 
                 # Feed ticks to MDE v2 if available
                 if self.market_data_engine_v2:
-                    tick_data = {
-                        "symbol": symbol,
-                        "ltp": ltp,
-                        "bid": ltp,  # Simplified - could get from feed if available
-                        "ask": ltp,  # Simplified
-                        "volume": 0,  # Not available from LTP feed
-                        "ts_local": datetime.now(timezone.utc),
-                    }
-                    try:
-                        self.market_data_engine_v2.on_tick(tick_data)
-                    except Exception as exc:  # noqa: BLE001
-                        logger.debug("MDE v2 tick processing failed for %s: %s", symbol, exc)
+                    # Get instrument token for this symbol
+                    token = self.market_data_engine_v2.symbol_tokens.get(symbol.upper())
+                    if token:
+                        tick_data = {
+                            "instrument_token": token,
+                            "last_price": ltp,
+                            "timestamp": datetime.now(timezone.utc),
+                        }
+                        try:
+                            self.market_data_engine_v2.on_tick_batch([tick_data])
+                        except Exception as exc:  # noqa: BLE001
+                            logger.debug("MDE v2 tick processing failed for %s: %s", symbol, exc)
         
         # Update ExecutionEngine V3 positions with latest prices
         if self.execution_engine_v3 is not None:

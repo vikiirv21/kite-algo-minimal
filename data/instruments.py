@@ -134,3 +134,92 @@ def get_instrument_token(exchange: str, tradingsymbol: str) -> int | None:
     """
     ensure_instruments_loaded()
     return _token_index.get((exchange, tradingsymbol))
+
+
+# Global cache for instrument token mapping (tradingsymbol -> token)
+_instrument_token_map: Dict[str, int] | None = None
+_instrument_token_map_loaded = False
+
+
+def load_instrument_token_map(
+    kite: KiteConnect | None = None,
+    segments: tuple[str, ...] = ("NSE", "NFO"),
+) -> Dict[str, int]:
+    """
+    Build and cache a dict of tradingsymbol -> instrument_token for specified segments.
+    
+    This function fetches instruments once per segment and builds a unified mapping
+    that can be used to quickly resolve instrument tokens by tradingsymbol alone
+    (without needing to know the exchange).
+    
+    Args:
+        kite: KiteConnect instance (if None, will create via KiteClient)
+        segments: Tuple of exchange segments to include (default: NSE, NFO)
+    
+    Returns:
+        Dictionary mapping tradingsymbol (uppercase) to instrument_token
+    """
+    global _instrument_token_map, _instrument_token_map_loaded
+    
+    # Return cached map if already loaded
+    if _instrument_token_map_loaded and _instrument_token_map is not None:
+        return _instrument_token_map
+    
+    # If no kite client provided and we can't create one, return empty map
+    if kite is None:
+        try:
+            kite_client = KiteClient()
+            kite = kite_client.api
+        except Exception as exc:
+            logger.warning("Cannot create KiteClient for instrument token map: %s", exc)
+            _instrument_token_map = {}
+            _instrument_token_map_loaded = True
+            return _instrument_token_map
+    
+    logger.info("Building instrument token map for segments: %s", segments)
+    
+    token_map: Dict[str, int] = {}
+    
+    for segment in segments:
+        try:
+            instruments = kite_request(kite.instruments, segment)
+            count = 0
+            for inst in instruments:
+                ts = inst.get("tradingsymbol")
+                token = inst.get("instrument_token")
+                if ts and token:
+                    # Store with uppercase key for case-insensitive lookup
+                    token_map[ts.upper()] = int(token)
+                    count += 1
+            logger.info("Loaded %d instruments from %s", count, segment)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to fetch instruments for segment %s: %s", segment, exc)
+    
+    _instrument_token_map = token_map
+    _instrument_token_map_loaded = True
+    
+    logger.info("Instrument token map built with %d total symbols", len(token_map))
+    return token_map
+
+
+def resolve_instrument_token(tradingsymbol: str) -> int | None:
+    """
+    Resolve instrument token for a tradingsymbol.
+    
+    This is a convenience function that looks up the token from the cached
+    instrument token map. If the map hasn't been loaded yet, it will be
+    loaded on first call.
+    
+    Args:
+        tradingsymbol: Trading symbol (e.g., "NIFTY25NOVFUT", "RELIANCE")
+    
+    Returns:
+        Instrument token as integer, or None if not found
+    """
+    if not _instrument_token_map_loaded:
+        load_instrument_token_map()
+    
+    if _instrument_token_map is None:
+        return None
+    
+    return _instrument_token_map.get(tradingsymbol.upper())

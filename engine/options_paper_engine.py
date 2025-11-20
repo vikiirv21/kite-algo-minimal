@@ -293,6 +293,8 @@ class OptionsPaperEngine:
         
         # Initialize MarketDataEngine (for v2 strategies)
         self.market_data_engine = None
+        self.market_data_engine_v2 = None
+        
         if STRATEGY_ENGINE_V2_AVAILABLE and MarketDataEngine and self.kite:
             try:
                 cache_dir = self.artifacts_dir / "market_data"
@@ -306,6 +308,56 @@ class OptionsPaperEngine:
             except Exception as exc:
                 logger.warning("Failed to initialize MarketDataEngine: %s", exc)
                 self.market_data_engine = None
+        
+        # Initialize Market Data Engine v2 (optional, based on config)
+        data_config = self.cfg.raw.get("data", {})
+        use_mde_v2 = data_config.get("use_mde_v2", False)
+        
+        if use_mde_v2 and self.kite:
+            try:
+                from core.market_data_engine_v2 import MarketDataEngineV2
+                from core.universe_builder import load_universe
+                
+                # Get universe metadata
+                universe_snapshot = load_universe()
+                universe_meta = universe_snapshot.get("meta", {}) if isinstance(universe_snapshot, dict) else {}
+                
+                # Get option symbols from universe
+                option_symbols = []
+                if hasattr(self, 'option_universe') and self.option_universe:
+                    # Collect option symbols from option universe
+                    for underlying_data in self.option_universe.values():
+                        if isinstance(underlying_data, dict):
+                            for strike_data in underlying_data.get('strikes', {}).values():
+                                if isinstance(strike_data, dict):
+                                    ce_symbol = strike_data.get('CE')
+                                    pe_symbol = strike_data.get('PE')
+                                    if ce_symbol:
+                                        option_symbols.append(ce_symbol)
+                                    if pe_symbol:
+                                        option_symbols.append(pe_symbol)
+                
+                if option_symbols:
+                    logger.info(
+                        "MarketDataEngineV2 enabled for Options engine with %d symbols",
+                        len(option_symbols)
+                    )
+                    
+                    # Initialize MDE v2
+                    self.market_data_engine_v2 = MarketDataEngineV2(
+                        cfg=data_config,
+                        kite=self.kite,
+                        universe=option_symbols,
+                        meta=universe_meta,
+                        logger_instance=logger,
+                    )
+                    
+                    # Start the engine
+                    self.market_data_engine_v2.start()
+                    logger.info("Market Data Engine v2 started for options")
+            except Exception as exc:
+                logger.warning("Failed to initialize MDE v2 for options: %s", exc, exc_info=True)
+                self.market_data_engine_v2 = None
         
         # Initialize Strategy Engine v2 (optional, based on config)
         strategy_engine_config = self.cfg.raw.get("strategy_engine", {})
@@ -512,6 +564,14 @@ class OptionsPaperEngine:
                     logger.exception("Unexpected error in options engine loop: %s", exc)
                     time.sleep(self.sleep_sec)
         finally:
+            # Stop MDE v2 if running
+            if hasattr(self, 'market_data_engine_v2') and self.market_data_engine_v2:
+                try:
+                    self.market_data_engine_v2.stop()
+                    logger.info("Market Data Engine v2 stopped (options)")
+                except Exception as exc:
+                    logger.warning("Error stopping MDE v2: %s", exc)
+            
             # Publish engine shutdown telemetry
             publish_engine_health(
                 "options_paper_engine",
