@@ -314,7 +314,8 @@ class EquityPaperEngine:
                 # Use equity universe from scanner or fallback
                 equity_symbols = universe_snapshot.get("equity_universe", []) if isinstance(universe_snapshot, dict) else []
                 if not equity_symbols:
-                    equity_symbols = self.equity_universe
+                    # Fallback to self.universe (the equity symbols for this engine)
+                    equity_symbols = self.universe
                 
                 if equity_symbols:
                     logger.info(
