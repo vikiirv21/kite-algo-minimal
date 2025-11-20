@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HFT Trader</title>
+  <link rel="stylesheet" href="/static/dashboard_hft.css">
+</head>
+<body>
+  <!-- Top Navbar -->
+  <header class="navbar">
+    <div class="navbar-left">
+      <h1 class="app-title">HFT Trader</h1>
+    </div>
+    <div class="navbar-center">
+      <div class="time-display">
+        <span id="ist-time" class="time">--:--:--</span>
+        <span class="time-label">IST</span>
+      </div>
+      <span id="market-status-badge" class="badge badge-gray">MARKET CLOSED</span>
+    </div>
+    <div class="navbar-right">
+      <span id="engine-status-badge" class="badge badge-gray">ENGINE STOPPED</span>
+      <span id="mode-badge" class="badge badge-blue">PAPER</span>
+    </div>
+  </header>
+
+  <!-- Main Layout -->
+  <div class="main-layout">
+    <!-- Left Sidebar -->
+    <aside class="sidebar">
+      <nav class="sidebar-nav">
+        <button class="sidebar-tab active" data-section="overview">Overview</button>
+        <button class="sidebar-tab" data-section="analytics">Analytics</button>
+        <button class="sidebar-tab" data-section="positions">Positions</button>
+        <button class="sidebar-tab" data-section="strategies">Strategies</button>
+        <button class="sidebar-tab" data-section="signals">Signals</button>
+        <button class="sidebar-tab" data-section="risk">Risk</button>
+        <button class="sidebar-tab" data-section="logs">Logs</button>
+      </nav>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="content">
+      <!-- Overview Section -->
+      <section id="section-overview" class="section active">
+        <h2 class="section-title">Overview</h2>
+        
+        <!-- KPI Cards Row -->
+        <div class="kpi-grid">
+          <div class="card kpi-card">
+            <div class="kpi-label">Total PnL</div>
+            <div id="kpi-total-pnl" class="kpi-value">₹0.00</div>
+          </div>
+          <div class="card kpi-card">
+            <div class="kpi-label">Realized PnL</div>
+            <div id="kpi-realized-pnl" class="kpi-value">₹0.00</div>
+          </div>
+          <div class="card kpi-card">
+            <div class="kpi-label">Unrealized PnL</div>
+            <div id="kpi-unrealized-pnl" class="kpi-value">₹0.00</div>
+          </div>
+          <div class="card kpi-card">
+            <div class="kpi-label">Active Positions</div>
+            <div id="kpi-positions" class="kpi-value">0</div>
+          </div>
+        </div>
+
+        <!-- Middle Row: Equity Curve + Status -->
+        <div class="two-column-grid">
+          <div class="card">
+            <h3 class="card-title">Equity Curve</h3>
+            <canvas id="equity-curve-mini" width="400" height="200"></canvas>
+          </div>
+          <div class="card">
+            <h3 class="card-title">Status</h3>
+            <div class="status-grid">
+              <div class="status-item">
+                <span class="status-label">Market:</span>
+                <span id="status-market" class="status-value">CLOSED</span>
+              </div>
+              <div class="status-item">
+                <span class="status-label">Engine:</span>
+                <span id="status-engine" class="status-value">STOPPED</span>
+              </div>
+              <div class="status-item">
+                <span class="status-label">Mode:</span>
+                <span id="status-mode" class="status-value">PAPER</span>
+              </div>
+              <div class="status-item">
+                <span class="status-label">Equity:</span>
+                <span id="status-equity" class="status-value">₹0.00</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom Row: Positions + Signals -->
+        <div class="two-column-grid">
+          <div class="card">
+            <h3 class="card-title">Open Positions</h3>
+            <div id="positions-mini-list" class="mini-list"></div>
+          </div>
+          <div class="card">
+            <h3 class="card-title">Recent Signals</h3>
+            <div id="signals-mini-list" class="mini-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Analytics Section -->
+      <section id="section-analytics" class="section">
+        <h2 class="section-title">Analytics</h2>
+        
+        <div class="card">
+          <h3 class="card-title">Equity Curve</h3>
+          <canvas id="equity-curve-full" width="800" height="400"></canvas>
+        </div>
+
+        <div class="two-column-grid">
+          <div class="card">
+            <h3 class="card-title">P&L by Symbol</h3>
+            <div id="pnl-per-symbol-table" class="data-table"></div>
+          </div>
+          <div class="card">
+            <h3 class="card-title">P&L by Strategy</h3>
+            <div id="pnl-per-strategy-table" class="data-table"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Positions Section -->
+      <section id="section-positions" class="section">
+        <h2 class="section-title">Positions</h2>
+        <div class="card">
+          <div id="positions-table" class="data-table"></div>
+        </div>
+      </section>
+
+      <!-- Strategies Section -->
+      <section id="section-strategies" class="section">
+        <h2 class="section-title">Strategies</h2>
+        <div class="card">
+          <div id="strategies-table" class="data-table"></div>
+        </div>
+      </section>
+
+      <!-- Signals Section -->
+      <section id="section-signals" class="section">
+        <h2 class="section-title">Signals</h2>
+        <div class="card">
+          <div id="signals-table" class="data-table"></div>
+        </div>
+      </section>
+
+      <!-- Risk Section -->
+      <section id="section-risk" class="section">
+        <h2 class="section-title">Risk Management</h2>
+        
+        <div class="kpi-grid">
+          <div class="card kpi-card">
+            <div class="kpi-label">Max Daily Loss</div>
+            <div id="risk-max-loss" class="kpi-value">₹0.00</div>
+          </div>
+          <div class="card kpi-card">
+            <div class="kpi-label">Used Loss</div>
+            <div id="risk-used-loss" class="kpi-value">₹0.00</div>
+          </div>
+          <div class="card kpi-card">
+            <div class="kpi-label">Remaining Loss</div>
+            <div id="risk-remaining-loss" class="kpi-value">₹0.00</div>
+          </div>
+          <div class="card kpi-card">
+            <div class="kpi-label">Exposure</div>
+            <div id="risk-exposure" class="kpi-value">0%</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 class="card-title">Daily Loss Limit</h3>
+          <div class="risk-bar-container">
+            <div class="risk-bar-label">
+              <span>Used</span>
+              <span id="risk-bar-percent">0%</span>
+            </div>
+            <div class="risk-bar-track">
+              <div id="risk-bar-fill" class="risk-bar-fill" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 class="card-title">Circuit Breaker</h3>
+          <div class="status-grid">
+            <div class="status-item">
+              <span class="status-label">Status:</span>
+              <span id="circuit-breaker-status" class="status-value">INACTIVE</span>
+            </div>
+            <div class="status-item">
+              <span class="status-label">Risk per Trade:</span>
+              <span id="risk-per-trade" class="status-value">0.0%</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Logs Section -->
+      <section id="section-logs" class="section">
+        <h2 class="section-title">Logs</h2>
+        <div class="card">
+          <div class="log-filters">
+            <button class="log-filter-btn active" data-level="all">All</button>
+            <button class="log-filter-btn" data-level="INFO">Info</button>
+            <button class="log-filter-btn" data-level="WARNING">Warning</button>
+            <button class="log-filter-btn" data-level="ERROR">Error</button>
+          </div>
+          <div id="logs-container" class="logs-container"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/dashboard_hft.js"></script>
+</body>
+</html>
