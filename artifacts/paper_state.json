@@ -1,5 +1,5 @@
 {
-  "timestamp": "2025-11-20T07:10:10.924323",
+  "timestamp": "2025-11-20T08:24:02.030759",
   "broker": {
     "positions": [],
     "orders": []
@@ -11,20 +11,35 @@
     "equity": 500000.0,
     "total_notional": 0.0,
     "free_notional": 500000.0,
-    "market_regime": "UNKNOWN",
-    "regime_snapshot": {},
-    "trade_flow": {
-      "signals_total": 0,
-      "signals_actionable": 0,
-      "risk_blocks": 0,
-      "time_blocks": 0,
-      "orders_submitted": 0,
-      "orders_filled": 0,
-      "stop_hits": 0,
-      "target_hits": 0,
-      "last_events": {},
-      "risk_block_reasons": {},
-      "time_block_reasons": {}
-    }
+    "market_regime": "TREND_UP",
+    "regime_snapshot": {
+      "NIFTY": {
+        "regime": "TREND_UP",
+        "last_updated": "2025-11-20T08:24:01.748809+00:00",
+        "short_ema": 26251.837013255215,
+        "long_ema": 26244.79897113381,
+        "atr": 1.1573240872283705
+      },
+      "BANKNIFTY": {
+        "regime": "TREND_UP",
+        "last_updated": "2025-11-20T08:24:01.801980+00:00",
+        "short_ema": 59437.12719268155,
+        "long_ema": 59425.97481001857,
+        "atr": 2.49492064970844
+      }
+    },
+    "expiry_status": {
+      "NIFTY": {
+        "is_expiry_day": true,
+        "is_expiry_week": true,
+        "next_expiry": "2025-11-20"
+      },
+      "BANKNIFTY": {
+        "is_expiry_day": false,
+        "is_expiry_week": true,
+        "next_expiry": "2025-11-26"
+      }
+    },
+    "is_expiry_day_any": true
   }
 }
