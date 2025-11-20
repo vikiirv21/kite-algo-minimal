@@ -83,3 +83,6 @@ tools/docs/generated/
 **/*.bak
 **/*.backup
 **/*~
+# --- LOCAL LOG DIR (outside artifacts) ---
+logs/
+logs/**
