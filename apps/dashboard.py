@@ -17,6 +17,7 @@ from ui import dashboard as dashboard_module
 from apps import dashboard_logs
 from apps import api_strategies
 from analytics.risk_metrics import load_risk_limits, compute_risk_breaches, compute_var
+from analytics.diagnostics import load_diagnostics
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 TEMPLATES_DIR = BASE_DIR / "templates"
@@ -598,6 +599,45 @@ async def update_risk_limits(payload: dict) -> JSONResponse:
             "status": "error",
             "message": str(exc),
         }, status_code=500)
+
+
+@router.get("/api/diagnostics/strategy")
+async def get_strategy_diagnostics(symbol: str, strategy: str, limit: int = 200) -> JSONResponse:
+    """
+    Get real-time diagnostics for a specific strategy-symbol combination.
+    
+    Returns diagnostic records showing why the strategy made specific decisions
+    (BUY/SELL/HOLD), including indicator values, confidence scores, and reasoning.
+    
+    Args:
+        symbol: Trading symbol (e.g., "NIFTY", "BANKNIFTY")
+        strategy: Strategy identifier (e.g., "EMA_20_50", "RSI_MACD")
+        limit: Maximum number of records to return (default 200, most recent first)
+    
+    Returns:
+        JSON response with diagnostics data
+    """
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    try:
+        result = load_diagnostics(symbol, strategy, limit)
+        return JSONResponse({
+            "symbol": symbol,
+            "strategy": strategy,
+            "data": result,
+            "count": len(result),
+        })
+    except Exception as exc:
+        logger.exception("Failed to load diagnostics for %s/%s", symbol, strategy)
+        return JSONResponse({
+            "symbol": symbol,
+            "strategy": strategy,
+            "data": [],
+            "count": 0,
+            "error": str(exc),
+        })
 
 
 router.include_router(dashboard_module.router)
