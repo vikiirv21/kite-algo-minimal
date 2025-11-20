@@ -1,18 +1,23 @@
 import type { ReactNode } from 'react';
+import { LastUpdated } from './LastUpdated';
 
 interface CardProps {
   title?: string;
   children: ReactNode;
   className?: string;
   action?: ReactNode;
+  lastUpdated?: number | null;
 }
 
-export function Card({ title, children, className = '', action }: CardProps) {
+export function Card({ title, children, className = '', action, lastUpdated }: CardProps) {
   return (
     <div className={`bg-surface rounded-lg border border-border shadow-card overflow-hidden ${className}`}>
       {title && (
         <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-text-primary">{title}</h3>
+          <div className="flex items-baseline gap-3">
+            <h3 className="text-lg font-semibold text-text-primary">{title}</h3>
+            {lastUpdated !== undefined && <LastUpdated timestamp={lastUpdated} />}
+          </div>
           {action && <div>{action}</div>}
         </div>
       )}

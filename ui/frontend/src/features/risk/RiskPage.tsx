@@ -37,10 +37,10 @@ function getRiskLevelStatus(percentUsed: number): { text: string; class: string 
 }
 
 export function RiskPage() {
-  const { data: portfolio, isLoading: portfolioLoading, error: portfolioError } = usePortfolioSummary();
+  const { data: portfolio, isLoading: portfolioLoading, error: portfolioError, dataUpdatedAt: portfolioUpdatedAt } = usePortfolioSummary();
   const { data: config, isLoading: configLoading, error: configError } = useConfigSummary();
   const { data: today, isLoading: todayLoading, error: todayError } = useTodaySummary();
-  const { data: riskSummary, isLoading: riskLoading, error: riskError } = useRiskSummary();
+  const { data: riskSummary, isLoading: riskLoading, error: riskError, dataUpdatedAt: riskUpdatedAt } = useRiskSummary();
   
   // Show loading state while any critical data is loading
   const isLoading = portfolioLoading || configLoading || todayLoading || riskLoading;
@@ -150,7 +150,7 @@ export function RiskPage() {
       {/* Risk Gauges */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Daily Loss Limit */}
-        <Card title="Daily Loss Limit">
+        <Card title="Daily Loss Limit" lastUpdated={riskUpdatedAt}>
           <div className="space-y-4">
             <div>
               <div className="flex items-baseline justify-between mb-2">
@@ -176,7 +176,7 @@ export function RiskPage() {
         </Card>
         
         {/* Exposure Limit */}
-        <Card title="Exposure Limit">
+        <Card title="Exposure Limit" lastUpdated={portfolioUpdatedAt}>
           <div className="space-y-4">
             <div>
               <div className="flex items-baseline justify-between mb-2">
@@ -205,7 +205,7 @@ export function RiskPage() {
         </Card>
         
         {/* Position Limit */}
-        <Card title="Position Limit">
+        <Card title="Position Limit" lastUpdated={portfolioUpdatedAt}>
           <div className="space-y-4">
             {isUnlimitedPositions ? (
               // Unlimited positions case
@@ -275,7 +275,7 @@ export function RiskPage() {
       </Card>
       
       {/* Capital at Risk */}
-      <Card title="Capital at Risk">
+      <Card title="Capital at Risk" lastUpdated={portfolioUpdatedAt}>
         <div className="space-y-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
             <div>
