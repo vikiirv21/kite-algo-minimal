@@ -118,10 +118,19 @@ function renderOverviewTab() {
   const portfolioBody = document.createElement('div');
   portfolioBody.className = 'card-body';
   
-  if (!state.portfolioSnapshot) {
+  // Prefer analytics summary data if available, fallback to portfolioSnapshot
+  const analytics = state.analyticsSummary;
+  const portfolio = state.portfolioSnapshot;
+  
+  if (!analytics && !portfolio) {
     portfolioBody.appendChild(createSkeletonLines(5));
   } else {
-    const p = state.portfolioSnapshot;
+    // Use analytics data preferentially
+    const equity = analytics?.equity || analytics?.current_equity || portfolio?.equity || 0;
+    const realizedPnL = analytics?.realized_pnl || portfolio?.total_realized_pnl || 0;
+    const unrealizedPnL = analytics?.unrealized_pnl || portfolio?.total_unrealized_pnl || 0;
+    const dailyPnL = analytics?.daily_pnl || portfolio?.daily_pnl || (realizedPnL + unrealizedPnL);
+    const openPositions = analytics?.open_positions_count || portfolio?.active_positions || 0;
     
     // Helper to create colored metric row
     const createColoredMetricRow = (label, value) => {
@@ -150,11 +159,11 @@ function renderOverviewTab() {
       return row;
     };
     
-    portfolioBody.appendChild(createMetricRow('Equity', formatCurrency(p.equity)));
-    portfolioBody.appendChild(createColoredMetricRow('Realized P&L', p.total_realized_pnl));
-    portfolioBody.appendChild(createColoredMetricRow('Unrealized P&L', p.total_unrealized_pnl));
-    portfolioBody.appendChild(createColoredMetricRow('Daily P&L', p.daily_pnl));
-    portfolioBody.appendChild(createMetricRow('Exposure', formatPercent(p.exposure_pct * 100)));
+    portfolioBody.appendChild(createMetricRow('Equity', formatCurrency(equity)));
+    portfolioBody.appendChild(createColoredMetricRow('Daily P&L', dailyPnL));
+    portfolioBody.appendChild(createColoredMetricRow('Realized P&L', realizedPnL));
+    portfolioBody.appendChild(createColoredMetricRow('Unrealized P&L', unrealizedPnL));
+    portfolioBody.appendChild(createMetricRow('Open Positions', openPositions));
   }
   portfolioCard.querySelector('.card-body')?.remove();
   portfolioCard.appendChild(portfolioBody);
@@ -395,50 +404,166 @@ function renderAnalyticsTab() {
   const container = document.createElement('div');
   container.className = 'grid grid-3';
   
-  // Today Summary Card
-  const todayCard = createCard('Today at a Glance');
-  const todayBody = document.createElement('div');
-  todayBody.className = 'card-body';
+  const analytics = state.analyticsSummary;
   
-  if (!state.todaySummary) {
-    todayBody.appendChild(createSkeletonLines(4));
+  // Overall Metrics Card
+  const overallCard = createCard('Overall Performance');
+  const overallBody = document.createElement('div');
+  overallBody.className = 'card-body';
+  
+  if (!analytics) {
+    overallBody.appendChild(createSkeletonLines(6));
   } else {
-    const t = state.todaySummary;
-    todayBody.appendChild(createMetricRow('Realized P&L', formatCurrency(t.realized_pnl)));
-    todayBody.appendChild(createMetricRow('Trades', t.num_trades || 0));
-    todayBody.appendChild(createMetricRow('Win Rate', formatPercent(t.win_rate)));
-    todayBody.appendChild(createMetricRow('Avg R', formatNumber(t.avg_r, 2)));
+    const overall = analytics.overall || {};
+    const createColoredRow = (label, value) => {
+      const row = document.createElement('div');
+      row.className = 'metric-row';
+      const labelEl = document.createElement('span');
+      labelEl.className = 'metric-label';
+      labelEl.textContent = label;
+      const valueEl = document.createElement('span');
+      valueEl.className = 'metric-value';
+      if (value > 0) valueEl.className += ' value-positive';
+      else if (value < 0) valueEl.className += ' value-negative';
+      valueEl.textContent = formatCurrency(value);
+      row.appendChild(labelEl);
+      row.appendChild(valueEl);
+      return row;
+    };
+    
+    overallBody.appendChild(createColoredRow('Net P&L', overall.net_pnl || 0));
+    overallBody.appendChild(createMetricRow('Total Trades', overall.total_trades || 0));
+    overallBody.appendChild(createMetricRow('Win Rate', formatPercent((overall.win_rate || 0) * 100)));
+    overallBody.appendChild(createMetricRow('Profit Factor', formatNumber(overall.profit_factor || 0, 2)));
+    overallBody.appendChild(createColoredRow('Biggest Win', overall.biggest_win || 0));
+    overallBody.appendChild(createColoredRow('Biggest Loss', overall.biggest_loss || 0));
   }
-  todayCard.querySelector('.card-body')?.remove();
-  todayCard.appendChild(todayBody);
+  overallCard.querySelector('.card-body')?.remove();
+  overallCard.appendChild(overallBody);
   
-  // Equity Curve Placeholder
+  // Equity Curve Card
   const equityCard = createCard('Equity Curve');
   const equityBody = document.createElement('div');
   equityBody.className = 'card-body';
-  equityBody.innerHTML = '<p class="text-muted text-sm text-center">Chart visualization will be added here</p>';
+  
+  if (!state.equityCurve || state.equityCurve.length === 0) {
+    equityBody.innerHTML = '<p class="text-muted text-sm text-center">No equity data yet</p>';
+  } else {
+    // Simple text representation of equity curve (chart library can be added later)
+    const latest = state.equityCurve[state.equityCurve.length - 1];
+    const earliest = state.equityCurve[0];
+    const change = latest?.equity - earliest?.equity || 0;
+    const changePct = earliest?.equity ? (change / earliest?.equity) * 100 : 0;
+    
+    equityBody.appendChild(createMetricRow('Current', formatCurrency(latest?.equity || 0)));
+    equityBody.appendChild(createMetricRow('Starting', formatCurrency(earliest?.equity || 0)));
+    
+    const changeRow = document.createElement('div');
+    changeRow.className = 'metric-row';
+    const changeLabel = document.createElement('span');
+    changeLabel.className = 'metric-label';
+    changeLabel.textContent = 'Change';
+    const changeValue = document.createElement('span');
+    changeValue.className = 'metric-value';
+    if (change > 0) changeValue.className += ' value-positive';
+    else if (change < 0) changeValue.className += ' value-negative';
+    changeValue.textContent = `${formatCurrency(change)} (${formatPercent(changePct)})`;
+    changeRow.appendChild(changeLabel);
+    changeRow.appendChild(changeValue);
+    equityBody.appendChild(changeRow);
+    
+    equityBody.appendChild(createMetricRow('Data Points', state.equityCurve.length));
+  }
   equityCard.querySelector('.card-body')?.remove();
   equityCard.appendChild(equityBody);
   
-  // Analytics Note
-  const noteCard = createCard('Analytics Features');
-  const noteBody = document.createElement('div');
-  noteBody.className = 'card-body';
-  noteBody.innerHTML = `
-    <p class="text-sm">Advanced analytics features coming soon:</p>
-    <ul class="text-sm text-muted" style="margin-left: var(--space-4); margin-top: var(--space-2);">
-      <li>Equity curve visualization</li>
-      <li>Benchmark comparison (NIFTY, BANKNIFTY)</li>
-      <li>Per-strategy performance metrics</li>
-      <li>Risk-adjusted returns</li>
-    </ul>
-  `;
-  noteCard.querySelector('.card-body')?.remove();
-  noteCard.appendChild(noteBody);
+  // Drawdown Card
+  const drawdownCard = createCard('Risk Metrics');
+  const drawdownBody = document.createElement('div');
+  drawdownBody.className = 'card-body';
   
-  container.appendChild(todayCard);
+  if (!analytics) {
+    drawdownBody.appendChild(createSkeletonLines(3));
+  } else {
+    drawdownBody.appendChild(createMetricRow('Max Equity', formatCurrency(analytics.max_equity || 0)));
+    drawdownBody.appendChild(createMetricRow('Min Equity', formatCurrency(analytics.min_equity || 0)));
+    
+    const ddRow = document.createElement('div');
+    ddRow.className = 'metric-row';
+    const ddLabel = document.createElement('span');
+    ddLabel.className = 'metric-label';
+    ddLabel.textContent = 'Max Drawdown';
+    const ddValue = document.createElement('span');
+    ddValue.className = 'metric-value value-negative';
+    ddValue.textContent = formatCurrency(analytics.max_drawdown || 0);
+    ddRow.appendChild(ddLabel);
+    ddRow.appendChild(ddValue);
+    drawdownBody.appendChild(ddRow);
+  }
+  drawdownCard.querySelector('.card-body')?.remove();
+  drawdownCard.appendChild(drawdownBody);
+  
+  container.appendChild(overallCard);
   container.appendChild(equityCard);
-  container.appendChild(noteCard);
+  container.appendChild(drawdownCard);
+  
+  // Add full-width cards for symbol and strategy breakdowns
+  const fullWidthContainer = document.createElement('div');
+  fullWidthContainer.style.gridColumn = '1 / -1';
+  
+  // Per-Symbol P&L Card
+  const symbolCard = createCard('P&L by Symbol');
+  const symbolBody = document.createElement('div');
+  symbolBody.className = 'card-body';
+  
+  if (!analytics || !analytics.pnl_per_symbol || Object.keys(analytics.pnl_per_symbol).length === 0) {
+    symbolBody.innerHTML = '<p class="text-muted text-sm text-center">No symbol data yet</p>';
+  } else {
+    const headers = ['Symbol', 'Realized P&L', 'Unrealized P&L', 'Total P&L', 'Trades', 'Win Rate'];
+    const rows = Object.entries(analytics.pnl_per_symbol).map(([symbol, data]) => {
+      const winRate = data.trades > 0 ? (data.wins / data.trades) * 100 : 0;
+      return [
+        symbol,
+        coloredPnL(data.realized_pnl || 0),
+        coloredPnL(data.unrealized_pnl || 0),
+        coloredPnL(data.total_pnl || 0),
+        data.trades || 0,
+        formatPercent(winRate)
+      ];
+    });
+    symbolBody.appendChild(createTable(headers, rows));
+  }
+  symbolCard.querySelector('.card-body')?.remove();
+  symbolCard.appendChild(symbolBody);
+  
+  // Per-Strategy P&L Card
+  const strategyCard = createCard('P&L by Strategy');
+  const strategyBody = document.createElement('div');
+  strategyBody.className = 'card-body';
+  
+  if (!analytics || !analytics.pnl_per_strategy || Object.keys(analytics.pnl_per_strategy).length === 0) {
+    strategyBody.innerHTML = '<p class="text-muted text-sm text-center">No strategy data yet</p>';
+  } else {
+    const headers = ['Strategy', 'Realized P&L', 'Unrealized P&L', 'Total P&L', 'Trades', 'Win Rate'];
+    const rows = Object.entries(analytics.pnl_per_strategy).map(([strategy, data]) => {
+      const winRate = data.trades > 0 ? (data.wins / data.trades) * 100 : 0;
+      return [
+        strategy,
+        coloredPnL(data.realized_pnl || 0),
+        coloredPnL(data.unrealized_pnl || 0),
+        coloredPnL(data.total_pnl || 0),
+        data.trades || 0,
+        formatPercent(winRate)
+      ];
+    });
+    strategyBody.appendChild(createTable(headers, rows));
+  }
+  strategyCard.querySelector('.card-body')?.remove();
+  strategyCard.appendChild(strategyBody);
+  
+  fullWidthContainer.appendChild(symbolCard);
+  fullWidthContainer.appendChild(strategyCard);
+  container.appendChild(fullWidthContainer);
   
   return container;
 }

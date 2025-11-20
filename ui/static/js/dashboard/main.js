@@ -25,7 +25,7 @@ const INTERVALS = {
   orders: 3000,         // 3s - Orders
   signals: 2000,        // 2s - Signals
   logs: 3000,           // 3s - Logs
-  analytics: 10000,     // 10s - Analytics
+  analytics: 3000,      // 3s - Analytics (updated from 10s)
   config: 30000,        // 30s - Config (slow changing)
 };
 
@@ -276,14 +276,14 @@ async function fetchAnalytics() {
     ]);
     
     setState({ 
-      equityCurve: equityCurve || [],
+      equityCurve: equityCurve?.equity_curve || [],
       analyticsSummary 
     });
     
-    // Re-render if on analytics tab
+    // Re-render if on analytics or overview tab (since overview shows PnL data)
     const state = getState();
-    if (state.activeTab === 'analytics') {
-      renderTab('analytics');
+    if (state.activeTab === 'analytics' || state.activeTab === 'overview') {
+      renderTab(state.activeTab);
     }
   } catch (error) {
     console.error('Error fetching analytics:', error);

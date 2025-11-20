@@ -355,6 +355,92 @@ def load_config_and_overrides(default_config_path: str | Path | None = None) -> 
     return config, overrides
 
 
+@router.get("/api/analytics/summary")
+async def api_analytics_summary() -> JSONResponse:
+    """
+    Return complete analytics summary from runtime_metrics.json.
+    
+    Returns all metrics including equity, PnL, positions, and strategy/symbol breakdowns.
+    Never crashes - returns default structure if file is missing or corrupted.
+    """
+    runtime_metrics_path = BASE_DIR / "artifacts" / "analytics" / "runtime_metrics.json"
+    
+    # Default empty structure matching RuntimeMetricsTracker output
+    default_response = {
+        "asof": None,
+        "mode": "paper",
+        "equity": 0.0,
+        "starting_capital": 0.0,
+        "current_equity": 0.0,
+        "realized_pnl": 0.0,
+        "unrealized_pnl": 0.0,
+        "daily_pnl": 0.0,
+        "max_drawdown": 0.0,
+        "max_equity": 0.0,
+        "min_equity": 0.0,
+        "open_positions_count": 0,
+        "overall": {
+            "total_trades": 0,
+            "closed_trades": 0,
+            "win_trades": 0,
+            "loss_trades": 0,
+            "breakeven_trades": 0,
+            "win_rate": 0.0,
+            "gross_profit": 0.0,
+            "gross_loss": 0.0,
+            "net_pnl": 0.0,
+            "profit_factor": 0.0,
+            "avg_win": 0.0,
+            "avg_loss": 0.0,
+            "avg_r_multiple": 0.0,
+            "biggest_win": 0.0,
+            "biggest_loss": 0.0,
+        },
+        "pnl_per_symbol": {},
+        "pnl_per_strategy": {},
+        "equity_curve": [],
+    }
+    
+    if not runtime_metrics_path.exists():
+        return JSONResponse(default_response)
+    
+    try:
+        with runtime_metrics_path.open("r", encoding="utf-8") as f:
+            metrics = json.load(f)
+        return JSONResponse(metrics)
+    except Exception as exc:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error("Failed to load analytics summary: %s", exc)
+        return JSONResponse(default_response)
+
+
+@router.get("/api/analytics/equity_curve")
+async def api_analytics_equity_curve() -> JSONResponse:
+    """
+    Return equity curve data from runtime_metrics.json.
+    
+    Returns list of equity snapshots for charting.
+    Never crashes - returns empty list if file is missing or corrupted.
+    """
+    runtime_metrics_path = BASE_DIR / "artifacts" / "analytics" / "runtime_metrics.json"
+    
+    if not runtime_metrics_path.exists():
+        return JSONResponse({"equity_curve": []})
+    
+    try:
+        with runtime_metrics_path.open("r", encoding="utf-8") as f:
+            metrics = json.load(f)
+        
+        equity_curve = metrics.get("equity_curve", [])
+        return JSONResponse({"equity_curve": equity_curve})
+    except Exception as exc:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error("Failed to load equity curve: %s", exc)
+        return JSONResponse({"equity_curve": []})
+
+
 @router.get("/api/risk/limits")
 async def get_risk_limits() -> JSONResponse:
     """
