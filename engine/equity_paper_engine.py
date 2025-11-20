@@ -314,7 +314,7 @@ class EquityPaperEngine:
                 # Use equity universe from scanner or fallback
                 equity_symbols = universe_snapshot.get("equity_universe", []) if isinstance(universe_snapshot, dict) else []
                 if not equity_symbols:
-                    equity_symbols = self.equity_universe
+                    equity_symbols = self.universe
                 
                 if equity_symbols:
                     logger.info(
@@ -333,7 +333,10 @@ class EquityPaperEngine:
                     
                     # Start the engine
                     self.market_data_engine_v2.start()
-                    logger.info("Market Data Engine v2 started for equity")
+                    logger.info(
+                        "MDE v2 initialized for equity with %d symbols",
+                        len(equity_symbols)
+                    )
             except Exception as exc:
                 logger.warning("Failed to initialize MDE v2 for equity: %s", exc, exc_info=True)
                 self.market_data_engine_v2 = None

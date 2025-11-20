@@ -1510,11 +1510,13 @@ class StrategyEngineV2:
                 candles = self.market_data_v2.get_candles(symbol, timeframe, self.window_size)
                 
                 if not candles or len(candles) < 20:
+                    # During warmup, MDE v2 may not have enough candles yet
+                    # Skip signal generation until sufficient data is available
                     self.logger.debug(
-                        "Insufficient candles for %s/%s: %d",
+                        "Warmup: insufficient candles for %s/%s (have %d, need >= 20). Skipping signal generation.",
                         symbol,
                         timeframe,
-                        len(candles),
+                        len(candles) if candles else 0,
                     )
                     continue
                     

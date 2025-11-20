@@ -152,6 +152,30 @@ class OptionUniverse:
                 out[logical] = res
         return out
     
+    def iter_underlyings(self):
+        """
+        Iterate over all underlyings and their option contracts.
+        
+        Yields:
+            Tuple of (underlying_name, list_of_contracts)
+        """
+        return self._by_name.items()
+    
+    def get_all_tradingsymbols(self) -> List[str]:
+        """
+        Get all option tradingsymbols in the universe.
+        
+        Returns:
+            List of tradingsymbol strings
+        """
+        symbols = []
+        for contracts in self._by_name.values():
+            for contract in contracts:
+                ts = contract.get("tradingsymbol")
+                if ts:
+                    symbols.append(ts)
+        return symbols
+    
     def resolve_atm_option_pair(
         self,
         underlying: str,

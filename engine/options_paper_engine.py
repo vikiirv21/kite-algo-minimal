@@ -326,17 +326,8 @@ class OptionsPaperEngine:
                 # Get option symbols from universe
                 option_symbols = []
                 if hasattr(self, 'option_universe') and self.option_universe:
-                    # Collect option symbols from option universe
-                    for underlying_data in self.option_universe.values():
-                        if isinstance(underlying_data, dict):
-                            for strike_data in underlying_data.get('strikes', {}).values():
-                                if isinstance(strike_data, dict):
-                                    ce_symbol = strike_data.get('CE')
-                                    pe_symbol = strike_data.get('PE')
-                                    if ce_symbol:
-                                        option_symbols.append(ce_symbol)
-                                    if pe_symbol:
-                                        option_symbols.append(pe_symbol)
+                    # Collect all option tradingsymbols from universe
+                    option_symbols = self.option_universe.get_all_tradingsymbols()
                 
                 if option_symbols:
                     logger.info(
@@ -355,7 +346,14 @@ class OptionsPaperEngine:
                     
                     # Start the engine
                     self.market_data_engine_v2.start()
-                    logger.info("Market Data Engine v2 started for options")
+                    
+                    # Get list of underlyings for logging
+                    underlyings = list(self.logical_underlyings) if self.logical_underlyings else []
+                    logger.info(
+                        "MDE v2 initialized for options with underlyings: %s (%d symbols total)",
+                        underlyings,
+                        len(option_symbols)
+                    )
             except Exception as exc:
                 logger.warning("Failed to initialize MDE v2 for options: %s", exc, exc_info=True)
                 self.market_data_engine_v2 = None
