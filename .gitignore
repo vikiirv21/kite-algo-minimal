@@ -86,3 +86,9 @@ tools/docs/generated/
 # --- LOCAL LOG DIR (outside artifacts) ---
 logs/
 logs/**
+# --- ARTIFACTS (ignore all runtime data) ---
+artifacts/
+artifacts/**
+
+# (optional) keep a placeholder if you want the folder in fresh clones
+#!artifacts/.keep
