@@ -79,6 +79,9 @@ class MarketDataEngineV2:
         # Timeframes to build candles for
         self.timeframes: List[str] = cfg.get("timeframes", ["1m", "5m"])
         
+        # Track symbols with missing tokens (log warning once)
+        self._warned_missing: set[str] = set()
+        
         # Build symbol->token mapping
         self.symbol_tokens: Dict[str, int] = self._build_symbol_tokens()
         
@@ -92,9 +95,6 @@ class MarketDataEngineV2:
         
         # Current (incomplete) candles being built: {(symbol, timeframe): dict}
         self.current_bars: Dict[tuple[str, str], dict] = {}
-        
-        # Track symbols with missing tokens (log warning once)
-        self._warned_missing: set[str] = set()
         
         # Replay state
         self.replay_thread: Optional[threading.Thread] = None
