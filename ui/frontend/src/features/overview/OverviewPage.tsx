@@ -10,11 +10,11 @@ import { formatCurrency, formatTimestamp, formatPercent, getPnlClass, getPnlPref
 import { deriveModeFromEngines } from '../../utils/mode';
 
 export function OverviewPage() {
-  const { data: engines, isLoading: enginesLoading, error: enginesError } = useEnginesStatus();
-  const { data: portfolio, isLoading: portfolioLoading, error: portfolioError } = usePortfolioSummary();
-  const { data: signals, isLoading: signalsLoading, error: signalsError } = useRecentSignals(10);
+  const { data: engines, isLoading: enginesLoading, error: enginesError, dataUpdatedAt: enginesUpdatedAt } = useEnginesStatus();
+  const { data: portfolio, isLoading: portfolioLoading, error: portfolioError, dataUpdatedAt: portfolioUpdatedAt } = usePortfolioSummary();
+  const { data: signals, isLoading: signalsLoading, error: signalsError, dataUpdatedAt: signalsUpdatedAt } = useRecentSignals(10);
   const { data: today, isLoading: todayLoading, error: todayError } = useTodaySummary();
-  const { data: analytics, isLoading: analyticsLoading, error: analyticsError } = useAnalyticsSummary();
+  const { data: analytics, isLoading: analyticsLoading, error: analyticsError, dataUpdatedAt: analyticsUpdatedAt } = useAnalyticsSummary();
   
   const tradingMode = deriveModeFromEngines(engines?.engines);
   
@@ -44,7 +44,7 @@ export function OverviewPage() {
         ) : enginesError ? (
           <CardError title="Engines Status" error={enginesError} />
         ) : (
-          <Card title="Engines Status">
+          <Card title="Engines Status" lastUpdated={enginesUpdatedAt}>
             {engines?.engines && engines.engines.length > 0 ? (
               engines.engines.map((engine) => (
                 <div key={engine.engine} className="space-y-2">
@@ -83,7 +83,7 @@ export function OverviewPage() {
         ) : portfolioError && analyticsError ? (
           <CardError title="Portfolio" error={portfolioError || analyticsError} />
         ) : (
-          <Card title="Portfolio">
+          <Card title="Portfolio" lastUpdated={analyticsUpdatedAt || portfolioUpdatedAt}>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-text-secondary">Equity:</span>
@@ -225,7 +225,7 @@ export function OverviewPage() {
       {signalsError ? (
         <CardError title="Recent Signals" error={signalsError} />
       ) : (
-        <Card title="Recent Signals">
+        <Card title="Recent Signals" lastUpdated={signalsUpdatedAt}>
           {signalsLoading ? (
             <div className="space-y-2">
               <div className="h-4 bg-border rounded animate-pulse"></div>
