@@ -1160,7 +1160,6 @@ class PaperEngine:
                 
                 # Evaluate v3 engine
                 try:
-                    from datetime import datetime, timezone
                     ts = datetime.now(timezone.utc).isoformat()
                     
                     intent = self.strategy_engine_v3.evaluate(symbol, ts, ltp, md)
@@ -1260,7 +1259,6 @@ class PaperEngine:
                 expiry_context = {}
                 try:
                     from core.expiry_calendar import build_expiry_context
-                    from datetime import datetime
                     import pytz
                     
                     now_ist = datetime.now(pytz.timezone("Asia/Kolkata"))
@@ -1476,7 +1474,6 @@ class PaperEngine:
             # Apply expiry risk adapter for new entries (BUY/SELL only)
             if self.expiry_risk_adapter is not None:
                 try:
-                    from datetime import datetime
                     import pytz
                     
                     # Determine if this is an option instrument
@@ -2920,7 +2917,6 @@ class PaperEngine:
         # Add expiry status for active underlyings
         try:
             from core.expiry_calendar import build_expiry_context
-            from datetime import datetime
             import pytz
             
             now_ist = datetime.now(pytz.timezone("Asia/Kolkata"))
