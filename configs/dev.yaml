@@ -55,7 +55,7 @@ data:
   history_lookback: 50      # number of candles for indicators
   
   # Market Data Engine v2 Configuration
-  use_mde_v2: false         # Enable Market Data Engine v2 (set to true to activate)
+  use_mde_v2: true         # Enable Market Data Engine v2 (set to true to activate)
   feed: "kite"              # Data feed mode: "kite" (live) or "replay" (historical/backtest)
   timeframes:               # Active timeframes for candle building
     - "1m"
