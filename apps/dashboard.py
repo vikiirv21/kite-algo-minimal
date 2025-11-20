@@ -194,157 +194,123 @@ async def api_performance() -> JSONResponse:
         return JSONResponse(default_metrics)
 
 
-@router.get("/api/data/health")
-async def api_data_health() -> JSONResponse:
+@router.get("/api/trades/open")
+async def api_trades_open() -> JSONResponse:
     """
-    Returns data health snapshot from Market Data Engine V2 if enabled.
-    
-    Returns health information per symbol/timeframe including:
-    - last_update_ts: timestamp of last data update
-    - staleness_sec: seconds since last update
-    - num_bars: number of historical candles available
-    - is_stale: boolean indicating if data is stale
-    
-    Response format:
-    {
-      "enabled": true/false,
-      "asof": "2025-11-19T08:45:12+05:30",
-      "items": [
-        {
-          "symbol": "NIFTY25NOVFUT",
-          "timeframe": "1m",
-          "last_update_ts": "2025-11-19T08:44:59+05:30",
-          "staleness_sec": 3.2,
-          "num_bars": 215,
-          "is_stale": false
-        },
-        ...
-      ]
-    }
-    
-    If MDE v2 is not enabled, returns {"enabled": false, "reason": "mde_v2_disabled"}
+    Return all open trades from the open_trades.json registry.
     """
-    import json
-    import pytz
-    
     try:
-        cfg = load_app_config()
-        data_cfg = cfg.data or {}
-        
-        use_mde_v2 = data_cfg.get("use_mde_v2", False)
-        
-        if not use_mde_v2:
-            return JSONResponse({
-                "enabled": False,
-                "reason": "mde_v2_disabled"
-            })
-        
-        # Check if MDE v2 instance is running
-        # For now, we'll check for a telemetry file that MDE v2 could write
-        # In a real implementation, this would access a shared MDE v2 instance
-        mde_health_path = BASE_DIR / "artifacts" / "mde_v2" / "health_snapshot.json"
-        
-        if not mde_health_path.exists():
-            return JSONResponse({
-                "enabled": True,
-                "asof": None,
-                "items": [],
-                "reason": "no_data_available"
-            })
-        
-        # Read health snapshot
-        with mde_health_path.open("r", encoding="utf-8") as f:
-            health_data = json.load(f)
-        
-        return JSONResponse(health_data)
-        
+        from core.state_store import StateStore
+        state_store = StateStore()
+        open_trades = state_store.load_open_trades()
+        return JSONResponse({"open_trades": open_trades, "count": len(open_trades)})
     except Exception as exc:
         import logging
         logger = logging.getLogger(__name__)
-        logger.error("Failed to get MDE v2 health: %s", exc)
-        return JSONResponse({
-            "enabled": False,
-            "reason": f"error: {str(exc)}"
-        })
+        logger.error("Failed to load open trades: %s", exc)
+        return JSONResponse({"open_trades": [], "count": 0, "error": str(exc)})
 
 
-@router.get("/api/data/ltp")
-async def api_data_ltp(symbol: str) -> JSONResponse:
+@router.get("/api/trades/closed/today")
+async def api_trades_closed_today() -> JSONResponse:
     """
-    Returns current LTP and last update timestamp for a single symbol.
-    
-    Query params:
-    - symbol: Trading symbol (e.g., "NIFTY25NOVFUT", "RELIANCE")
-    
-    Response format:
-    {
-      "enabled": true/false,
-      "symbol": "NIFTY25NOVFUT",
-      "ltp": 23850.0,
-      "last_update_ts": "2025-11-19T08:45:12+05:30"
-    }
-    
-    If MDE v2 is not enabled or symbol not found, returns appropriate error.
+    Return closed trades from today's orders.csv (where status="FILLED" and tag contains "exit").
     """
-    import json
-    
     try:
-        cfg = load_app_config()
-        data_cfg = cfg.data or {}
+        import csv
+        from datetime import date
         
-        use_mde_v2 = data_cfg.get("use_mde_v2", False)
+        # Path to today's journal
+        today_str = date.today().strftime("%Y-%m-%d")
+        journal_path = BASE_DIR / "artifacts" / "journal" / today_str / "orders.csv"
         
-        if not use_mde_v2:
-            return JSONResponse({
-                "enabled": False,
-                "reason": "mde_v2_disabled"
-            })
+        closed_trades = []
+        if journal_path.exists():
+            with journal_path.open("r", encoding="utf-8", newline="") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    # Filter for exit orders
+                    tag = (row.get("tag") or "").lower()
+                    status = (row.get("status") or "").upper()
+                    if "exit" in tag and status in ["FILLED", "COMPLETE", "EXECUTED"]:
+                        closed_trades.append(row)
         
-        # Check for MDE v2 LTP data
-        # In a real implementation, this would access a shared MDE v2 instance
-        mde_ltp_path = BASE_DIR / "artifacts" / "mde_v2" / "ltp_snapshot.json"
-        
-        if not mde_ltp_path.exists():
-            return JSONResponse({
-                "enabled": True,
-                "symbol": symbol.upper(),
-                "ltp": None,
-                "last_update_ts": None,
-                "reason": "no_data_available"
-            })
-        
-        # Read LTP snapshot
-        with mde_ltp_path.open("r", encoding="utf-8") as f:
-            ltp_data = json.load(f)
-        
-        symbol_upper = symbol.upper()
-        symbol_data = ltp_data.get(symbol_upper)
-        
-        if not symbol_data:
-            return JSONResponse({
-                "enabled": True,
-                "symbol": symbol_upper,
-                "ltp": None,
-                "last_update_ts": None,
-                "reason": "symbol_not_found"
-            })
-        
-        return JSONResponse({
-            "enabled": True,
-            "symbol": symbol_upper,
-            "ltp": symbol_data.get("ltp"),
-            "last_update_ts": symbol_data.get("last_update_ts")
-        })
-        
+        return JSONResponse({"closed_trades": closed_trades, "count": len(closed_trades)})
     except Exception as exc:
         import logging
         logger = logging.getLogger(__name__)
-        logger.error("Failed to get MDE v2 LTP for %s: %s", symbol, exc)
+        logger.error("Failed to load closed trades: %s", exc)
+        return JSONResponse({"closed_trades": [], "count": 0, "error": str(exc)})
+
+
+@router.get("/api/telemetry/runtime")
+async def api_telemetry_runtime() -> JSONResponse:
+    """
+    Return runtime metrics from runtime_metrics.json.
+    """
+    try:
+        import json
+        runtime_metrics_path = BASE_DIR / "artifacts" / "analytics" / "runtime_metrics.json"
+        
+        if not runtime_metrics_path.exists():
+            return JSONResponse({
+                "active_positions": 0,
+                "realized_pnl": 0.0,
+                "unrealized_pnl": 0.0,
+                "total_pnl": 0.0,
+                "total_orders": 0,
+            })
+        
+        with runtime_metrics_path.open("r", encoding="utf-8") as f:
+            metrics = json.load(f)
+        return JSONResponse(metrics)
+    except Exception as exc:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error("Failed to load runtime metrics: %s", exc)
+        return JSONResponse({"error": str(exc)})
+
+
+@router.get("/api/telemetry/trade_lifecycle")
+async def api_telemetry_trade_lifecycle() -> JSONResponse:
+    """
+    Return trade lifecycle telemetry combining open trades and runtime metrics.
+    """
+    try:
+        import json
+        from core.state_store import StateStore
+        
+        state_store = StateStore()
+        open_trades = state_store.load_open_trades()
+        
+        # Load runtime metrics
+        runtime_metrics_path = BASE_DIR / "artifacts" / "analytics" / "runtime_metrics.json"
+        runtime_metrics = {}
+        if runtime_metrics_path.exists():
+            with runtime_metrics_path.open("r", encoding="utf-8") as f:
+                runtime_metrics = json.load(f)
+        
+        # Compute summary statistics
+        total_unrealized_pnl = 0.0
+        for trade in open_trades:
+            entry_price = float(trade.get('entry_price', 0))
+            qty = int(trade.get('qty', 0))
+            side = trade.get('side')
+            
+            # We'd need current price to calculate unrealized PnL accurately
+            # For now, just provide the trade data
+            
         return JSONResponse({
-            "enabled": False,
-            "symbol": symbol.upper(),
-            "reason": f"error: {str(exc)}"
+            "open_trades_count": len(open_trades),
+            "open_trades": open_trades,
+            "runtime_metrics": runtime_metrics,
+            "timestamp": datetime.now().isoformat(),
         })
+    except Exception as exc:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error("Failed to load trade lifecycle telemetry: %s", exc)
+        return JSONResponse({"error": str(exc)})
 
 
 router.include_router(dashboard_module.router)
