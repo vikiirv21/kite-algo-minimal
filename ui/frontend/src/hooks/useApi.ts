@@ -207,7 +207,8 @@ export function useAnalyticsSummary() {
   return useQuery({
     queryKey: ['analytics', 'summary'] as const,
     queryFn: api.getAnalyticsSummary,
-    refetchInterval: 10000, // 10 seconds
+    refetchInterval: 5000, // 5 seconds for responsive updates
+    refetchIntervalInBackground: true,
   });
 }
 
