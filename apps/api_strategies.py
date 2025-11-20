@@ -282,7 +282,8 @@ def run_backtest(strategy_id: str, request: BacktestRequest) -> BacktestResult:
 
 # ==================== API Endpoints ====================
 
-@router.get("/", response_model=List[StrategyDetail])
+@router.get("", response_model=List[StrategyDetail])
+@router.get("/", response_model=List[StrategyDetail], include_in_schema=False)
 async def get_strategies():
     """List all available strategies."""
     return list_strategies()

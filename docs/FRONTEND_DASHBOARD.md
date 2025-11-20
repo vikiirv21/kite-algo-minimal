@@ -87,8 +87,19 @@ The dashboard is built with:
 - Tags and engine type (equity/fno/options)
 - Backtest results (when available)
 - Performance comparison
+- Real-time strategy enable/disable controls
+- Parameter editing with live updates
 
 **Data Source:** `/api/strategies` → `configs/dev.yaml` + `configs/learned_overrides.yaml`
+
+**Features:**
+- GET `/api/strategies` - List all configured strategies
+- POST `/api/strategies/{id}/enable` - Enable a strategy
+- POST `/api/strategies/{id}/disable` - Disable a strategy
+- PUT `/api/strategies/{id}/params` - Update strategy parameters
+- POST `/api/strategies/{id}/backtest` - Run a backtest
+
+**React Component:** `ui/frontend/src/features/signals/StrategyLab.tsx`
 
 ### 9. Trading
 - Mode (paper/live) and engine status (RUNNING/STOPPED)
