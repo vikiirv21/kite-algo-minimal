@@ -35,6 +35,7 @@ This document lists all HTTP API endpoints exposed by the trading system's backe
 | GET | `/api/risk/summary` | `api_risk_summary` | `kite-algo-minimal/ui/dashboard.py` | Return risk summary with all required fields. |
 | GET | `/api/signals` | `api_signals` | `kite-algo-minimal/ui/dashboard.py` |  |
 | GET | `/api/state` | `api_state` | `kite-algo-minimal/ui/dashboard.py` | Return engine status based on available runtime state. |
+| GET | `/api/strategies` | `get_strategies` | `kite-algo-minimal/apps/api_strategies.py` | Return list of all configured trading strategies with their metadata. |
 | GET | `/api/strategy_performance` | `api_strategy_performance` | `kite-algo-minimal/ui/dashboard.py` |  |
 | GET | `/api/telemetry/events` | `telemetry_events` | `kite-algo-minimal/apps/server.py` | Get recent telemetry events. |
 | GET | `/api/telemetry/stats` | `telemetry_stats` | `kite-algo-minimal/apps/server.py` | Get telemetry bus statistics. |
@@ -298,3 +299,64 @@ Return risk summary with all required fields. Sources config from configs/dev.ya
 
 ---
 *Auto-generated via AST scanning of FastAPI routes*
+
+---
+
+### /api/strategies
+
+**Method:** GET  
+**Path:** `/api/strategies`  
+**Handler:** `get_strategies`  
+**Module:** `kite-algo-minimal/apps/api_strategies.py`
+
+**Description:**  
+Returns the list of all configured trading strategies with their metadata. This endpoint provides information about strategies loaded from config files, including their engine type, parameters, enabled status, and other runtime details.
+
+**Response Schema:**
+```json
+[
+  {
+    "id": "EMA_20_50",
+    "name": "EMA2050IntradayV2",
+    "strategy_code": "EMA_20_50",
+    "engine": "equity",  // "equity" | "fno" | "options"
+    "timeframe": "5m",
+    "mode": "paper",  // "paper" | "live"
+    "enabled": true,
+    "params": {
+      "timeframe": "5m",
+      "min_rr": 1.5,
+      "max_risk_per_trade_pct": 0.01,
+      "min_trend_strength": 0.4,
+      "min_confidence": 0.55
+    },
+    "tags": []  // Array of tags like ["intraday", "trend", "equity"]
+  }
+]
+```
+
+**Response Fields:**
+- `id`: Unique strategy identifier
+- `name`: Display name of the strategy class
+- `strategy_code`: Code identifier for the strategy
+- `engine`: Which engine runs this strategy (equity, fno, or options)
+- `timeframe`: Primary timeframe the strategy operates on
+- `mode`: Current trading mode (paper or live)
+- `enabled`: Whether the strategy is currently enabled
+- `params`: Strategy-specific parameters and configuration
+- `tags`: Additional metadata tags
+
+**Usage:**
+```bash
+curl http://localhost:8765/api/strategies
+```
+
+**Frontend Integration:**
+The React dashboard's Strategy Lab component (StrategyLab.tsx) uses this endpoint via the `useStrategies()` hook to display all configured strategies in a table with controls for enabling/disabling, editing parameters, and running backtests.
+
+**Error Handling:**
+- Returns empty array `[]` if no strategies configured
+- Never crashes on missing config files
+- Returns safe defaults with empty tags array
+
+---
