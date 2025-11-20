@@ -3378,6 +3378,7 @@ def api_risk_summary() -> JSONResponse:
             max_exposure_pct = max_exposure_pct * 100.0
         
         # Calculate used loss (negative value)
+        realized_pnl = realized_pnl or 0.0
         used_loss = realized_pnl if realized_pnl < 0 else 0.0
         
         # Calculate remaining loss (how much more loss is allowed)
