@@ -21,6 +21,7 @@ from apps import dashboard_logs
 from apps import api_strategies
 from analytics.risk_metrics import load_risk_limits, compute_risk_breaches, compute_var
 from analytics.benchmarks import load_benchmarks
+from analytics.diagnostics import load_diagnostics
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 TEMPLATES_DIR = BASE_DIR / "templates"
@@ -481,6 +482,72 @@ async def get_benchmarks(days: int = 1) -> JSONResponse:
         logger.exception("Failed to load benchmarks")
         # Return empty list instead of crashing
         return JSONResponse([])
+
+
+@router.get("/api/diagnostics/strategy")
+async def get_strategy_diagnostics(symbol: str, strategy: str, limit: int = 200) -> JSONResponse:
+    """
+    Return real-time diagnostics for a specific symbol/strategy combination.
+    
+    This endpoint provides visibility into WHY a strategy is giving BUY/SELL/HOLD
+    decisions, including indicator values, confidence scores, and risk blocks.
+    
+    Args:
+        symbol: Trading symbol (e.g., "NIFTY", "BANKNIFTY", "RELIANCE")
+        strategy: Strategy identifier (e.g., "EMA_20_50", "FNO_TREND")
+        limit: Maximum number of records to return (default: 200, max: 1000)
+    
+    Returns:
+        {
+          "symbol": str,
+          "strategy": str,
+          "data": [
+            {
+              "ts": ISO timestamp,
+              "price": float,
+              "ema20": float | null,
+              "ema50": float | null,
+              "trend_strength": float | null,
+              "confidence": float,
+              "rr": float | null,
+              "regime": str | null,
+              "risk_block": str,
+              "decision": "BUY"|"SELL"|"HOLD",
+              "reason": str
+            },
+            ...
+          ]
+        }
+    
+    Example:
+        GET /api/diagnostics/strategy?symbol=NIFTY&strategy=EMA_20_50&limit=200
+    """
+    try:
+        # Validate and clamp limit
+        limit = max(1, min(limit, 1000))
+        
+        # Load diagnostics
+        result = load_diagnostics(symbol, strategy, limit)
+        
+        return JSONResponse({
+            "symbol": symbol,
+            "strategy": strategy,
+            "data": result,
+            "count": len(result),
+        })
+        
+    except Exception as exc:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.exception("Failed to load strategy diagnostics for %s/%s", symbol, strategy)
+        
+        return JSONResponse({
+            "symbol": symbol,
+            "strategy": strategy,
+            "data": [],
+            "count": 0,
+            "error": str(exc),
+        })
 
 
 @router.post("/api/risk/limits")

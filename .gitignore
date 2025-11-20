@@ -16,6 +16,7 @@ artifacts/scanner/
 artifacts/logs/
 artifacts/runtime/
 artifacts/telemetry/
+artifacts/diagnostics/
 ui/static/dashboard_old.js
 ui/static/js/dashboard_old.js
 ui/static/css/dashboard_old.css
