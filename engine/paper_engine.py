@@ -652,7 +652,7 @@ class PaperEngine:
                         config=self.cfg.raw,
                         market_data_engine=self.feed,
                         trade_recorder=self.recorder,
-                        state_store=self.checkpoint_store,
+                        state_store=self.state_store,
                     )
                     if self.execution_engine_v3:
                         logger.info("ExecutionEngine V3 initialized successfully")
@@ -669,8 +669,8 @@ class PaperEngine:
                     self.execution_engine_v2 = create_execution_engine_v2(
                         mode="paper",
                         broker=None,
-                        state_store=self.checkpoint_store,
-                        journal_store=self.journal_store,
+                        state_store=self.state_store,
+                        journal_store=self.journal,
                         trade_throttler=self.trade_throttler,
                         config=self.cfg.raw,
                         mde=self.market_data_engine_v2,

@@ -182,6 +182,10 @@ learning_engine:
 
 execution:
   # ExecutionEngine configuration
+  # Toggle ExecutionEngine V3 by setting engine to "v3" or "v2"
+  # - v3: Enhanced order lifecycle management with SL/TP/trailing/time-stop support
+  # - v2: Legacy execution engine
+  # - Set to v2 to fall back to legacy behavior while testing
   engine: v3  # "v2" or "v3" - use v3 for enhanced order lifecycle management
   use_execution_engine_v2: false  # Set to true to enable ExecutionEngine v2
   dry_run: false  # When true, simulates live orders without actual placement
