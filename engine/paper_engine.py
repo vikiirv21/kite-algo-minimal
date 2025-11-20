@@ -1744,13 +1744,21 @@ class PaperEngine:
         if self.execution_engine_v3 is not None:
             try:
                 from engine.execution_v3_integration import convert_to_order_intent
-                # Convert to ExecutionEngine V3 OrderIntent
-                intent = convert_to_order_intent(
+                # Determine logical symbol for context
+                logical = self.logical_alias.get(symbol, symbol)
+                
+                # Convert to ExecutionEngine V3 OrderIntent + ExecutionContext
+                intent, context = convert_to_order_intent(
                     symbol=symbol,
                     signal=side,
                     qty=qty,
                     price=price,
                     strategy_code=strategy_label,
+                    logical_symbol=logical,
+                    product=self.cfg.trading.get("default_product", "MIS"),
+                    mode=self.mode.value,
+                    timeframe=tf or self.default_timeframe,
+                    exchange=self.fno_exchange,
                     sl_price=extra_payload.get("sl_price"),
                     tp_price=extra_payload.get("tp_price"),
                     time_stop_bars=extra_payload.get("time_stop_bars"),
@@ -1758,9 +1766,12 @@ class PaperEngine:
                 )
                 
                 # Execute via ExecutionEngine V3
-                order = self.execution_engine_v3.process_signal(symbol, intent)
-                if order:
-                    logger.info("Order executed via ExecutionEngine V3: %s", order.order_id)
+                result = self.execution_engine_v3.process_signal(symbol, intent, context)
+                if result and result.status == "FILLED":
+                    logger.info("Order executed via ExecutionEngine V3: %s", result.order_id)
+                    return
+                elif result and result.status == "REJECTED":
+                    logger.warning("Order rejected by ExecutionEngine V3: %s", result.reason)
                     return
             except Exception as exc:
                 logger.warning("ExecutionEngine V3 failed, falling back: %s", exc)

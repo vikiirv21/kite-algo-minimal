@@ -1,40 +1,22 @@
 """
-Execution Engine V3 - Unified execution layer with comprehensive order lifecycle management.
+Execution Engine V3 - Step 1 minimal implementation.
 
 This package provides:
-- Order lifecycle management (CREATED → SUBMITTED → FILLED → ACTIVE → CLOSED)
-- Fill simulation with bid/ask spread and slippage
-- Stop Loss management with partial exit support
-- Take Profit management
-- Trailing Stop Loss
-- Time-based stops
-- Unified position tracking and PnL calculation
+- Simple "market at LTP" order fills
+- Basic position tracking and PnL calculation
+- State updates via state_store
+- Trade journaling via trade_recorder
+- No SL/TP, trailing stops, or partial exits (deferred to later steps)
 """
 
 from execution.engine_v3 import (
     ExecutionEngineV3,
-    OrderBuilder,
-    FillEngine,
-    StopLossManager,
-    TakeProfitManager,
-    TrailingStopManager,
-    TimeStopManager,
-    TradeLifecycleManager,
-    OrderState,
-    Order,
-    Position,
+    ExecutionContext,
+    ExecutionResult,
 )
 
 __all__ = [
     "ExecutionEngineV3",
-    "OrderBuilder",
-    "FillEngine",
-    "StopLossManager",
-    "TakeProfitManager",
-    "TrailingStopManager",
-    "TimeStopManager",
-    "TradeLifecycleManager",
-    "OrderState",
-    "Order",
-    "Position",
+    "ExecutionContext",
+    "ExecutionResult",
 ]
