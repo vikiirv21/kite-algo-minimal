@@ -886,23 +886,29 @@ class PaperEngine:
             logger.warning("Failed to initialize PaperAccountManager: %s. Continuing without reset logic.", exc)
             self.account_manager = None
         
-        # Initialize Runtime Metrics Tracker for analytics
+        # Initialize Runtime Metrics Tracker for unified analytics
         try:
-            starting_capital_for_metrics = (
-                self.account_manager.starting_capital 
-                if self.account_manager else self.paper_capital
-            )
-            self.runtime_metrics = RuntimeMetricsTracker(
-                starting_capital=starting_capital_for_metrics,
+            from analytics.runtime_metrics import RuntimeMetricsTracker
+            from analytics.equity_curve import EquityCurveWriter
+            
+            self.metrics_tracker = RuntimeMetricsTracker(
+                starting_capital=self.paper_capital,
+                mode=self.mode.value,
                 artifacts_dir=self.artifacts_dir,
-                auto_persist=True,
+                equity_curve_maxlen=500,
             )
-            # Try to load existing metrics
-            self.runtime_metrics.load()
-            logger.info("RuntimeMetricsTracker initialized successfully")
+            
+            self.equity_curve_writer = EquityCurveWriter(
+                artifacts_dir=self.artifacts_dir,
+                filename="snapshots.csv",
+                min_interval_sec=5.0,
+            )
+            
+            logger.info("Runtime metrics tracker initialized")
         except Exception as exc:
-            logger.warning("Failed to initialize RuntimeMetricsTracker: %s. Continuing without runtime metrics.", exc)
-            self.runtime_metrics = None
+            logger.warning("Failed to initialize runtime metrics tracker: %s. Continuing without analytics.", exc)
+            self.metrics_tracker = None
+            self.equity_curve_writer = None
 
     # -------------------------------------------------------------------------
     # MarketContext Management
@@ -1585,6 +1591,38 @@ class PaperEngine:
         self._apply_risk_engine()
         self._enforce_trade_sl_tp()
 
+        # Update metrics with unrealized PnL and push equity snapshot
+        if self.metrics_tracker:
+            try:
+                # Calculate total unrealized PnL from all positions
+                total_unrealized = 0.0
+                for symbol, pos in self.paper_broker.get_all_positions().items():
+                    if pos.quantity != 0:
+                        last_price = self.last_prices.get(symbol, pos.avg_price)
+                        if last_price and pos.avg_price:
+                            if pos.quantity > 0:
+                                unrealized = (last_price - pos.avg_price) * pos.quantity
+                            else:
+                                unrealized = (pos.avg_price - last_price) * abs(pos.quantity)
+                            total_unrealized += unrealized
+                
+                # Update unrealized PnL
+                self.metrics_tracker.update_unrealized_pnl(total_unrealized)
+                
+                # Push equity snapshot (rate-limited to every 5 seconds)
+                self.metrics_tracker.push_equity_snapshot(min_interval_sec=5.0)
+                
+                # Write to equity curve CSV (rate-limited to every 5 seconds)
+                if self.equity_curve_writer:
+                    metrics = self.metrics_tracker.get_metrics()
+                    self.equity_curve_writer.append_snapshot(
+                        equity=metrics.current_equity,
+                        realized_pnl=metrics.realized_pnl,
+                        unrealized_pnl=metrics.unrealized_pnl,
+                    )
+            except Exception as exc:
+                logger.debug("Failed to update metrics in loop: %s", exc)
+
         # Periodically snapshot paper broker state
         if self._loop_counter % self.snapshot_every_n_loops == 0:
             meta = self._compute_portfolio_meta()
@@ -2203,16 +2241,21 @@ class PaperEngine:
             strategy_code=strategy_code_value,
         )
         
-        # Update runtime metrics for entry/partial exit
-        if hasattr(self, 'runtime_metrics') and self.runtime_metrics:
+        # Update runtime metrics after fill
+        if self.metrics_tracker:
             try:
-                logical = self.logical_alias.get(symbol, symbol)
-                # Only update if there was a realized PnL change
-                if pnl_delta != 0:
-                    self.runtime_metrics.update_symbol_pnl(logical, realized_delta=pnl_delta)
-                    self.runtime_metrics.update_strategy_pnl(strategy_label, realized_delta=pnl_delta)
+                self.metrics_tracker.update_after_fill(
+                    symbol=symbol,
+                    strategy=strategy_label,
+                    realized_pnl=pnl_delta,
+                    fill_price=price,
+                    qty=qty,
+                    side=signal,
+                )
+                # Save metrics to JSON
+                self.metrics_tracker.save()
             except Exception as exc:
-                logger.debug("Failed to update runtime metrics on entry: %s", exc)
+                logger.debug("Failed to update metrics after fill: %s", exc)
 
         self.last_signal_ids[symbol] = signal_timestamp
 
@@ -2561,6 +2604,23 @@ class PaperEngine:
                 logger.debug("Failed to update runtime metrics on exit: %s", exc)
 
         meta = self._compute_portfolio_meta()
+        
+        # Update runtime metrics after fill
+        if self.metrics_tracker:
+            try:
+                self.metrics_tracker.update_after_fill(
+                    symbol=symbol,
+                    strategy=code_for_metrics,
+                    realized_pnl=pnl_delta,
+                    fill_price=price,
+                    qty=qty,
+                    side=side,
+                )
+                # Save metrics to JSON
+                self.metrics_tracker.save()
+            except Exception as exc:
+                logger.debug("Failed to update metrics after fill: %s", exc)
+        
         self._snapshot_state(meta, reason="close_position")
 
     # -------------------------------------------------------------------------

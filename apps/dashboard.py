@@ -6,7 +6,7 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import pytz
 from fastapi import APIRouter, FastAPI, Request
@@ -830,6 +830,96 @@ async def get_engine_logs(engine: str, lines: int = 200):
     For now, just return {"engine": engine, "lines": []}.
     """
     return {"engine": engine, "lines": []}
+
+
+@router.get("/api/analytics/summary")
+async def get_analytics_summary() -> JSONResponse:
+    """
+    Return analytics summary from runtime_metrics.json.
+    
+    This endpoint provides comprehensive performance analytics including:
+    - Current equity and PnL (realized and unrealized)
+    - Per-symbol PnL breakdown
+    - Per-strategy PnL breakdown
+    - Equity curve (short rolling window)
+    - Max drawdown and equity statistics
+    
+    Never crashes - returns sensible defaults if data unavailable.
+    """
+    try:
+        from analytics.runtime_metrics import load_runtime_metrics
+        
+        # Load metrics with safe loader
+        metrics = load_runtime_metrics()
+        
+        return JSONResponse(metrics)
+        
+    except Exception as exc:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error("Failed to load analytics summary: %s", exc)
+        
+        # Return default structure on error
+        return JSONResponse({
+            "asof": datetime.now().isoformat(),
+            "mode": "paper",
+            "starting_capital": 0.0,
+            "current_equity": 0.0,
+            "realized_pnl": 0.0,
+            "unrealized_pnl": 0.0,
+            "daily_pnl": 0.0,
+            "max_equity": 0.0,
+            "min_equity": 0.0,
+            "max_drawdown": 0.0,
+            "pnl_per_symbol": {},
+            "pnl_per_strategy": {},
+            "equity_curve": [],
+            "error": str(exc),
+        })
+
+
+@router.get("/api/analytics/equity_curve")
+async def get_equity_curve(max_rows: Optional[int] = 500) -> JSONResponse:
+    """
+    Return equity curve from snapshots.csv.
+    
+    This endpoint provides the historical equity curve with timestamp,
+    equity, realized_pnl, and unrealized_pnl for each snapshot.
+    
+    Args:
+        max_rows: Maximum number of rows to return (default: 500)
+    
+    Returns:
+        List of equity snapshots in chronological order
+        
+    Never crashes - returns empty list if data unavailable.
+    """
+    try:
+        from analytics.equity_curve import load_equity_curve
+        
+        # Validate and clamp max_rows
+        if max_rows is not None:
+            max_rows = max(1, min(max_rows, 10000))
+        
+        # Load equity curve with safe loader
+        curve = load_equity_curve(max_rows=max_rows)
+        
+        return JSONResponse({
+            "data": curve,
+            "count": len(curve),
+        })
+        
+    except Exception as exc:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error("Failed to load equity curve: %s", exc)
+        
+        # Return empty structure on error
+        return JSONResponse({
+            "data": [],
+            "count": 0,
+            "error": str(exc),
+        })
 
 
 router.include_router(dashboard_module.router)
