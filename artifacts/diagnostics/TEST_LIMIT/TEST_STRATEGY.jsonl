@@ -1,0 +1,10 @@
+{"price": 100.0, "decision": "HOLD", "reason": "Test 0", "ts": "2025-11-20T06:56:05.215055+00:00"}
+{"price": 101.0, "decision": "HOLD", "reason": "Test 1", "ts": "2025-11-20T06:56:05.215221+00:00"}
+{"price": 102.0, "decision": "HOLD", "reason": "Test 2", "ts": "2025-11-20T06:56:05.215309+00:00"}
+{"price": 103.0, "decision": "HOLD", "reason": "Test 3", "ts": "2025-11-20T06:56:05.215381+00:00"}
+{"price": 104.0, "decision": "HOLD", "reason": "Test 4", "ts": "2025-11-20T06:56:05.215466+00:00"}
+{"price": 105.0, "decision": "HOLD", "reason": "Test 5", "ts": "2025-11-20T06:56:05.215539+00:00"}
+{"price": 106.0, "decision": "HOLD", "reason": "Test 6", "ts": "2025-11-20T06:56:05.215610+00:00"}
+{"price": 107.0, "decision": "HOLD", "reason": "Test 7", "ts": "2025-11-20T06:56:05.215676+00:00"}
+{"price": 108.0, "decision": "HOLD", "reason": "Test 8", "ts": "2025-11-20T06:56:05.215818+00:00"}
+{"price": 109.0, "decision": "HOLD", "reason": "Test 9", "ts": "2025-11-20T06:56:05.215915+00:00"}
