@@ -1245,6 +1245,60 @@ class PaperEngine:
                     
                     intent = self.strategy_engine_v3.evaluate(symbol, ts, ltp, md)
                     
+                    # Emit diagnostics for V3 engine (non-blocking, best-effort)
+                    if intent:
+                        try:
+                            from analytics.diagnostics import build_diagnostic_record, append_diagnostic
+                            
+                            # Extract metadata
+                            metadata = intent.metadata or {}
+                            indicators = metadata.get("indicators", {})
+                            
+                            # Get indicator values
+                            ema20 = indicators.get("ema20")
+                            ema50 = indicators.get("ema50")
+                            trend_strength = indicators.get("trend_strength")
+                            
+                            # Get regime if available
+                            regime_label = indicators.get("regime")
+                            
+                            # Get RR if available
+                            rr = indicators.get("rr") or indicators.get("risk_reward")
+                            
+                            # Determine risk block
+                            risk_block = "none"
+                            if intent.action == "HOLD":
+                                reason_lower = intent.reason.lower()
+                                if "loss" in reason_lower or "capital" in reason_lower:
+                                    risk_block = "max_loss"
+                                elif "cooldown" in reason_lower or "throttle" in reason_lower:
+                                    risk_block = "cooldown"
+                                elif "slippage" in reason_lower:
+                                    risk_block = "slippage"
+                            
+                            # Build diagnostic record
+                            diagnostic = build_diagnostic_record(
+                                price=ltp,
+                                decision=intent.action,
+                                reason=intent.reason,
+                                confidence=intent.confidence,
+                                ema20=ema20,
+                                ema50=ema50,
+                                trend_strength=trend_strength,
+                                rr=rr,
+                                regime=regime_label,
+                                risk_block=risk_block,
+                                # Additional fields
+                                strategy_id=intent.strategy_code,
+                                timeframe=primary_tf,
+                                setup=metadata.get("setup", ""),
+                            )
+                            
+                            append_diagnostic(logical, intent.strategy_code, diagnostic)
+                        except Exception as diag_exc:
+                            # Never let diagnostics crash the engine
+                            logger.debug("Diagnostics emission failed for %s: %s", symbol, diag_exc)
+                    
                     # Process intent if not HOLD
                     if intent and intent.action != "HOLD":
                         # Extract metadata for logging
@@ -1364,6 +1418,57 @@ class PaperEngine:
                         context=full_context,
                         market_context=market_context,  # Pass MarketContext here
                     )
+                    
+                    # Emit diagnostics (non-blocking, best-effort)
+                    try:
+                        from analytics.diagnostics import build_diagnostic_record, append_diagnostic
+                        
+                        # Extract indicator values
+                        ema20 = indicators.get("ema20")
+                        ema50 = indicators.get("ema50")
+                        trend_strength = debug.get("trend_strength")
+                        
+                        # Get regime info if available
+                        regime_label = None
+                        if market_context and hasattr(market_context, 'regime'):
+                            regime_label = str(market_context.regime) if market_context.regime else None
+                        
+                        # Calculate risk:reward if available
+                        rr = debug.get("rr") or debug.get("risk_reward")
+                        
+                        # Determine risk block reason
+                        risk_block = "none"
+                        if intent.signal == "HOLD":
+                            # Check if it's a risk block
+                            reason_lower = intent.reason.lower()
+                            if "loss" in reason_lower or "capital" in reason_lower:
+                                risk_block = "max_loss"
+                            elif "cooldown" in reason_lower or "throttle" in reason_lower:
+                                risk_block = "cooldown"
+                            elif "slippage" in reason_lower:
+                                risk_block = "slippage"
+                        
+                        # Build and append diagnostic record
+                        diagnostic = build_diagnostic_record(
+                            price=ltp,
+                            decision=intent.signal,
+                            reason=intent.reason,
+                            confidence=intent.confidence,
+                            ema20=ema20,
+                            ema50=ema50,
+                            trend_strength=trend_strength,
+                            rr=rr,
+                            regime=regime_label,
+                            risk_block=risk_block,
+                            # Additional fields
+                            strategy_id=intent.strategy_id,
+                            timeframe=tf,
+                        )
+                        
+                        append_diagnostic(logical, intent.strategy_id, diagnostic)
+                    except Exception as diag_exc:
+                        # Never let diagnostics crash the engine
+                        logger.debug("Diagnostics emission failed for %s: %s", symbol, diag_exc)
                     
                     # Always log the signal
                     self.recorder.log_signal(
