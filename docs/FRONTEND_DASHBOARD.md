@@ -30,91 +30,139 @@ The dashboard is built with:
 - Current P&L snapshot
 - Recent alerts/notifications
 
-### 2. Engines / Status
+**Data Source:** `/api/health`, `/api/trading/summary`
+
+### 2. Analytics
+- Equity curve from runtime metrics
+- Overall performance metrics (total_trades, win_rate, profit_factor)
+- Per-strategy breakdown with P&L
+- Per-symbol breakdown with P&L
+- Max drawdown tracking
+
+**Data Source:** `/api/analytics/summary` → `artifacts/analytics/runtime_metrics.json`
+
+### 3. Engines / Status
 - Engine state (running, stopped, error)
-- Active strategies
+- Active strategies from config
 - Position counts
 - Resource utilization
 
-### 3. Signals
+**Data Source:** `/api/trading/summary`, `/api/strategies`
+
+### 4. Signals
 - Recent signals generated
 - Signal quality metrics
 - Strategy-specific signals
 - Historical signal performance
 
-### 4. Positions & Portfolio
+**Data Source:** `/api/signals` → `artifacts/signals.csv`
+
+### 5. Positions & Portfolio
 - Current open positions
 - Unrealized P&L
 - Position sizing
 - Entry prices and current prices
 
-### 5. Logs
+**Data Source:** `/api/positions_normalized` → `artifacts/checkpoints/paper_state_latest.json`
+
+### 6. Logs
 - Real-time log streaming
 - Log filtering and search
 - Error tracking
 - System events
 
-### 6. Risk
-- Risk metrics and limits
-- Exposure levels
-- Loss tracking
+**Data Source:** `/api/logs/recent` → log files
+
+### 7. Risk
+- Risk metrics and limits (max_daily_loss, max_exposure_pct, risk_per_trade_pct)
+- Exposure levels (current vs. max)
+- Loss tracking (used_loss, remaining_loss)
 - Circuit breaker status
 
-### 7. Strategy Lab
-- Strategy configuration
-- Parameter tuning
-- Backtest results
+**Data Source:** `/api/risk/summary` → config + runtime metrics
+
+### 8. Strategy Lab
+- Strategy list with enabled/disabled status
+- Parameter configuration per strategy
+- Tags and engine type (equity/fno/options)
+- Backtest results (when available)
 - Performance comparison
 
-### 8. Analytics
-- Equity curve
-- Trade history
-- Performance metrics (Sharpe, win rate, etc.)
-- Drawdown analysis
+**Data Source:** `/api/strategies` → `configs/dev.yaml` + `configs/learned_overrides.yaml`
+
+### 9. Trading
+- Mode (paper/live) and engine status (RUNNING/STOPPED)
+- Server time in IST
+- Active orders (PENDING/OPEN status)
+- Recent orders (last 10)
+- Active positions count
+
+**Data Source:** `/api/trading/summary` → checkpoints + orders.csv
 
 ## API Endpoints
 
 The dashboard exposes the following HTTP endpoints:
 
-| Method | Path | Handler | Purpose |
-|--------|------|---------|---------|
-| GET | `/` | `dashboard_page` | Main dashboard UI |
-| GET | `/api/state` | `get_state` | System state |
-| GET | `/api/positions` | `get_positions` | Current positions |
-| *More endpoints detected via scanning* |
+### Core Dashboard APIs
 
-## Backend Integration
-
-The dashboard connects to backend services through:
-
-### State Management APIs
-- `/api/state` - Overall system state
-- `/api/config` - Configuration data
-- `/api/health` - Health check endpoint
-
-### Position & Portfolio APIs
-- `/api/positions` - Current positions
-- `/api/portfolio` - Portfolio summary
-- `/api/pnl` - P&L data
-
-### Strategy & Signal APIs
-- `/api/strategies` - Strategy list and status
-- `/api/signals` - Recent signals
-- `/api/strategy/{id}` - Individual strategy details
+| Method | Path | Purpose | Data Source |
+|--------|------|---------|-------------|
+| GET | `/` | Main dashboard UI (React SPA) | - |
+| GET | `/risk` | Risk page route (SPA) | - |
+| GET | `/analytics` | Analytics page route (SPA) | - |
+| GET | `/strategies` | Strategies page route (SPA) | - |
 
 ### Analytics APIs
-- `/api/analytics/trades` - Trade history
-- `/api/analytics/performance` - Performance metrics
-- `/api/analytics/equity-curve` - Equity curve data
 
-### Control APIs
-- `/api/control/start` - Start trading
-- `/api/control/stop` - Stop trading
-- `/api/control/halt` - Emergency halt
+| Method | Path | Purpose | Data Source |
+|--------|------|---------|-------------|
+| GET | `/api/analytics/summary` | Comprehensive analytics | `artifacts/analytics/runtime_metrics.json` |
+| GET | `/api/analytics/equity_curve` | Equity curve data | snapshots.csv |
+| GET | `/api/performance` | Performance metrics | runtime_metrics.json |
 
-### Log APIs
-- `/api/logs` - Log entries
-- `/api/logs/stream` - SSE log streaming
+### Trading & Orders APIs
+
+| Method | Path | Purpose | Data Source |
+|--------|------|---------|-------------|
+| GET | `/api/trading/summary` | Trading status + orders | checkpoints + orders.csv |
+| GET | `/api/trading/status` | Engine status | checkpoint age |
+| GET | `/api/orders` | Order history | orders.csv |
+| GET | `/api/signals` | Signal history | signals.csv |
+
+### Portfolio & Positions APIs
+
+| Method | Path | Purpose | Data Source |
+|--------|------|---------|-------------|
+| GET | `/api/positions_normalized` | Current positions | paper_state_latest.json |
+| GET | `/api/state` | Overall system state | checkpoint |
+| GET | `/api/portfolio/limits` | Portfolio limits | config |
+
+### Strategy APIs
+
+| Method | Path | Purpose | Data Source |
+|--------|------|---------|-------------|
+| GET | `/api/strategies` | List all strategies | config + overrides |
+| POST | `/api/strategies/{id}/enable` | Enable strategy | learned_overrides.yaml |
+| POST | `/api/strategies/{id}/disable` | Disable strategy | learned_overrides.yaml |
+| PUT | `/api/strategies/{id}/params` | Update params | learned_overrides.yaml |
+
+### Risk & Circuit Breakers
+
+| Method | Path | Purpose | Data Source |
+|--------|------|---------|-------------|
+| GET | `/api/risk/summary` | Risk metrics + limits | config + runtime metrics |
+| GET | `/api/risk/limits` | Risk limit config | config |
+| GET | `/api/risk/breaches` | Active breaches | runtime state |
+| GET | `/api/risk/var` | Value at Risk | historical trades |
+
+### System & Health
+
+| Method | Path | Purpose | Data Source |
+|--------|------|---------|-------------|
+| GET | `/api/health` | System health check | engine status + logs |
+| GET | `/api/meta` | IST time + market status | - |
+| GET | `/healthz` | Basic health check | - |
+| POST | `/api/resync` | Rebuild state from journal | journal + orders |
 
 ## Running the Dashboard
 
