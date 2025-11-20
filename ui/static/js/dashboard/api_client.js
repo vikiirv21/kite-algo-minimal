@@ -116,7 +116,7 @@ export async function getLogs(params = {}) {
 // ========== Analytics ==========
 
 export async function getEquityCurve(days = 1) {
-  return fetchAPI(`/api/stats/equity?days=${days}`);
+  return fetchAPI(`/api/analytics/equity_curve`);
 }
 
 export async function getAnalyticsSummary() {

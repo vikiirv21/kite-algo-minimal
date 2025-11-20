@@ -73,6 +73,7 @@ from strategies.fno_intraday_trend import (
 from analytics.trade_recorder import TradeRecorder
 from analytics.trade_journal import finalize_trade, TRADE_JOURNAL_FIELDS
 from analytics.multi_timeframe_engine import MultiTimeframeEngine
+from analytics.runtime_metrics import RuntimeMetricsTracker
 from analytics.telemetry_bus import (
     publish_engine_health,
     publish_signal_event,
@@ -1093,6 +1094,48 @@ class PaperEngine:
             self._last_regime_value = self.regime_detector.current_regime()
         except Exception as exc:  # noqa: BLE001
             logger.debug("Regime detector update failed for %s: %s", logical_symbol, exc)
+    
+    def _update_runtime_metrics(self) -> None:
+        """
+        Update runtime metrics with current PnL and position data.
+        
+        This method is called periodically to snapshot equity and track positions.
+        """
+        if not hasattr(self, 'runtime_metrics') or self.runtime_metrics is None:
+            return
+        
+        try:
+            # Calculate realized PnL from paper broker
+            realized = 0.0
+            for pos in self.paper_broker.positions.values():
+                realized += pos.realized_pnl
+            
+            # Calculate unrealized PnL from current positions
+            unrealized = 0.0
+            for symbol, pos in self.paper_broker.positions.items():
+                if pos.quantity != 0:
+                    current_price = self.last_prices.get(symbol, pos.avg_price)
+                    if pos.quantity > 0:
+                        unrealized += (current_price - pos.avg_price) * pos.quantity
+                    else:
+                        unrealized += (pos.avg_price - current_price) * abs(pos.quantity)
+            
+            # Update equity snapshot
+            starting_capital = (
+                self.account_manager.starting_capital 
+                if self.account_manager else self.paper_capital
+            )
+            self.runtime_metrics.snapshot_equity(
+                realized_pnl=realized,
+                unrealized_pnl=unrealized,
+                starting_capital=starting_capital,
+            )
+            
+            # Update open positions count
+            open_positions = [p for p in self.paper_broker.positions.values() if p.quantity != 0]
+            self.runtime_metrics.set_open_positions_count(len(open_positions))
+        except Exception as exc:
+            logger.debug("Failed to update runtime metrics: %s", exc)
 
     # -------------------------------------------------------------------------
     # Main loop
@@ -1584,6 +1627,9 @@ class PaperEngine:
         if self._loop_counter % self.snapshot_every_n_loops == 0:
             meta = self._compute_portfolio_meta()
             self._snapshot_state(meta, reason="loop_tick")
+        
+        # Update runtime metrics tracker
+        self._update_runtime_metrics()
 
         # Risk checks (global + per-symbol)
         self._check_risk()
@@ -2544,6 +2590,18 @@ class PaperEngine:
                 realized_pnl=pnl_delta,
                 count_towards_limits=False,
             )
+        
+        # Update runtime metrics for closed trade
+        if hasattr(self, 'runtime_metrics') and self.runtime_metrics:
+            try:
+                logical = self.logical_alias.get(symbol, symbol)
+                self.runtime_metrics.update_symbol_pnl(logical, realized_delta=pnl_delta)
+                self.runtime_metrics.update_strategy_pnl(self.strategy_name, realized_delta=pnl_delta)
+                if pnl_delta != 0:  # Only count as closed trade if there was a PnL change
+                    self.runtime_metrics.inc_closed_trades()
+                    self.runtime_metrics.record_trade_result(pnl_delta)
+            except Exception as exc:
+                logger.debug("Failed to update runtime metrics on exit: %s", exc)
 
         meta = self._compute_portfolio_meta()
         
