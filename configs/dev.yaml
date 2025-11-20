@@ -40,6 +40,11 @@ trading:
 
   max_open_positions: null  # null = unlimited positions
 
+# Paper Account Management Configuration
+paper_account:
+  starting_capital: 500000       # Starting capital for paper account
+  max_drawdown_reset: 50000      # Reset account if yesterday's loss >= this amount
+
 # Expiry-Aware Risk Configuration
 expiry_risk:
   enabled: true                              # Enable expiry-aware risk adjustments

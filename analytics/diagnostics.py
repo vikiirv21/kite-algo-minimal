@@ -1,32 +1,14 @@
 """
 Strategy Real-Time Diagnostics Engine (SRDE)
 
-Provides real-time visibility into strategy decision-making by capturing and
-persisting diagnostic information for each signal/decision.
+Provides persistent, non-blocking diagnostic logging for strategy decisions.
+Diagnostics help explain WHY a strategy gave BUY/SELL/HOLD signals.
 
 Features:
-- Non-blocking JSONL-based persistence
-- Per-symbol, per-strategy storage
-- Crash-resilient (auto-creates directories)
-- Never slows down trading engines (best-effort logging)
-
-Storage Format:
-    artifacts/diagnostics/<symbol>/<strategy>.jsonl
-
-Each record contains:
-{
-  "ts": ISO timestamp,
-  "price": float,
-  "ema20": float,
-  "ema50": float,
-  "trend_strength": float,
-  "confidence": float,
-  "rr": float,                    # risk:reward
-  "regime": "trend"|"low_vol"|"compression"|None,
-  "risk_block": "max_loss"|"cooldown"|"slippage"|"none",
-  "decision": "BUY"|"SELL"|"HOLD",
-  "reason": "<text>"
-}
+- JSONL-based storage for crash resilience
+- Per-symbol, per-strategy file organization
+- Non-blocking writes (best-effort)
+- Automatic directory creation
 """
 
 from __future__ import annotations
@@ -39,17 +21,14 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# Base diagnostics directory
+# Base directory for all diagnostics
 BASE_DIR = Path(__file__).resolve().parents[1]
 DIAGNOSTICS_DIR = BASE_DIR / "artifacts" / "diagnostics"
 
 
 def ensure_diagnostics_dir() -> Path:
     """
-    Ensure the diagnostics directory exists.
-    
-    Creates the directory structure if it doesn't exist.
-    This is crash-safe and will not fail if directory already exists.
+    Ensure the base diagnostics directory exists.
     
     Returns:
         Path to diagnostics directory
@@ -58,102 +37,78 @@ def ensure_diagnostics_dir() -> Path:
         DIAGNOSTICS_DIR.mkdir(parents=True, exist_ok=True)
         return DIAGNOSTICS_DIR
     except Exception as exc:
-        logger.debug("Failed to create diagnostics directory: %s", exc)
+        logger.warning("Failed to create diagnostics directory: %s", exc)
         return DIAGNOSTICS_DIR
 
 
 def path_for(symbol: str, strategy: str) -> Path:
     """
-    Generate the file path for a symbol/strategy diagnostic log.
+    Get the file path for a symbol-strategy combination.
+    
+    Creates nested directory structure: artifacts/diagnostics/<symbol>/<strategy>.jsonl
     
     Args:
-        symbol: Trading symbol (e.g., "NIFTY", "BANKNIFTY", "RELIANCE")
-        strategy: Strategy identifier (e.g., "EMA_20_50", "FNO_TREND")
+        symbol: Trading symbol (e.g., "NIFTY", "BANKNIFTY")
+        strategy: Strategy identifier (e.g., "EMA_20_50", "RSI_MACD")
     
     Returns:
-        Path to the JSONL file for this symbol/strategy combination
-    
-    Example:
-        path_for("NIFTY", "EMA_20_50")
-        -> artifacts/diagnostics/NIFTY/EMA_20_50.jsonl
+        Path to JSONL file for this symbol-strategy pair
     """
-    # Normalize symbol and strategy names
-    symbol_clean = str(symbol).strip().upper().replace("/", "_").replace("\\", "_")
-    strategy_clean = str(strategy).strip().replace("/", "_").replace("\\", "_")
+    # Sanitize symbol and strategy names (remove invalid chars)
+    safe_symbol = "".join(c for c in symbol if c.isalnum() or c in "_-")
+    safe_strategy = "".join(c for c in strategy if c.isalnum() or c in "_-")
     
-    # Build path: diagnostics/<symbol>/<strategy>.jsonl
-    symbol_dir = DIAGNOSTICS_DIR / symbol_clean
-    
-    # Ensure symbol directory exists
+    # Create symbol subdirectory
+    symbol_dir = DIAGNOSTICS_DIR / safe_symbol
     try:
         symbol_dir.mkdir(parents=True, exist_ok=True)
     except Exception as exc:
         logger.debug("Failed to create symbol directory %s: %s", symbol_dir, exc)
     
-    return symbol_dir / f"{strategy_clean}.jsonl"
+    return symbol_dir / f"{safe_strategy}.jsonl"
 
 
 def append_diagnostic(
     symbol: str,
     strategy: str,
-    record: Dict[str, Any],
+    record: Dict[str, Any]
 ) -> bool:
     """
-    Append a diagnostic record to the appropriate JSONL file.
+    Append a diagnostic record to the symbol-strategy JSONL file.
     
-    This function is designed to be non-blocking and never crash the engine.
-    It performs best-effort logging with comprehensive error handling.
+    This is a non-blocking, best-effort operation that should never
+    crash or slow down the trading engine.
     
     Args:
         symbol: Trading symbol
         strategy: Strategy identifier
-        record: Diagnostic record dictionary
+        record: Diagnostic record dict containing:
+            - ts: ISO timestamp
+            - price: float
+            - ema20, ema50: float (optional)
+            - trend_strength: float (optional)
+            - confidence: float
+            - rr: float (risk:reward, optional)
+            - regime: str ("trend"|"low_vol"|"compression"|None)
+            - risk_block: str ("max_loss"|"cooldown"|"slippage"|"none")
+            - decision: str ("BUY"|"SELL"|"HOLD")
+            - reason: str
     
     Returns:
         True if write succeeded, False otherwise
-    
-    Record Format:
-        {
-          "ts": ISO timestamp (auto-added if missing),
-          "price": float,
-          "ema20": float | None,
-          "ema50": float | None,
-          "trend_strength": float | None,
-          "confidence": float,
-          "rr": float | None,
-          "regime": str | None,
-          "risk_block": str,
-          "decision": "BUY"|"SELL"|"HOLD",
-          "reason": str
-        }
-    
-    Example:
-        append_diagnostic(
-            symbol="NIFTY",
-            strategy="EMA_20_50",
-            record={
-                "price": 19500.0,
-                "ema20": 19450.0,
-                "ema50": 19400.0,
-                "trend_strength": 0.85,
-                "confidence": 0.75,
-                "rr": 2.5,
-                "regime": "trend",
-                "risk_block": "none",
-                "decision": "BUY",
-                "reason": "Strong uptrend with EMA20 > EMA50"
-            }
-        )
     """
     try:
-        # Ensure record has timestamp
-        if "ts" not in record:
-            record["ts"] = datetime.now(timezone.utc).isoformat()
+        # Ensure base directory exists
+        ensure_diagnostics_dir()
         
         # Get file path
         file_path = path_for(symbol, strategy)
         
-        # Write record as JSONL (append mode)
+        # Ensure timestamp is present
+        if "ts" not in record:
+            record["ts"] = datetime.now(timezone.utc).isoformat()
+        
+        # Append to JSONL file
         with file_path.open("a", encoding="utf-8") as f:
             json.dump(record, f)
             f.write("\n")
@@ -161,7 +116,7 @@ def append_diagnostic(
         return True
         
     except Exception as exc:
-        # Never crash the engine - just log at debug level
+        # Log at debug level to avoid noise
         logger.debug(
             "Failed to append diagnostic for %s/%s: %s",
             symbol, strategy, exc
@@ -172,36 +127,27 @@ def append_diagnostic(
 def load_diagnostics(
     symbol: str,
     strategy: str,
-    limit: int = 200,
+    limit: int = 200
 ) -> List[Dict[str, Any]]:
     """
-    Load diagnostic records for a symbol/strategy combination.
-    
-    Reads the JSONL file and returns the most recent N records.
-    This is crash-safe and returns empty list if file doesn't exist.
+    Load the most recent diagnostic records for a symbol-strategy pair.
     
     Args:
         symbol: Trading symbol
         strategy: Strategy identifier
-        limit: Maximum number of records to return (default: 200)
+        limit: Maximum number of records to return (most recent first)
     
     Returns:
         List of diagnostic records (most recent first)
-    
-    Example:
-        records = load_diagnostics("NIFTY", "EMA_20_50", limit=100)
-        for rec in records:
-            print(f"{rec['ts']}: {rec['decision']} - {rec['reason']}")
     """
     try:
         file_path = path_for(symbol, strategy)
         
-        # Return empty list if file doesn't exist
         if not file_path.exists():
             logger.debug("No diagnostics file found for %s/%s", symbol, strategy)
             return []
         
-        # Read all records
+        # Read all lines from the file
         records = []
         with file_path.open("r", encoding="utf-8") as f:
             for line in f:
@@ -215,12 +161,9 @@ def load_diagnostics(
                     logger.debug("Failed to parse diagnostic line: %s", exc)
                     continue
         
-        # Return most recent N records (reverse order - newest first)
-        if limit > 0:
-            records = records[-limit:]
-        
-        # Reverse so newest is first
-        records.reverse()
+        # Return most recent records first
+        records = records[-limit:] if len(records) > limit else records
+        records.reverse()  # Most recent first
         
         return records
         
@@ -243,51 +186,54 @@ def build_diagnostic_record(
     rr: Optional[float] = None,
     regime: Optional[str] = None,
     risk_block: str = "none",
-    **extra_fields,
+    **extra_fields
 ) -> Dict[str, Any]:
     """
-    Helper function to build a diagnostic record with standard fields.
+    Build a standardized diagnostic record.
     
-    This ensures consistent field names and types across all diagnostics.
+    Helper function to create consistent diagnostic records across engines.
     
     Args:
         price: Current price
-        decision: "BUY", "SELL", or "HOLD"
-        reason: Human-readable explanation
-        confidence: Confidence score (0.0-1.0)
-        ema20: EMA20 indicator value
-        ema50: EMA50 indicator value
-        trend_strength: Trend strength (0.0-1.0)
-        rr: Risk/Reward ratio
-        regime: Market regime ("trend", "low_vol", "compression", etc.)
-        risk_block: Risk block reason ("max_loss", "cooldown", "slippage", "none")
-        **extra_fields: Additional fields to include
+        decision: Trading decision ("BUY"|"SELL"|"HOLD")
+        reason: Explanation for the decision
+        confidence: Confidence score (0.0 to 1.0)
+        ema20: EMA 20 value (optional)
+        ema50: EMA 50 value (optional)
+        trend_strength: Trend strength indicator (optional)
+        rr: Risk:reward ratio (optional)
+        regime: Market regime ("trend"|"low_vol"|"compression"|None)
+        risk_block: Risk block reason ("max_loss"|"cooldown"|"slippage"|"none")
+        **extra_fields: Additional fields to include in the record
     
     Returns:
-        Diagnostic record dictionary
+        Diagnostic record dict
     """
     record = {
         "ts": datetime.now(timezone.utc).isoformat(),
-        "price": float(price) if price is not None else 0.0,
-        "ema20": float(ema20) if ema20 is not None else None,
-        "ema50": float(ema50) if ema50 is not None else None,
-        "trend_strength": float(trend_strength) if trend_strength is not None else None,
-        "confidence": float(confidence) if confidence is not None else 0.0,
-        "rr": float(rr) if rr is not None else None,
-        "regime": str(regime) if regime else None,
-        "risk_block": str(risk_block) if risk_block else "none",
-        "decision": str(decision).upper(),
-        "reason": str(reason),
+        "price": price,
+        "decision": decision.upper(),
+        "reason": reason,
+        "confidence": confidence,
+        "risk_block": risk_block,
     }
+    
+    # Add optional fields if provided
+    if ema20 is not None:
+        record["ema20"] = ema20
+    if ema50 is not None:
+        record["ema50"] = ema50
+    if trend_strength is not None:
+        record["trend_strength"] = trend_strength
+    if rr is not None:
+        record["rr"] = rr
+    if regime is not None:
+        record["regime"] = regime
     
     # Add any extra fields
     record.update(extra_fields)
     
     return record
-
-
-# Initialize diagnostics directory on module load
-ensure_diagnostics_dir()
 
 
 __all__ = [

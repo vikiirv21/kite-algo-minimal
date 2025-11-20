@@ -666,6 +666,16 @@ class StrategyEngineV2:
                     "confidence": getattr(decision, "confidence", 0.0),
                 }
             
+            # Emit diagnostics (non-blocking)
+            self._emit_diagnostic(
+                symbol=symbol,
+                strategy_id=strategy_id,
+                intent=intent,
+                indicators=indicators,
+                candle=candle,
+                context=context,
+            )
+            
             return intent, debug_payload
             
         except Exception as exc:
@@ -700,6 +710,97 @@ class StrategyEngineV2:
     def set_paper_engine(self, paper_engine: Any):
         """Set reference to paper engine for order execution."""
         self.paper_engine = paper_engine
+    
+    def _emit_diagnostic(
+        self,
+        symbol: str,
+        strategy_id: str,
+        intent: OrderIntent,
+        indicators: Dict[str, Any],
+        candle: Dict[str, float],
+        context: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        Emit diagnostic record for strategy decision.
+        
+        This is a best-effort, non-blocking operation that captures
+        key indicators and reasoning for debugging purposes.
+        
+        Args:
+            symbol: Trading symbol
+            strategy_id: Strategy identifier
+            intent: OrderIntent produced by strategy
+            indicators: Computed indicators dict
+            candle: Current candle dict
+            context: Optional context dict
+        """
+        try:
+            from analytics.diagnostics import build_diagnostic_record, append_diagnostic
+            
+            # Extract price
+            price = candle.get("close", 0.0)
+            
+            # Extract indicators
+            ema20 = indicators.get("ema20")
+            ema50 = indicators.get("ema50")
+            rsi14 = indicators.get("rsi14")
+            atr14 = indicators.get("atr14")
+            
+            # Calculate trend strength if EMAs available
+            trend_strength = None
+            if ema20 is not None and ema50 is not None and ema50 != 0:
+                trend_strength = abs((ema20 - ema50) / ema50)
+            
+            # Extract regime if available
+            regime = None
+            if context and "regime" in context:
+                regime = context["regime"]
+            elif "market_context" in indicators:
+                mc = indicators["market_context"]
+                if hasattr(mc, "regime"):
+                    regime = mc.regime
+                elif isinstance(mc, dict) and "regime" in mc:
+                    regime = mc["regime"]
+            
+            # Extract risk:reward if available
+            rr = intent.extra.get("rr") if intent.extra else None
+            
+            # Determine risk block reason
+            risk_block = "none"
+            if intent.signal == "HOLD":
+                reason_lower = intent.reason.lower()
+                if "loss" in reason_lower or "drawdown" in reason_lower:
+                    risk_block = "max_loss"
+                elif "cooldown" in reason_lower or "streak" in reason_lower:
+                    risk_block = "cooldown"
+                elif "slippage" in reason_lower:
+                    risk_block = "slippage"
+            
+            # Build diagnostic record
+            record = build_diagnostic_record(
+                price=price,
+                decision=intent.signal,
+                reason=intent.reason,
+                confidence=intent.confidence,
+                ema20=ema20,
+                ema50=ema50,
+                trend_strength=trend_strength,
+                rr=rr,
+                regime=regime,
+                risk_block=risk_block,
+                # Additional fields
+                rsi14=rsi14,
+                atr14=atr14,
+                timeframe=intent.timeframe,
+                side=intent.side,
+            )
+            
+            # Append diagnostic (non-blocking)
+            append_diagnostic(symbol, strategy_id, record)
+            
+        except Exception as exc:
+            # Never let diagnostics crash the engine
+            self.logger.debug("Failed to emit diagnostic: %s", exc)
     
     def _init_orchestrator(self) -> None:
         """
