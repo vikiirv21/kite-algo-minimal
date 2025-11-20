@@ -93,6 +93,41 @@ def infer_underlying(symbol: str) -> str:
             return eq
     return s[:10] or "UNKNOWN"
 
+
+def normalize_signal_for_csv(signal: str | int | None) -> str:
+    """
+    Normalize signal values for CSV output.
+    
+    Ensures that only valid signal values (BUY, SELL, HOLD, UNKNOWN) are written
+    to signals.csv, converting invalid values to UNKNOWN.
+    
+    Args:
+        signal: Raw signal value (can be str, int, or None)
+        
+    Returns:
+        Normalized signal string: one of BUY, SELL, HOLD, or UNKNOWN
+    """
+    if signal is None:
+        return "UNKNOWN"
+    
+    # Convert to string and normalize
+    s = str(signal).strip().upper()
+    
+    # Handle regime strings that shouldn't be in signal column
+    if s.startswith("REGIME="):
+        return "UNKNOWN"
+    
+    # Handle empty, NaN, or numeric 0 values
+    if s in ("", "NAN", "NONE", "0"):
+        return "UNKNOWN"
+    
+    # Only allow valid signal values
+    if s not in ("BUY", "SELL", "HOLD", "UNKNOWN"):
+        return "UNKNOWN"
+    
+    return s
+
+
 IST = timezone(timedelta(hours=5, minutes=30))
 
 @dataclass
@@ -317,7 +352,7 @@ class TradeRecorder:
             "logical": payload.logical,
             "symbol": payload.symbol,
             "price": _value(payload.price),
-            "signal": payload.signal,
+            "signal": normalize_signal_for_csv(payload.signal),
             "tf": payload.tf,
             "reason": payload.reason,
             "profile": payload.profile,
@@ -501,7 +536,7 @@ class TradeRecorder:
             "signal_id": signal_id,
             "symbol": symbol,
             "price": price,
-            "action": action,
+            "action": normalize_signal_for_csv(action),
             "confidence": round(confidence, 4) if confidence else "",
             "setup": setup or "",
             "fuse_reason": fuse_reason or "",
