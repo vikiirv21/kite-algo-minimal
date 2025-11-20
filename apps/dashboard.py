@@ -11,11 +11,12 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from core.config import AppConfig, load_config
+from core.config import AppConfig, load_config, LEARNED_OVERRIDES_PATH
 from core.market_session import is_market_open
 from ui import dashboard as dashboard_module
 from apps import dashboard_logs
 from apps import api_strategies
+from analytics.risk_metrics import load_risk_limits, compute_risk_breaches, compute_var
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 TEMPLATES_DIR = BASE_DIR / "templates"
@@ -311,6 +312,292 @@ async def api_telemetry_trade_lifecycle() -> JSONResponse:
         logger = logging.getLogger(__name__)
         logger.error("Failed to load trade lifecycle telemetry: %s", exc)
         return JSONResponse({"error": str(exc)})
+
+
+def load_config_and_overrides(default_config_path: str | Path | None = None) -> tuple[dict, dict | None]:
+    """
+    Load base config and overrides consistently.
+    
+    Returns:
+        Tuple of (config_dict, overrides_dict or None)
+    """
+    import yaml
+    
+    config_path = default_config_path or CONFIG_PATH
+    
+    # Load base config
+    config = {}
+    if Path(config_path).exists():
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f) or {}
+        except Exception as exc:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error("Failed to load config from %s: %s", config_path, exc)
+    
+    # Load overrides
+    overrides = None
+    if LEARNED_OVERRIDES_PATH.exists():
+        try:
+            with open(LEARNED_OVERRIDES_PATH, "r", encoding="utf-8") as f:
+                overrides = yaml.safe_load(f) or {}
+        except Exception as exc:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning("Failed to load overrides from %s: %s", LEARNED_OVERRIDES_PATH, exc)
+    
+    return config, overrides
+
+
+@router.get("/api/risk/limits")
+async def get_risk_limits() -> JSONResponse:
+    """
+    Return normalized risk limits for current mode (paper/live).
+    
+    Returns all configured risk limits from config + overrides.
+    """
+    try:
+        config, overrides = load_config_and_overrides(default_config_path=str(CONFIG_PATH))
+        limits = load_risk_limits(config, overrides)
+        return JSONResponse(limits)
+    except Exception as exc:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error("Failed to load risk limits: %s", exc)
+        return JSONResponse({
+            "mode": "paper",
+            "capital": 0.0,
+            "limits": {},
+            "source": {},
+            "error": str(exc),
+        })
+
+
+@router.get("/api/risk/breaches")
+async def get_risk_breaches() -> JSONResponse:
+    """
+    Return current risk breaches, derived from runtime_metrics + checkpoint + config.
+    
+    Evaluates current trading state against risk limits and returns violations.
+    """
+    try:
+        config, overrides = load_config_and_overrides(default_config_path=str(CONFIG_PATH))
+        
+        mode = config.get("trading", {}).get("mode", "paper")
+        
+        runtime_metrics_path = BASE_DIR / "artifacts" / "analytics" / "runtime_metrics.json"
+        checkpoint_path = BASE_DIR / "artifacts" / "checkpoints" / "paper_state_latest.json"
+        
+        # Try alternative checkpoint name if paper_state_latest doesn't exist
+        if not checkpoint_path.exists():
+            checkpoint_path = BASE_DIR / "artifacts" / "checkpoints" / "runtime_state_latest.json"
+        
+        orders_path = BASE_DIR / "artifacts" / "orders.csv"
+        
+        result = compute_risk_breaches(
+            config=config,
+            runtime_metrics_path=runtime_metrics_path,
+            checkpoint_path=checkpoint_path,
+            orders_path=orders_path,
+            mode=mode,
+        )
+        return JSONResponse(result)
+    except Exception as exc:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error("Failed to compute risk breaches: %s", exc)
+        from datetime import datetime
+        return JSONResponse({
+            "mode": "paper",
+            "asof": datetime.now().isoformat(),
+            "breaches": [],
+            "error": str(exc),
+        })
+
+
+@router.get("/api/risk/var")
+async def get_risk_var(confidence: float = 0.95) -> JSONResponse:
+    """
+    Return simple VaR estimate based on historical trades.
+    
+    Args:
+        confidence: Confidence level for VaR calculation (default 0.95 = 95%)
+    """
+    try:
+        # Validate confidence parameter
+        if not (0.5 <= confidence <= 0.99):
+            confidence = 0.95
+        
+        config, overrides = load_config_and_overrides(default_config_path=str(CONFIG_PATH))
+        capital = float(config.get("trading", {}).get("paper_capital", 500000))
+        orders_path = BASE_DIR / "artifacts" / "orders.csv"
+        mode = config.get("trading", {}).get("mode", "paper")
+        
+        result = compute_var(
+            orders_path=orders_path,
+            capital=capital,
+            confidence=confidence,
+            mode=mode,
+        )
+        return JSONResponse(result)
+    except Exception as exc:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error("Failed to compute VaR: %s", exc)
+        return JSONResponse({
+            "mode": "paper",
+            "confidence": confidence,
+            "var_rupees": 0.0,
+            "var_pct": 0.0,
+            "sample_trades": 0,
+            "status": "error",
+            "error": str(exc),
+        })
+
+
+@router.post("/api/risk/limits")
+async def update_risk_limits(payload: dict) -> JSONResponse:
+    """
+    Update risk limits via overrides file.
+    
+    Writes allowed risk limit updates to configs/learned_overrides.yaml.
+    
+    Args:
+        payload: Dict with risk limit updates (e.g., {"max_daily_loss_rupees": 6000.0})
+    """
+    import yaml
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Define allowed fields for updates
+        allowed_fields = {
+            "max_daily_loss_rupees": ("execution", "circuit_breakers"),
+            "max_daily_drawdown_pct": ("execution", "circuit_breakers"),
+            "max_trades_per_day": ("execution", "circuit_breakers"),
+            "max_trades_per_strategy_per_day": ("execution", "circuit_breakers"),
+            "max_loss_streak": ("execution", "circuit_breakers"),
+            "max_exposure_pct": ("portfolio",),
+            "max_leverage": ("portfolio",),
+            "max_risk_per_trade_pct": ("portfolio",),
+            "per_symbol_max_loss": ("trading",),
+            "max_open_positions": ("trading",),
+        }
+        
+        # Validate payload
+        updates = {}
+        for key, value in payload.items():
+            if key not in allowed_fields:
+                logger.warning("Ignoring invalid field in risk limit update: %s", key)
+                continue
+            
+            # Type validation
+            if key == "max_open_positions" and value is not None:
+                try:
+                    value = int(value)
+                except (ValueError, TypeError):
+                    return JSONResponse({
+                        "status": "error",
+                        "message": f"Invalid type for {key}: expected integer or null",
+                    }, status_code=400)
+            elif key in ["max_trades_per_day", "max_trades_per_strategy_per_day", "max_loss_streak"]:
+                try:
+                    value = int(value)
+                    if value <= 0:
+                        return JSONResponse({
+                            "status": "error",
+                            "message": f"Invalid value for {key}: must be positive",
+                        }, status_code=400)
+                except (ValueError, TypeError):
+                    return JSONResponse({
+                        "status": "error",
+                        "message": f"Invalid type for {key}: expected positive integer",
+                    }, status_code=400)
+            else:
+                try:
+                    value = float(value)
+                    if value < 0:
+                        return JSONResponse({
+                            "status": "error",
+                            "message": f"Invalid value for {key}: must be non-negative",
+                        }, status_code=400)
+                except (ValueError, TypeError):
+                    return JSONResponse({
+                        "status": "error",
+                        "message": f"Invalid type for {key}: expected number",
+                    }, status_code=400)
+            
+            updates[key] = value
+        
+        if not updates:
+            return JSONResponse({
+                "status": "error",
+                "message": "No valid fields to update",
+            }, status_code=400)
+        
+        # Load existing overrides
+        overrides = {}
+        if LEARNED_OVERRIDES_PATH.exists():
+            try:
+                with open(LEARNED_OVERRIDES_PATH, "r", encoding="utf-8") as f:
+                    overrides = yaml.safe_load(f) or {}
+            except Exception as exc:
+                logger.warning("Failed to load existing overrides: %s", exc)
+        
+        # Apply updates to overrides structure
+        for key, value in updates.items():
+            path = allowed_fields[key]
+            
+            # Navigate to the nested dict location
+            current = overrides
+            for section in path[:-1]:
+                if section not in current:
+                    current[section] = {}
+                current = current[section]
+            
+            # Set the value at the final location
+            if len(path) == 1:
+                # Top-level section
+                if path[0] not in overrides:
+                    overrides[path[0]] = {}
+                overrides[path[0]][key] = value
+            else:
+                # Nested section
+                final_section = path[-1]
+                if final_section not in current:
+                    current[final_section] = {}
+                current[final_section][key] = value
+        
+        # Write overrides back to file
+        try:
+            with open(LEARNED_OVERRIDES_PATH, "w", encoding="utf-8") as f:
+                yaml.safe_dump(overrides, f, default_flow_style=False, sort_keys=False)
+            logger.info("Updated risk limits in overrides file: %s", updates)
+        except Exception as exc:
+            logger.error("Failed to write overrides file: %s", exc)
+            return JSONResponse({
+                "status": "error",
+                "message": f"Failed to save updates: {exc}",
+            }, status_code=500)
+        
+        # Reload config and return updated limits
+        config, new_overrides = load_config_and_overrides(default_config_path=str(CONFIG_PATH))
+        limits = load_risk_limits(config, new_overrides)
+        
+        return JSONResponse({
+            "status": "ok",
+            "limits": limits,
+            "updated_fields": list(updates.keys()),
+        })
+        
+    except Exception as exc:
+        logger.error("Failed to update risk limits: %s", exc)
+        return JSONResponse({
+            "status": "error",
+            "message": str(exc),
+        }, status_code=500)
 
 
 router.include_router(dashboard_module.router)
