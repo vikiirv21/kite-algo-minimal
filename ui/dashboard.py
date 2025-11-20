@@ -2988,6 +2988,84 @@ async def api_trading_status() -> JSONResponse:
         })
 
 
+@router.get("/api/trading/summary")
+async def api_trading_summary() -> JSONResponse:
+    """
+    Return comprehensive trading summary including mode, status, orders, and positions.
+    
+    Returns:
+        {
+          "mode": "paper",
+          "status": "RUNNING",
+          "server_time_ist": "2025-11-19 15:30:45",
+          "active_orders": [],
+          "recent_orders": [],
+          "active_positions_count": 3,
+          "engine_running": true
+        }
+    """
+    try:
+        # Get current mode from runtime
+        mode = get_mode()
+        
+        # Check if engine is running
+        engine_status = _load_paper_engine_status()
+        is_running = engine_status.get("running", False)
+        status = "RUNNING" if is_running else "STOPPED"
+        
+        # Get IST time
+        ist_now = datetime.now(IST_ZONE)
+        server_time_ist = ist_now.strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Load recent orders (last 10)
+        recent_orders = _load_orders_from_csv(limit=10)
+        
+        # Filter for active orders (PENDING, OPEN status)
+        active_orders = [
+            order for order in recent_orders
+            if order.get("status", "").upper() in {"PENDING", "OPEN", "TRIGGER_PENDING"}
+        ]
+        
+        # Load positions to get active position count
+        try:
+            state = load_paper_state_checkpoint()
+            if state:
+                positions = state.get("positions", [])
+                if isinstance(positions, dict):
+                    positions = list(positions.values())
+                active_positions_count = sum(
+                    1 for pos in positions
+                    if isinstance(pos, dict) and _safe_float(pos.get("quantity", 0), 0) != 0
+                )
+            else:
+                active_positions_count = 0
+        except Exception:
+            active_positions_count = 0
+        
+        return JSONResponse({
+            "mode": mode,
+            "status": status,
+            "server_time_ist": server_time_ist,
+            "active_orders": active_orders,
+            "recent_orders": recent_orders,
+            "active_positions_count": active_positions_count,
+            "engine_running": is_running,
+        })
+    except Exception as exc:
+        logger.exception("Failed to get trading summary: %s", exc)
+        # Return safe defaults on error
+        ist_now = datetime.now(IST_ZONE)
+        return JSONResponse({
+            "mode": "paper",
+            "status": "UNKNOWN",
+            "server_time_ist": ist_now.strftime("%Y-%m-%d %H:%M:%S"),
+            "active_orders": [],
+            "recent_orders": [],
+            "active_positions_count": 0,
+            "engine_running": False,
+        })
+
+
 @router.get("/api/health")
 async def api_health() -> JSONResponse:
     """
