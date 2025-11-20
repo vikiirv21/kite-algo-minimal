@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import datetime as dt
+import json
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -17,7 +20,7 @@ from ui import dashboard as dashboard_module
 from apps import dashboard_logs
 from apps import api_strategies
 from analytics.risk_metrics import load_risk_limits, compute_risk_breaches, compute_var
-from analytics.diagnostics import load_diagnostics
+from analytics.benchmarks import load_benchmarks
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 TEMPLATES_DIR = BASE_DIR / "templates"
@@ -457,6 +460,29 @@ async def get_risk_var(confidence: float = 0.95) -> JSONResponse:
         })
 
 
+@router.get("/api/benchmarks")
+async def get_benchmarks(days: int = 1) -> JSONResponse:
+    """
+    Return benchmark time-series for NIFTY / BANKNIFTY / FINNIFTY
+    for the last `days` days.
+    
+    Args:
+        days: Number of days to look back (default: 1, max: 10)
+        
+    Returns:
+        Array of benchmark objects with ts, nifty, banknifty, finnifty fields
+    """
+    try:
+        records = load_benchmarks(days=days)
+        return JSONResponse(records)
+    except Exception:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.exception("Failed to load benchmarks")
+        # Return empty list instead of crashing
+        return JSONResponse([])
+
+
 @router.post("/api/risk/limits")
 async def update_risk_limits(payload: dict) -> JSONResponse:
     """
@@ -601,43 +627,56 @@ async def update_risk_limits(payload: dict) -> JSONResponse:
         }, status_code=500)
 
 
-@router.get("/api/diagnostics/strategy")
-async def get_strategy_diagnostics(symbol: str, strategy: str, limit: int = 200) -> JSONResponse:
+def load_engine_telemetry() -> dict:
     """
-    Get real-time diagnostics for a specific strategy-symbol combination.
-    
-    Returns diagnostic records showing why the strategy made specific decisions
-    (BUY/SELL/HOLD), including indicator values, confidence scores, and reasoning.
-    
-    Args:
-        symbol: Trading symbol (e.g., "NIFTY", "BANKNIFTY")
-        strategy: Strategy identifier (e.g., "EMA_20_50", "RSI_MACD")
-        limit: Maximum number of records to return (default 200, most recent first)
+    Load telemetry for all engines from artifacts/telemetry/*_engine.json.
     
     Returns:
-        JSON response with diagnostics data
+        {
+          "asof": "...",
+          "engines": [ ... ]
+        }
     """
-    import logging
+    telemetry_dir = BASE_DIR / "artifacts" / "telemetry"
+    telemetry_dir.mkdir(parents=True, exist_ok=True)
+    engines = []
+    for path in telemetry_dir.glob("*_engine.json"):
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+                engines.append(data)
+        except Exception:
+            logger = logging.getLogger(__name__)
+            logger.exception("Failed to read engine telemetry from %s", path)
+    return {
+        "asof": dt.datetime.now().isoformat(),
+        "engines": engines,
+    }
+
+
+@router.get("/api/telemetry/engines")
+async def get_telemetry_engines():
+    """
+    Aggregate engine telemetry for dashboard.
     
-    logger = logging.getLogger(__name__)
-    
+    Returns health status for all running engine processes (fno, equity, options).
+    """
     try:
-        result = load_diagnostics(symbol, strategy, limit)
-        return JSONResponse({
-            "symbol": symbol,
-            "strategy": strategy,
-            "data": result,
-            "count": len(result),
-        })
-    except Exception as exc:
-        logger.exception("Failed to load diagnostics for %s/%s", symbol, strategy)
-        return JSONResponse({
-            "symbol": symbol,
-            "strategy": strategy,
-            "data": [],
-            "count": 0,
-            "error": str(exc),
-        })
+        return load_engine_telemetry()
+    except Exception:
+        logger = logging.getLogger(__name__)
+        logger.exception("Failed to load engine telemetry")
+        return {"asof": dt.datetime.now().isoformat(), "engines": []}
+
+
+@router.get("/api/telemetry/engine_logs")
+async def get_engine_logs(engine: str, lines: int = 200):
+    """
+    (Optional stub)
+    In future, return last N lines from engine-specific log file.
+    For now, just return {"engine": engine, "lines": []}.
+    """
+    return {"engine": engine, "lines": []}
 
 
 router.include_router(dashboard_module.router)

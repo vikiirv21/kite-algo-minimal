@@ -77,7 +77,7 @@ Runs a trading session with configurable parameters.
 | POST | `/admin/start` | `admin_start` | kite-algo-minimal/apps/server.py |
 | POST | `/admin/stop` | `admin_stop` | kite-algo-minimal/apps/server.py |
 | GET | `/api/analytics/equity_curve` | `api_equity_curve` | kite-algo-minimal/ui/dashboard.py |
-| GET | `/api/analytics/summary` | `api_analytics_summary` | kite-algo-minimal/ui/dashboard.py |
+| **GET** | **`/api/analytics/summary`** | **`api_analytics_summary`** | **kite-algo-minimal/ui/dashboard.py** |
 | GET | `/api/debug/auth` | `api_debug_auth` | kite-algo-minimal/ui/dashboard.py |
 | GET | `/api/margins` | `api_margins` | kite-algo-minimal/ui/dashboard.py |
 | GET | `/api/market/context` | `get_market_context` | kite-algo-minimal/apps/server.py |
@@ -87,13 +87,57 @@ Runs a trading session with configurable parameters.
 | GET | `/api/positions_normalized` | `api_positions_normalized` | kite-algo-minimal/ui/dashboard.py |
 | GET | `/api/quotes` | `api_quotes` | kite-algo-minimal/ui/dashboard.py |
 | POST | `/api/resync` | `api_resync` | kite-algo-minimal/ui/dashboard.py |
-| GET | `/api/risk/summary` | `api_risk_summary` | kite-algo-minimal/ui/dashboard.py |
+| **GET** | **`/api/risk/summary`** | **`api_risk_summary`** | **kite-algo-minimal/ui/dashboard.py** |
 | GET | `/api/signals` | `api_signals` | kite-algo-minimal/ui/dashboard.py |
 | GET | `/api/state` | `api_state` | kite-algo-minimal/ui/dashboard.py |
+| **GET** | **`/api/strategies`** | **`get_strategies`** | **kite-algo-minimal/apps/api_strategies.py** |
 | GET | `/api/strategy_performance` | `api_strategy_performance` | kite-algo-minimal/ui/dashboard.py |
 | GET | `/api/telemetry/events` | `telemetry_events` | kite-algo-minimal/apps/server.py |
 | GET | `/api/telemetry/stats` | `telemetry_stats` | kite-algo-minimal/apps/server.py |
+| **GET** | **`/api/trading/summary`** | **`api_trading_summary`** | **kite-algo-minimal/ui/dashboard.py** |
+| GET | `/api/trading/status` | `api_trading_status` | kite-algo-minimal/ui/dashboard.py |
 | GET | `/healthz` | `healthz` | kite-algo-minimal/apps/server.py |
+
+### Key Endpoint Details
+
+#### `/api/analytics/summary`
+Returns comprehensive analytics summary from runtime metrics:
+- Equity metrics (current_equity, realized_pnl, unrealized_pnl, max_drawdown)
+- Overall performance (total_trades, win_rate, gross_profit, net_pnl, profit_factor)
+- Per-strategy breakdown
+- Per-symbol breakdown
+
+**Data Source:** `artifacts/analytics/runtime_metrics.json` or `YYYY-MM-DD-metrics.json`
+
+#### `/api/strategies`
+Returns list of configured strategies with metadata:
+- Strategy ID, name, and code
+- Engine type (equity/fno/options)
+- Timeframe and mode
+- Enabled status
+- Parameters
+- Tags
+
+**Data Source:** `configs/dev.yaml` + `configs/learned_overrides.yaml`
+
+#### `/api/trading/summary`
+Returns current trading status and activity:
+- Mode (paper/live) and engine status (RUNNING/STOPPED)
+- Server time in IST
+- Active orders (PENDING/OPEN status)
+- Recent orders (last 10)
+- Active positions count
+
+**Data Source:** `artifacts/checkpoints/paper_state_latest.json` + `artifacts/orders.csv`
+
+#### `/api/risk/summary`
+Returns risk limits and current usage:
+- max_daily_loss, used_loss, remaining_loss
+- max_exposure_pct, current_exposure_pct
+- risk_per_trade_pct
+- Circuit breaker status
+
+**Data Source:** `configs/dev.yaml` + runtime metrics
 
 
 ## Trading Engines
