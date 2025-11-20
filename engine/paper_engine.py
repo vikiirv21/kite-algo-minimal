@@ -1108,6 +1108,8 @@ class PaperEngine:
                 tick_prices = {sym: data.get("close") for sym, data in ticks.items() if data.get("close")}
                 if tick_prices:
                     self.execution_engine_v3.update_positions(tick_prices)
+                    # Update trade lifecycle (SL/TP/trailing/time-stop checks)
+                    self.execution_engine_v3.update_trade_lifecycle()
             except Exception as exc:  # noqa: BLE001
                 logger.debug("ExecutionEngine V3 position update failed: %s", exc)
 

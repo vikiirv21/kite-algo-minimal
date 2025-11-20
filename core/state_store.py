@@ -111,6 +111,7 @@ class StateStore:
     ) -> None:
         self.checkpoint_path = checkpoint_path or RUNTIME_CHECKPOINT_PATH
         self.log_path = log_path or RUNTIME_LOG_PATH
+        self.open_trades_path = ARTIFACTS_DIR / "runtime" / "open_trades.json"
 
     def atomic_write_json(self, path: Path, data: Dict[str, Any]) -> None:
         tmp = path.with_suffix(path.suffix + ".tmp")
@@ -154,6 +155,28 @@ class StateStore:
             except json.JSONDecodeError:
                 continue
         return result
+
+    def load_open_trades(self) -> List[Dict[str, Any]]:
+        """Load open trades from runtime registry."""
+        if not self.open_trades_path.is_file():
+            # Create empty file if it doesn't exist
+            self.open_trades_path.parent.mkdir(parents=True, exist_ok=True)
+            self.atomic_write_json(self.open_trades_path, [])
+            return []
+        try:
+            with self.open_trades_path.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+                return data if isinstance(data, list) else []
+        except (json.JSONDecodeError, IOError) as e:
+            logger.warning(f"Failed to load open trades: {e}. Returning empty list.")
+            return []
+
+    def save_open_trades(self, trades_list: List[Dict[str, Any]]) -> None:
+        """Save open trades to runtime registry."""
+        try:
+            self.atomic_write_json(self.open_trades_path, trades_list)
+        except Exception as e:
+            logger.error(f"Failed to save open trades: {e}", exc_info=True)
 
 FILLED_STATUSES = {"COMPLETE", "FILLED", "EXECUTED", "PARTLY FILLED", "PARTIAL", "SUCCESS"}
 BUY_SIDES = {"BUY", "B", "COVER", "EXIT SHORT"}
