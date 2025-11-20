@@ -861,6 +861,29 @@ class PaperEngine:
         except Exception as exc:
             logger.warning("Failed to initialize Expiry Risk Adapter: %s. Continuing without expiry awareness.", exc)
             self.expiry_risk_adapter = None
+        
+        # Initialize Paper Account Manager for reset rules
+        try:
+            from core.account_manager import PaperAccountManager
+            paper_account_config = self.cfg.raw.get("paper_account", {})
+            starting_capital = float(paper_account_config.get("starting_capital", self.paper_capital))
+            max_drawdown_reset = float(paper_account_config.get("max_drawdown_reset", 50000.0))
+            
+            self.account_manager = PaperAccountManager(
+                artifacts_dir=self.artifacts_dir,
+                starting_capital=starting_capital,
+                max_drawdown_reset=max_drawdown_reset,
+            )
+            
+            # Check if account should be reset based on yesterday's performance
+            if self.account_manager.should_reset_for_today():
+                logger.warning("Paper account reset triggered due to yesterday's drawdown")
+                self._reset_paper_account()
+            else:
+                logger.info("Paper account continuing from existing state")
+        except Exception as exc:
+            logger.warning("Failed to initialize PaperAccountManager: %s. Continuing without reset logic.", exc)
+            self.account_manager = None
 
     # -------------------------------------------------------------------------
     # MarketContext Management
@@ -898,6 +921,64 @@ class PaperEngine:
             self._market_context_stop.set()
             self._market_context_thread.join(timeout=5.0)
             logger.info("MarketContext refresh thread stopped")
+
+    # -------------------------------------------------------------------------
+    # Paper Account Reset
+    # -------------------------------------------------------------------------
+    
+    def _reset_paper_account(self) -> None:
+        """
+        Reset the paper account to configured starting capital.
+        
+        This method:
+        - Calls account_manager.reset_paper_account() to reset checkpoint
+        - Clears the paper broker state
+        - Resets active trades and trailing states
+        - Optionally clears stale checkpoints
+        """
+        if not self.account_manager:
+            logger.warning("Cannot reset paper account: account_manager not initialized")
+            return
+        
+        try:
+            # Reset checkpoint via account manager
+            checkpoint_path = self.state_path
+            self.account_manager.reset_paper_account(
+                checkpoint_path=checkpoint_path,
+                reason="drawdown_threshold",
+            )
+            
+            # Reset paper broker state
+            self.paper_broker = PaperBroker()
+            self.router = ExecutionRouter(
+                mode=self.mode,
+                paper_broker=self.paper_broker,
+            )
+            
+            # Clear active trades and trailing states
+            self.active_trades.clear()
+            self.trailing_state.clear()
+            self.banned_symbols.clear()
+            self.last_signal_ids.clear()
+            
+            # Reset capital to starting value
+            paper_account_config = self.cfg.raw.get("paper_account", {})
+            self.paper_capital = float(
+                paper_account_config.get("starting_capital", 500000.0)
+            )
+            
+            # Clear stale checkpoints (keep last 7 days)
+            checkpoints_dir = self.artifacts_dir / "checkpoints"
+            self.account_manager.clear_stale_checkpoints(
+                checkpoints_dir=checkpoints_dir,
+                keep_days=7,
+            )
+            
+            logger.info("Paper account reset completed successfully")
+            
+        except Exception as exc:
+            logger.error("Failed to reset paper account: %s", exc, exc_info=True)
+            raise
 
     # -------------------------------------------------------------------------
     # Strategy instances
