@@ -1,0 +1,12 @@
+{
+  "date": "2025-11-19",
+  "mode": "PAPER",
+  "config": "configs/dev.yaml",
+  "generated_at": "2025-11-19T15:14:04.859323",
+  "summary": {
+    "realized_pnl": 0.0,
+    "num_trades": 0,
+    "win_rate": 0.0
+  },
+  "strategies": {}
+}

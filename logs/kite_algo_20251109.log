@@ -1,0 +1,76 @@
+2025-11-09 19:34:35,578 [INFO] engine.paper_engine - Logical FnO universe from config: ['NIFTY', 'BANKNIFTY', 'FINNIFTY']
+2025-11-09 19:34:35,579 [INFO] data.instruments - Fetching NFO instruments from Kite to resolve FnO symbols...
+2025-11-09 19:34:37,625 [INFO] data.instruments - Resolved NIFTY -> NIFTY25NOVFUT (expiry=2025-11-25)
+2025-11-09 19:34:37,626 [INFO] data.instruments - Resolved BANKNIFTY -> BANKNIFTY25NOVFUT (expiry=2025-11-25)
+2025-11-09 19:34:37,626 [INFO] data.instruments - Resolved FINNIFTY -> FINNIFTY25NOVFUT (expiry=2025-11-25)
+2025-11-09 19:34:37,635 [INFO] engine.paper_engine - Resolved FnO universe: {'NIFTY': 'NIFTY25NOVFUT', 'BANKNIFTY': 'BANKNIFTY25NOVFUT', 'FINNIFTY': 'FINNIFTY25NOVFUT'}
+2025-11-09 19:34:37,637 [INFO] engine.paper_engine - Starting PaperEngine with tradingsymbol universe: ['NIFTY25NOVFUT', 'BANKNIFTY25NOVFUT', 'FINNIFTY25NOVFUT']
+2025-11-09 19:34:37,868 [INFO] engine.paper_engine - Logical=NIFTY symbol=NIFTY25NOVFUT price=25605.00 signal=HOLD
+2025-11-09 19:34:37,934 [INFO] engine.paper_engine - Logical=BANKNIFTY symbol=BANKNIFTY25NOVFUT price=58217.20 signal=HOLD
+2025-11-09 19:34:37,998 [INFO] engine.paper_engine - Logical=FINNIFTY symbol=FINNIFTY25NOVFUT price=27418.50 signal=HOLD
+2025-11-09 19:34:43,055 [INFO] engine.paper_engine - Logical=NIFTY symbol=NIFTY25NOVFUT price=25605.00 signal=HOLD
+2025-11-09 19:34:43,112 [INFO] engine.paper_engine - Logical=BANKNIFTY symbol=BANKNIFTY25NOVFUT price=58217.20 signal=HOLD
+2025-11-09 19:34:43,165 [INFO] engine.paper_engine - Logical=FINNIFTY symbol=FINNIFTY25NOVFUT price=27418.50 signal=HOLD
+2025-11-09 19:34:48,220 [INFO] engine.paper_engine - Logical=NIFTY symbol=NIFTY25NOVFUT price=25605.00 signal=HOLD
+2025-11-09 19:34:48,277 [INFO] engine.paper_engine - Logical=BANKNIFTY symbol=BANKNIFTY25NOVFUT price=58217.20 signal=HOLD
+2025-11-09 19:34:48,363 [INFO] engine.paper_engine - Logical=FINNIFTY symbol=FINNIFTY25NOVFUT price=27418.50 signal=HOLD
+2025-11-09 19:34:53,436 [INFO] engine.paper_engine - Logical=NIFTY symbol=NIFTY25NOVFUT price=25605.00 signal=HOLD
+2025-11-09 19:34:53,515 [INFO] engine.paper_engine - Logical=BANKNIFTY symbol=BANKNIFTY25NOVFUT price=58217.20 signal=HOLD
+2025-11-09 19:34:53,580 [INFO] engine.paper_engine - Logical=FINNIFTY symbol=FINNIFTY25NOVFUT price=27418.50 signal=HOLD
+2025-11-09 19:34:58,642 [INFO] engine.paper_engine - Logical=NIFTY symbol=NIFTY25NOVFUT price=25605.00 signal=HOLD
+2025-11-09 19:34:58,699 [INFO] engine.paper_engine - Logical=BANKNIFTY symbol=BANKNIFTY25NOVFUT price=58217.20 signal=HOLD
+2025-11-09 19:34:58,760 [INFO] engine.paper_engine - Logical=FINNIFTY symbol=FINNIFTY25NOVFUT price=27418.50 signal=HOLD
+2025-11-09 19:35:03,822 [INFO] engine.paper_engine - Logical=NIFTY symbol=NIFTY25NOVFUT price=25605.00 signal=HOLD
+2025-11-09 19:35:03,883 [INFO] engine.paper_engine - Logical=BANKNIFTY symbol=BANKNIFTY25NOVFUT price=58217.20 signal=HOLD
+2025-11-09 19:35:03,960 [INFO] engine.paper_engine - Logical=FINNIFTY symbol=FINNIFTY25NOVFUT price=27418.50 signal=HOLD
+2025-11-09 19:35:09,025 [INFO] engine.paper_engine - Logical=NIFTY symbol=NIFTY25NOVFUT price=25605.00 signal=HOLD
+2025-11-09 19:35:09,082 [INFO] engine.paper_engine - Logical=BANKNIFTY symbol=BANKNIFTY25NOVFUT price=58217.20 signal=HOLD
+2025-11-09 19:35:09,139 [INFO] engine.paper_engine - Logical=FINNIFTY symbol=FINNIFTY25NOVFUT price=27418.50 signal=HOLD
+2025-11-09 19:35:14,207 [INFO] engine.paper_engine - Logical=NIFTY symbol=NIFTY25NOVFUT price=25605.00 signal=HOLD
+2025-11-09 19:35:14,268 [INFO] engine.paper_engine - Logical=BANKNIFTY symbol=BANKNIFTY25NOVFUT price=58217.20 signal=HOLD
+2025-11-09 19:35:14,323 [INFO] engine.paper_engine - Logical=FINNIFTY symbol=FINNIFTY25NOVFUT price=27418.50 signal=HOLD
+2025-11-09 19:35:19,384 [INFO] engine.paper_engine - Logical=NIFTY symbol=NIFTY25NOVFUT price=25605.00 signal=HOLD
+2025-11-09 19:35:19,444 [INFO] engine.paper_engine - Logical=BANKNIFTY symbol=BANKNIFTY25NOVFUT price=58217.20 signal=HOLD
+2025-11-09 19:35:19,510 [INFO] engine.paper_engine - Logical=FINNIFTY symbol=FINNIFTY25NOVFUT price=27418.50 signal=HOLD
+2025-11-09 19:35:24,585 [INFO] engine.paper_engine - Logical=NIFTY symbol=NIFTY25NOVFUT price=25605.00 signal=HOLD
+2025-11-09 19:35:24,645 [INFO] engine.paper_engine - Logical=BANKNIFTY symbol=BANKNIFTY25NOVFUT price=58217.20 signal=HOLD
+2025-11-09 19:35:24,723 [INFO] engine.paper_engine - Logical=FINNIFTY symbol=FINNIFTY25NOVFUT price=27418.50 signal=HOLD
+2025-11-09 19:35:29,785 [INFO] engine.paper_engine - Logical=NIFTY symbol=NIFTY25NOVFUT price=25605.00 signal=HOLD
+2025-11-09 19:35:29,847 [INFO] engine.paper_engine - Logical=BANKNIFTY symbol=BANKNIFTY25NOVFUT price=58217.20 signal=HOLD
+2025-11-09 19:35:29,920 [INFO] engine.paper_engine - Logical=FINNIFTY symbol=FINNIFTY25NOVFUT price=27418.50 signal=HOLD
+2025-11-09 19:35:35,001 [INFO] engine.paper_engine - Logical=NIFTY symbol=NIFTY25NOVFUT price=25605.00 signal=HOLD
+2025-11-09 19:35:35,059 [INFO] engine.paper_engine - Logical=BANKNIFTY symbol=BANKNIFTY25NOVFUT price=58217.20 signal=HOLD
+2025-11-09 19:35:35,121 [INFO] engine.paper_engine - Logical=FINNIFTY symbol=FINNIFTY25NOVFUT price=27418.50 signal=HOLD
+2025-11-09 19:35:40,186 [INFO] engine.paper_engine - Logical=NIFTY symbol=NIFTY25NOVFUT price=25605.00 signal=HOLD
+2025-11-09 19:35:40,239 [INFO] engine.paper_engine - Logical=BANKNIFTY symbol=BANKNIFTY25NOVFUT price=58217.20 signal=HOLD
+2025-11-09 19:35:40,295 [INFO] engine.paper_engine - Logical=FINNIFTY symbol=FINNIFTY25NOVFUT price=27418.50 signal=HOLD
+2025-11-09 19:35:45,375 [INFO] engine.paper_engine - Logical=NIFTY symbol=NIFTY25NOVFUT price=25605.00 signal=HOLD
+2025-11-09 19:35:45,430 [INFO] engine.paper_engine - Logical=BANKNIFTY symbol=BANKNIFTY25NOVFUT price=58217.20 signal=HOLD
+2025-11-09 19:35:45,487 [INFO] engine.paper_engine - Logical=FINNIFTY symbol=FINNIFTY25NOVFUT price=27418.50 signal=HOLD
+2025-11-09 19:35:50,543 [INFO] engine.paper_engine - Logical=NIFTY symbol=NIFTY25NOVFUT price=25605.00 signal=HOLD
+2025-11-09 19:35:50,596 [INFO] engine.paper_engine - Logical=BANKNIFTY symbol=BANKNIFTY25NOVFUT price=58217.20 signal=HOLD
+2025-11-09 19:35:50,660 [INFO] engine.paper_engine - Logical=FINNIFTY symbol=FINNIFTY25NOVFUT price=27418.50 signal=HOLD
+2025-11-09 19:35:55,730 [INFO] engine.paper_engine - Logical=NIFTY symbol=NIFTY25NOVFUT price=25605.00 signal=HOLD
+2025-11-09 19:35:55,801 [INFO] engine.paper_engine - Logical=BANKNIFTY symbol=BANKNIFTY25NOVFUT price=58217.20 signal=HOLD
+2025-11-09 19:35:55,871 [INFO] engine.paper_engine - Logical=FINNIFTY symbol=FINNIFTY25NOVFUT price=27418.50 signal=HOLD
+2025-11-09 19:36:00,929 [INFO] engine.paper_engine - Logical=NIFTY symbol=NIFTY25NOVFUT price=25605.00 signal=HOLD
+2025-11-09 19:36:00,997 [INFO] engine.paper_engine - Logical=BANKNIFTY symbol=BANKNIFTY25NOVFUT price=58217.20 signal=HOLD
+2025-11-09 19:36:01,056 [INFO] engine.paper_engine - Logical=FINNIFTY symbol=FINNIFTY25NOVFUT price=27418.50 signal=HOLD
+2025-11-09 19:36:06,119 [INFO] engine.paper_engine - Logical=NIFTY symbol=NIFTY25NOVFUT price=25605.00 signal=HOLD
+2025-11-09 19:36:06,194 [INFO] engine.paper_engine - Logical=BANKNIFTY symbol=BANKNIFTY25NOVFUT price=58217.20 signal=HOLD
+2025-11-09 19:36:06,256 [INFO] engine.paper_engine - Logical=FINNIFTY symbol=FINNIFTY25NOVFUT price=27418.50 signal=HOLD
+2025-11-09 19:36:11,326 [INFO] engine.paper_engine - Logical=NIFTY symbol=NIFTY25NOVFUT price=25605.00 signal=HOLD
+2025-11-09 19:36:11,394 [INFO] engine.paper_engine - Logical=BANKNIFTY symbol=BANKNIFTY25NOVFUT price=58217.20 signal=HOLD
+2025-11-09 19:36:11,450 [INFO] engine.paper_engine - Logical=FINNIFTY symbol=FINNIFTY25NOVFUT price=27418.50 signal=HOLD
+2025-11-09 19:36:16,506 [INFO] engine.paper_engine - Logical=NIFTY symbol=NIFTY25NOVFUT price=25605.00 signal=HOLD
+2025-11-09 19:36:16,568 [INFO] engine.paper_engine - Logical=BANKNIFTY symbol=BANKNIFTY25NOVFUT price=58217.20 signal=HOLD
+2025-11-09 19:36:16,673 [INFO] engine.paper_engine - Logical=FINNIFTY symbol=FINNIFTY25NOVFUT price=27418.50 signal=HOLD
+2025-11-09 19:36:21,728 [INFO] engine.paper_engine - Logical=NIFTY symbol=NIFTY25NOVFUT price=25605.00 signal=HOLD
+2025-11-09 19:36:21,793 [INFO] engine.paper_engine - Logical=BANKNIFTY symbol=BANKNIFTY25NOVFUT price=58217.20 signal=HOLD
+2025-11-09 19:36:21,863 [INFO] engine.paper_engine - Logical=FINNIFTY symbol=FINNIFTY25NOVFUT price=27418.50 signal=HOLD
+2025-11-09 19:36:26,915 [INFO] engine.paper_engine - Logical=NIFTY symbol=NIFTY25NOVFUT price=25605.00 signal=HOLD
+2025-11-09 19:36:26,970 [INFO] engine.paper_engine - Logical=BANKNIFTY symbol=BANKNIFTY25NOVFUT price=58217.20 signal=HOLD
+2025-11-09 19:36:27,032 [INFO] engine.paper_engine - Logical=FINNIFTY symbol=FINNIFTY25NOVFUT price=27418.50 signal=HOLD
+2025-11-09 19:36:32,090 [INFO] engine.paper_engine - Logical=NIFTY symbol=NIFTY25NOVFUT price=25605.00 signal=HOLD
+2025-11-09 19:36:32,145 [INFO] engine.paper_engine - Logical=BANKNIFTY symbol=BANKNIFTY25NOVFUT price=58217.20 signal=HOLD
+2025-11-09 19:36:32,213 [INFO] engine.paper_engine - Logical=FINNIFTY symbol=FINNIFTY25NOVFUT price=27418.50 signal=HOLD

@@ -1,0 +1,45 @@
+{
+  "timestamp": "2025-11-20T09:59:39.111798",
+  "broker": {
+    "positions": [],
+    "orders": []
+  },
+  "meta": {
+    "paper_capital": 500000.0,
+    "total_realized_pnl": 0.0,
+    "total_unrealized_pnl": 0.0,
+    "equity": 500000.0,
+    "total_notional": 0.0,
+    "free_notional": 500000.0,
+    "market_regime": "UNKNOWN",
+    "regime_snapshot": {
+      "NIFTY": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-20T09:59:33.373516+00:00",
+        "short_ema": 26233.361794920063,
+        "long_ema": 26232.306971040092,
+        "atr": 1.4631459784380991
+      },
+      "BANKNIFTY": {
+        "regime": "UNKNOWN",
+        "last_updated": "2025-11-20T09:59:33.418208+00:00",
+        "short_ema": 59410.122608128964,
+        "long_ema": 59412.61422147379,
+        "atr": 2.6182801453913216
+      }
+    },
+    "expiry_status": {
+      "NIFTY": {
+        "is_expiry_day": true,
+        "is_expiry_week": true,
+        "next_expiry": "2025-11-20"
+      },
+      "BANKNIFTY": {
+        "is_expiry_day": false,
+        "is_expiry_week": true,
+        "next_expiry": "2025-11-26"
+      }
+    },
+    "is_expiry_day_any": true
+  }
+}
