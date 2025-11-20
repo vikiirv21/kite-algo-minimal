@@ -496,5 +496,3 @@ def update_runtime_metrics(
         raise
     
     return metrics
-        logger.error("Failed to write metrics to %s: %s", output_path, exc)
-        raise

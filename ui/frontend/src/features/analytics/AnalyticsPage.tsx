@@ -19,16 +19,16 @@ export function AnalyticsPage() {
   const { data: equityCurveData, isLoading: equityCurveLoading } = useAnalyticsEquityCurve();
   const { data: metrics } = useMetrics();
   
-  // Use metrics as primary source, fallback to analytics
-  const dailyPnl = metrics?.equity?.realized_pnl ?? analytics?.daily?.realized_pnl ?? 0;
-  const totalTrades = metrics?.overall?.total_trades ?? analytics?.daily?.num_trades ?? 0;
-  const winRate = metrics?.overall?.win_rate ?? analytics?.daily?.win_rate ?? 0;
-  const winTrades = metrics?.overall?.win_trades ?? analytics?.daily?.pnl_distribution?.wins ?? 0;
-  const lossTrades = metrics?.overall?.loss_trades ?? analytics?.daily?.pnl_distribution?.losses ?? 0;
-  const avgWin = metrics?.overall?.avg_win ?? analytics?.daily?.avg_win ?? 0;
-  const avgLoss = metrics?.overall?.avg_loss ?? analytics?.daily?.avg_loss ?? 0;
-  const biggestWin = metrics?.overall?.biggest_win ?? analytics?.daily?.biggest_winner ?? 0;
-  const biggestLoss = metrics?.overall?.biggest_loss ?? analytics?.daily?.biggest_loser ?? 0;
+  // Use analytics as primary source (now the canonical source), fallback to metrics
+  const dailyPnl = analytics?.equity?.realized_pnl ?? metrics?.equity?.realized_pnl ?? 0;
+  const totalTrades = analytics?.overall?.total_trades ?? metrics?.overall?.total_trades ?? 0;
+  const winRate = analytics?.overall?.win_rate ?? metrics?.overall?.win_rate ?? 0;
+  const winTrades = analytics?.overall?.win_trades ?? metrics?.overall?.win_trades ?? 0;
+  const lossTrades = analytics?.overall?.loss_trades ?? metrics?.overall?.loss_trades ?? 0;
+  const avgWin = analytics?.overall?.avg_win ?? metrics?.overall?.avg_win ?? 0;
+  const avgLoss = analytics?.overall?.avg_loss ?? metrics?.overall?.avg_loss ?? 0;
+  const biggestWin = analytics?.overall?.biggest_win ?? metrics?.overall?.biggest_win ?? 0;
+  const biggestLoss = analytics?.overall?.biggest_loss ?? metrics?.overall?.biggest_loss ?? 0;
   
   // Format data for equity curve chart
   const chartData = equityCurveData?.equity_curve?.map(point => ({
@@ -205,7 +205,7 @@ export function AnalyticsPage() {
       )}
       
       {/* Per-Strategy Performance */}
-      {analytics?.strategies && Object.keys(analytics.strategies).length > 0 ? (
+      {analytics?.per_strategy && Object.keys(analytics.per_strategy).length > 0 ? (
         <Card title="Strategy Performance">
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -218,11 +218,11 @@ export function AnalyticsPage() {
                 </tr>
               </thead>
               <tbody>
-                {Object.entries(analytics.strategies).map(([strategy, data]) => (
+                {Object.entries(analytics.per_strategy).map(([strategy, data]) => (
                   <tr key={strategy} className="border-b border-border/50 hover:bg-surface-light">
                     <td className="py-3 font-medium">{strategy}</td>
-                    <td className={`py-3 text-right font-mono ${getPnlClass(data.pnl)}`}>
-                      {getPnlPrefix(data.pnl)}{formatCurrency(data.pnl)}
+                    <td className={`py-3 text-right font-mono ${getPnlClass(data.net_pnl)}`}>
+                      {getPnlPrefix(data.net_pnl)}{formatCurrency(data.net_pnl)}
                     </td>
                     <td className="py-3 text-center font-mono">{data.trades}</td>
                     <td className="py-3 text-center font-mono">{data.win_rate.toFixed(1)}%</td>
@@ -235,7 +235,7 @@ export function AnalyticsPage() {
       ) : null}
       
       {/* Per-Symbol Performance */}
-      {analytics?.symbols && Object.keys(analytics.symbols).length > 0 ? (
+      {analytics?.per_symbol && Object.keys(analytics.per_symbol).length > 0 ? (
         <Card title="Symbol Performance">
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -247,11 +247,11 @@ export function AnalyticsPage() {
                 </tr>
               </thead>
               <tbody>
-                {Object.entries(analytics.symbols).map(([symbol, data]) => (
+                {Object.entries(analytics.per_symbol).map(([symbol, data]) => (
                   <tr key={symbol} className="border-b border-border/50 hover:bg-surface-light">
                     <td className="py-3 font-medium">{symbol}</td>
-                    <td className={`py-3 text-right font-mono ${getPnlClass(data.pnl)}`}>
-                      {getPnlPrefix(data.pnl)}{formatCurrency(data.pnl)}
+                    <td className={`py-3 text-right font-mono ${getPnlClass(data.net_pnl)}`}>
+                      {getPnlPrefix(data.net_pnl)}{formatCurrency(data.net_pnl)}
                     </td>
                     <td className="py-3 text-center font-mono">{data.trades}</td>
                   </tr>
