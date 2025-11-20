@@ -194,6 +194,159 @@ async def api_performance() -> JSONResponse:
         return JSONResponse(default_metrics)
 
 
+@router.get("/api/data/health")
+async def api_data_health() -> JSONResponse:
+    """
+    Returns data health snapshot from Market Data Engine V2 if enabled.
+    
+    Returns health information per symbol/timeframe including:
+    - last_update_ts: timestamp of last data update
+    - staleness_sec: seconds since last update
+    - num_bars: number of historical candles available
+    - is_stale: boolean indicating if data is stale
+    
+    Response format:
+    {
+      "enabled": true/false,
+      "asof": "2025-11-19T08:45:12+05:30",
+      "items": [
+        {
+          "symbol": "NIFTY25NOVFUT",
+          "timeframe": "1m",
+          "last_update_ts": "2025-11-19T08:44:59+05:30",
+          "staleness_sec": 3.2,
+          "num_bars": 215,
+          "is_stale": false
+        },
+        ...
+      ]
+    }
+    
+    If MDE v2 is not enabled, returns {"enabled": false, "reason": "mde_v2_disabled"}
+    """
+    import json
+    import pytz
+    
+    try:
+        cfg = load_app_config()
+        data_cfg = cfg.data or {}
+        
+        use_mde_v2 = data_cfg.get("use_mde_v2", False)
+        
+        if not use_mde_v2:
+            return JSONResponse({
+                "enabled": False,
+                "reason": "mde_v2_disabled"
+            })
+        
+        # Check if MDE v2 instance is running
+        # For now, we'll check for a telemetry file that MDE v2 could write
+        # In a real implementation, this would access a shared MDE v2 instance
+        mde_health_path = BASE_DIR / "artifacts" / "mde_v2" / "health_snapshot.json"
+        
+        if not mde_health_path.exists():
+            return JSONResponse({
+                "enabled": True,
+                "asof": None,
+                "items": [],
+                "reason": "no_data_available"
+            })
+        
+        # Read health snapshot
+        with mde_health_path.open("r", encoding="utf-8") as f:
+            health_data = json.load(f)
+        
+        return JSONResponse(health_data)
+        
+    except Exception as exc:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error("Failed to get MDE v2 health: %s", exc)
+        return JSONResponse({
+            "enabled": False,
+            "reason": f"error: {str(exc)}"
+        })
+
+
+@router.get("/api/data/ltp")
+async def api_data_ltp(symbol: str) -> JSONResponse:
+    """
+    Returns current LTP and last update timestamp for a single symbol.
+    
+    Query params:
+    - symbol: Trading symbol (e.g., "NIFTY25NOVFUT", "RELIANCE")
+    
+    Response format:
+    {
+      "enabled": true/false,
+      "symbol": "NIFTY25NOVFUT",
+      "ltp": 23850.0,
+      "last_update_ts": "2025-11-19T08:45:12+05:30"
+    }
+    
+    If MDE v2 is not enabled or symbol not found, returns appropriate error.
+    """
+    import json
+    
+    try:
+        cfg = load_app_config()
+        data_cfg = cfg.data or {}
+        
+        use_mde_v2 = data_cfg.get("use_mde_v2", False)
+        
+        if not use_mde_v2:
+            return JSONResponse({
+                "enabled": False,
+                "reason": "mde_v2_disabled"
+            })
+        
+        # Check for MDE v2 LTP data
+        # In a real implementation, this would access a shared MDE v2 instance
+        mde_ltp_path = BASE_DIR / "artifacts" / "mde_v2" / "ltp_snapshot.json"
+        
+        if not mde_ltp_path.exists():
+            return JSONResponse({
+                "enabled": True,
+                "symbol": symbol.upper(),
+                "ltp": None,
+                "last_update_ts": None,
+                "reason": "no_data_available"
+            })
+        
+        # Read LTP snapshot
+        with mde_ltp_path.open("r", encoding="utf-8") as f:
+            ltp_data = json.load(f)
+        
+        symbol_upper = symbol.upper()
+        symbol_data = ltp_data.get(symbol_upper)
+        
+        if not symbol_data:
+            return JSONResponse({
+                "enabled": True,
+                "symbol": symbol_upper,
+                "ltp": None,
+                "last_update_ts": None,
+                "reason": "symbol_not_found"
+            })
+        
+        return JSONResponse({
+            "enabled": True,
+            "symbol": symbol_upper,
+            "ltp": symbol_data.get("ltp"),
+            "last_update_ts": symbol_data.get("last_update_ts")
+        })
+        
+    except Exception as exc:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error("Failed to get MDE v2 LTP for %s: %s", symbol, exc)
+        return JSONResponse({
+            "enabled": False,
+            "symbol": symbol.upper(),
+            "reason": f"error: {str(exc)}"
+        })
+
+
 router.include_router(dashboard_module.router)
 router.include_router(dashboard_logs.router)
 
