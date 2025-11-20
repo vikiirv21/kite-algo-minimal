@@ -165,10 +165,16 @@ def load_instrument_token_map(
     if _instrument_token_map_loaded and _instrument_token_map is not None:
         return _instrument_token_map
     
-    kite_client = None
+    # If no kite client provided and we can't create one, return empty map
     if kite is None:
-        kite_client = KiteClient()
-        kite = kite_client.api
+        try:
+            kite_client = KiteClient()
+            kite = kite_client.api
+        except Exception as exc:
+            logger.warning("Cannot create KiteClient for instrument token map: %s", exc)
+            _instrument_token_map = {}
+            _instrument_token_map_loaded = True
+            return _instrument_token_map
     
     logger.info("Building instrument token map for segments: %s", segments)
     
