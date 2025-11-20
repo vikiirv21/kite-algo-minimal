@@ -3360,47 +3360,59 @@ def api_analytics_summary() -> JSONResponse:
     Return combined analytics summary from runtime_metrics.json.
     
     Uses artifacts/analytics/runtime_metrics.json as the main source.
-    Falls back to today's YYYY-MM-DD-metrics.json if runtime file missing.
+    Falls back to today's daily/YYYY-MM-DD-metrics.json if runtime file missing.
     
     Returns all analytics fields:
-    - equity metrics (starting_capital, current_equity, realized_pnl, unrealized_pnl, max_drawdown, etc.)
+    - equity metrics (starting_capital, current_equity, realized_pnl, unrealized_pnl, total_notional, max_drawdown, etc.)
     - P&L (overall metrics: total_trades, win_rate, gross_profit, gross_loss, net_pnl, profit_factor, etc.)
     - per-strategy breakdown
     - per-symbol breakdown
-    - status: "ok" | "stale" | "empty" based on asof timestamp
+    - status: "ok" | "stale" | "empty" based on asof timestamp (60s threshold)
     
     Never crashes if files missing or malformed.
     Converts datetime to ISO strings.
     """
     try:
         # Try to load runtime_metrics.json first
-        runtime_metrics = load_runtime_metrics()
+        runtime_metrics_path = ANALYTICS_DIR / "runtime_metrics.json"
+        runtime_metrics = None
         
-        # If not available, try today's metrics file
+        if runtime_metrics_path.exists():
+            try:
+                with runtime_metrics_path.open("r", encoding="utf-8") as f:
+                    runtime_metrics = json.load(f)
+            except Exception as e:
+                logger.warning("Failed to load runtime metrics: %s", e)
+        
+        # If not available, try today's daily metrics file
         if runtime_metrics is None:
             today = now_ist().date()
-            today_metrics_path = ANALYTICS_DIR / f"{today.isoformat()}-metrics.json"
+            daily_dir = ANALYTICS_DIR / "daily"
+            today_metrics_path = daily_dir / f"{today.isoformat()}-metrics.json"
             if today_metrics_path.exists():
                 try:
                     with today_metrics_path.open("r", encoding="utf-8") as f:
                         runtime_metrics = json.load(f)
                 except Exception as e:
-                    logger.warning("Failed to load today's metrics from %s: %s", today_metrics_path, e)
+                    logger.warning("Failed to load daily metrics from %s: %s", today_metrics_path, e)
                     runtime_metrics = None
         
         # If we have metrics, process them
         if runtime_metrics:
-            # Determine status based on asof timestamp
+            # Determine status based on asof timestamp and file mtime
             asof = runtime_metrics.get("asof")
             status = "empty"
+            
             if asof:
                 try:
                     asof_dt = datetime.fromisoformat(asof.replace("Z", "+00:00"))
                     now_utc = datetime.now(timezone.utc)
                     age_seconds = (now_utc - asof_dt.astimezone(timezone.utc)).total_seconds()
-                    if age_seconds < 300:  # Less than 5 minutes
+                    
+                    # Use 60 second threshold for staleness as specified
+                    if age_seconds < 60:
                         status = "ok"
-                    elif age_seconds < 3600:  # Less than 1 hour
+                    elif age_seconds < 300:  # Less than 5 minutes
                         status = "stale"
                     else:
                         status = "empty"
@@ -3413,7 +3425,7 @@ def api_analytics_summary() -> JSONResponse:
             per_strategy = runtime_metrics.get("per_strategy", {})
             per_symbol = runtime_metrics.get("per_symbol", {})
             
-            # Build response with all required fields
+            # Build response with all required fields including total_notional
             response = {
                 "asof": asof,
                 "status": status,
@@ -3423,6 +3435,7 @@ def api_analytics_summary() -> JSONResponse:
                     "current_equity": equity.get("current_equity", 0.0),
                     "realized_pnl": equity.get("realized_pnl", 0.0),
                     "unrealized_pnl": equity.get("unrealized_pnl", 0.0),
+                    "total_notional": equity.get("total_notional", 0.0),
                     "max_drawdown": equity.get("max_drawdown", 0.0),
                     "max_equity": equity.get("max_equity", 0.0),
                     "min_equity": equity.get("min_equity", 0.0),
@@ -3459,6 +3472,7 @@ def api_analytics_summary() -> JSONResponse:
                 "current_equity": 0.0,
                 "realized_pnl": 0.0,
                 "unrealized_pnl": 0.0,
+                "total_notional": 0.0,
                 "max_drawdown": 0.0,
                 "max_equity": 0.0,
                 "min_equity": 0.0,
@@ -3494,6 +3508,7 @@ def api_analytics_summary() -> JSONResponse:
                 "current_equity": 0.0,
                 "realized_pnl": 0.0,
                 "unrealized_pnl": 0.0,
+                "total_notional": 0.0,
                 "max_drawdown": 0.0,
                 "max_equity": 0.0,
                 "min_equity": 0.0,
