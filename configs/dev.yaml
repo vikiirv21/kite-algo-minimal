@@ -165,6 +165,8 @@ risk_engine:
   enable_partial_exits: true
   enable_trailing: true
   enable_time_stop: true
+  hard_sl_pct_cap: 0.03          # 3% hard stop loss cap (fallback if ATR unavailable)
+  hard_tp_pct_cap: 0.06          # 6% hard take profit cap (fallback if ATR unavailable)
 
 learning_engine:
   enabled: false

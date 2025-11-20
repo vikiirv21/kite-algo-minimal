@@ -194,6 +194,125 @@ async def api_performance() -> JSONResponse:
         return JSONResponse(default_metrics)
 
 
+@router.get("/api/trades/open")
+async def api_trades_open() -> JSONResponse:
+    """
+    Return all open trades from the open_trades.json registry.
+    """
+    try:
+        from core.state_store import StateStore
+        state_store = StateStore()
+        open_trades = state_store.load_open_trades()
+        return JSONResponse({"open_trades": open_trades, "count": len(open_trades)})
+    except Exception as exc:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error("Failed to load open trades: %s", exc)
+        return JSONResponse({"open_trades": [], "count": 0, "error": str(exc)})
+
+
+@router.get("/api/trades/closed/today")
+async def api_trades_closed_today() -> JSONResponse:
+    """
+    Return closed trades from today's orders.csv (where status="FILLED" and tag contains "exit").
+    """
+    try:
+        import csv
+        from datetime import date
+        
+        # Path to today's journal
+        today_str = date.today().strftime("%Y-%m-%d")
+        journal_path = BASE_DIR / "artifacts" / "journal" / today_str / "orders.csv"
+        
+        closed_trades = []
+        if journal_path.exists():
+            with journal_path.open("r", encoding="utf-8", newline="") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    # Filter for exit orders
+                    tag = (row.get("tag") or "").lower()
+                    status = (row.get("status") or "").upper()
+                    if "exit" in tag and status in ["FILLED", "COMPLETE", "EXECUTED"]:
+                        closed_trades.append(row)
+        
+        return JSONResponse({"closed_trades": closed_trades, "count": len(closed_trades)})
+    except Exception as exc:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error("Failed to load closed trades: %s", exc)
+        return JSONResponse({"closed_trades": [], "count": 0, "error": str(exc)})
+
+
+@router.get("/api/telemetry/runtime")
+async def api_telemetry_runtime() -> JSONResponse:
+    """
+    Return runtime metrics from runtime_metrics.json.
+    """
+    try:
+        import json
+        runtime_metrics_path = BASE_DIR / "artifacts" / "analytics" / "runtime_metrics.json"
+        
+        if not runtime_metrics_path.exists():
+            return JSONResponse({
+                "active_positions": 0,
+                "realized_pnl": 0.0,
+                "unrealized_pnl": 0.0,
+                "total_pnl": 0.0,
+                "total_orders": 0,
+            })
+        
+        with runtime_metrics_path.open("r", encoding="utf-8") as f:
+            metrics = json.load(f)
+        return JSONResponse(metrics)
+    except Exception as exc:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error("Failed to load runtime metrics: %s", exc)
+        return JSONResponse({"error": str(exc)})
+
+
+@router.get("/api/telemetry/trade_lifecycle")
+async def api_telemetry_trade_lifecycle() -> JSONResponse:
+    """
+    Return trade lifecycle telemetry combining open trades and runtime metrics.
+    """
+    try:
+        import json
+        from core.state_store import StateStore
+        
+        state_store = StateStore()
+        open_trades = state_store.load_open_trades()
+        
+        # Load runtime metrics
+        runtime_metrics_path = BASE_DIR / "artifacts" / "analytics" / "runtime_metrics.json"
+        runtime_metrics = {}
+        if runtime_metrics_path.exists():
+            with runtime_metrics_path.open("r", encoding="utf-8") as f:
+                runtime_metrics = json.load(f)
+        
+        # Compute summary statistics
+        total_unrealized_pnl = 0.0
+        for trade in open_trades:
+            entry_price = float(trade.get('entry_price', 0))
+            qty = int(trade.get('qty', 0))
+            side = trade.get('side')
+            
+            # We'd need current price to calculate unrealized PnL accurately
+            # For now, just provide the trade data
+            
+        return JSONResponse({
+            "open_trades_count": len(open_trades),
+            "open_trades": open_trades,
+            "runtime_metrics": runtime_metrics,
+            "timestamp": datetime.now().isoformat(),
+        })
+    except Exception as exc:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error("Failed to load trade lifecycle telemetry: %s", exc)
+        return JSONResponse({"error": str(exc)})
+
+
 router.include_router(dashboard_module.router)
 router.include_router(dashboard_logs.router)
 

@@ -1107,3 +1107,348 @@ class ExecutionEngineV3:
             Metrics dictionary
         """
         return self.metrics.copy()
+    
+    def create_trade_record(self, context: Any, fill_price: float, signal: Any) -> Dict[str, Any]:
+        """
+        Create a trade record for the open trades registry.
+        
+        Args:
+            context: Trading context with indicators
+            fill_price: Fill price for the trade
+            signal: Signal object with trade details
+            
+        Returns:
+            Trade record dictionary
+        """
+        try:
+            # Extract signal details
+            symbol = getattr(signal, 'symbol', '')
+            side = getattr(signal, 'signal', getattr(signal, 'action', ''))
+            qty = getattr(signal, 'qty', getattr(signal, 'qty_hint', 1))
+            
+            # Generate trade_id with timestamp
+            now = datetime.now(timezone.utc)
+            trade_id = f"{symbol}_{now.strftime('%Y%m%d_%H%M%S')}"
+            
+            # Get risk_engine config
+            risk_engine_config = self.config.get('risk_engine', {})
+            hard_sl_pct_cap = float(risk_engine_config.get('hard_sl_pct_cap', 0.03))
+            hard_tp_pct_cap = float(risk_engine_config.get('hard_tp_pct_cap', 0.06))
+            trail_start_r = float(risk_engine_config.get('trail_start_r', 1.0))
+            trail_step_r = float(risk_engine_config.get('trail_step_r', 0.5))
+            time_stop_bars = int(risk_engine_config.get('time_stop_bars', 25))
+            
+            # Try to get ATR from context or regime
+            atr = None
+            if context and hasattr(context, 'indicators'):
+                indicators = context.indicators
+                if isinstance(indicators, dict):
+                    atr = indicators.get('atr') or indicators.get('ATR')
+            
+            # Compute SL and TP
+            if atr and atr > 0:
+                # Use ATR-based SL/TP
+                risk = self.config.get('risk', {})
+                atr_config = risk.get('atr', {})
+                sl_r_multiple = float(atr_config.get('sl_r_multiple', 1.0))
+                tp_r_multiple = float(atr_config.get('tp_r_multiple', 2.0))
+                
+                if side == "BUY":
+                    sl_price = fill_price - (atr * sl_r_multiple)
+                    tp_price = fill_price + (atr * tp_r_multiple)
+                else:  # SELL
+                    sl_price = fill_price + (atr * sl_r_multiple)
+                    tp_price = fill_price - (atr * tp_r_multiple)
+            else:
+                # Fallback to percentage-based SL/TP
+                if side == "BUY":
+                    sl_price = fill_price * (1 - hard_sl_pct_cap)
+                    tp_price = fill_price * (1 + hard_tp_pct_cap)
+                else:  # SELL
+                    sl_price = fill_price * (1 + hard_sl_pct_cap)
+                    tp_price = fill_price * (1 - hard_tp_pct_cap)
+            
+            # Build trade record
+            trade_record = {
+                'trade_id': trade_id,
+                'symbol': symbol,
+                'side': side,
+                'qty': qty,
+                'entry_price': fill_price,
+                'sl': sl_price,
+                'tp': tp_price,
+                'trail_start_r': trail_start_r,
+                'trail_step_r': trail_step_r,
+                'time_stop_bars': time_stop_bars,
+                'opened_at': now.isoformat(),
+                'bars_elapsed': 0,
+                'trailing_active': False,
+                'highest_price': fill_price if side == "BUY" else None,
+                'lowest_price': fill_price if side == "SELL" else None,
+                'atr': atr,
+            }
+            
+            logger.info(f"Created trade record {trade_id}: {side} {qty} {symbol} @ {fill_price:.2f}, SL={sl_price:.2f}, TP={tp_price:.2f}")
+            
+            return trade_record
+            
+        except Exception as e:
+            logger.error(f"Error creating trade record: {e}", exc_info=True)
+            return {}
+    
+    def update_trade_lifecycle(self):
+        """
+        Update all open trades: check SL/TP/trailing/time-stop/partial exits.
+        This should be called on every tick by the PaperEngine.
+        """
+        try:
+            if not self.state_store:
+                return
+            
+            # Load open trades from registry
+            open_trades = self.state_store.load_open_trades()
+            if not open_trades:
+                return
+            
+            trades_to_close = []
+            updated_trades = []
+            
+            for trade in open_trades:
+                try:
+                    symbol = trade.get('symbol')
+                    if not symbol:
+                        continue
+                    
+                    # Get current LTP
+                    ltp = self._get_current_price(symbol)
+                    if not ltp:
+                        updated_trades.append(trade)
+                        continue
+                    
+                    side = trade.get('side')
+                    entry_price = float(trade.get('entry_price', 0))
+                    sl = float(trade.get('sl', 0))
+                    tp = float(trade.get('tp', 0))
+                    qty = int(trade.get('qty', 0))
+                    
+                    # Check TP hit
+                    tp_hit = False
+                    if side == "BUY" and ltp >= tp:
+                        tp_hit = True
+                    elif side == "SELL" and ltp <= tp:
+                        tp_hit = True
+                    
+                    if tp_hit:
+                        self.close_trade(trade, "tp_hit", ltp)
+                        trades_to_close.append(trade['trade_id'])
+                        continue
+                    
+                    # Check SL hit
+                    sl_hit = False
+                    if side == "BUY" and ltp <= sl:
+                        sl_hit = True
+                    elif side == "SELL" and ltp >= sl:
+                        sl_hit = True
+                    
+                    if sl_hit:
+                        self.close_trade(trade, "sl_hit", ltp)
+                        trades_to_close.append(trade['trade_id'])
+                        continue
+                    
+                    # Trailing SL logic
+                    trail_start_r = float(trade.get('trail_start_r', 1.0))
+                    trail_step_r = float(trade.get('trail_step_r', 0.5))
+                    atr = trade.get('atr')
+                    
+                    if atr and atr > 0:
+                        if side == "BUY":
+                            # Update highest price
+                            highest = trade.get('highest_price', entry_price)
+                            if ltp > highest:
+                                trade['highest_price'] = ltp
+                                highest = ltp
+                            
+                            # Check if trailing should activate
+                            move = highest - entry_price
+                            if move >= trail_start_r * atr:
+                                trade['trailing_active'] = True
+                            
+                            # Adjust SL if trailing is active
+                            if trade.get('trailing_active'):
+                                new_sl = highest - (atr * trail_step_r)
+                                if new_sl > sl:
+                                    trade['sl'] = new_sl
+                                    logger.debug(f"Trailing SL updated for {trade['trade_id']}: {sl:.2f} -> {new_sl:.2f}")
+                        
+                        else:  # SELL
+                            # Update lowest price
+                            lowest = trade.get('lowest_price', entry_price)
+                            if ltp < lowest:
+                                trade['lowest_price'] = ltp
+                                lowest = ltp
+                            
+                            # Check if trailing should activate
+                            move = entry_price - lowest
+                            if move >= trail_start_r * atr:
+                                trade['trailing_active'] = True
+                            
+                            # Adjust SL if trailing is active
+                            if trade.get('trailing_active'):
+                                new_sl = lowest + (atr * trail_step_r)
+                                if new_sl < sl:
+                                    trade['sl'] = new_sl
+                                    logger.debug(f"Trailing SL updated for {trade['trade_id']}: {sl:.2f} -> {new_sl:.2f}")
+                    
+                    # Partial exit check: if unrealized PnL > 1R
+                    if atr and atr > 0:
+                        if side == "BUY":
+                            unrealized_pnl = (ltp - entry_price) * qty
+                            risk = (entry_price - sl) * qty
+                        else:  # SELL
+                            unrealized_pnl = (entry_price - ltp) * qty
+                            risk = (sl - entry_price) * qty
+                        
+                        if risk > 0 and unrealized_pnl > risk and not trade.get('partial_exit_done'):
+                            # Execute 50% partial exit
+                            exit_qty = int(qty * 0.5)
+                            remaining_qty = qty - exit_qty
+                            
+                            if exit_qty > 0:
+                                # Create exit order for partial position
+                                self._create_exit_order(trade, exit_qty, ltp, "partial_exit")
+                                
+                                # Update trade with remaining qty
+                                trade['qty'] = remaining_qty
+                                trade['partial_exit_done'] = True
+                                logger.info(f"Partial exit executed for {trade['trade_id']}: {exit_qty} @ {ltp:.2f}")
+                    
+                    # Time-stop check
+                    bars_elapsed = int(trade.get('bars_elapsed', 0))
+                    time_stop_bars = int(trade.get('time_stop_bars', 25))
+                    if bars_elapsed >= time_stop_bars:
+                        self.close_trade(trade, "time_stop", ltp)
+                        trades_to_close.append(trade['trade_id'])
+                        continue
+                    
+                    # Keep this trade open
+                    updated_trades.append(trade)
+                    
+                except Exception as e:
+                    logger.error(f"Error updating trade lifecycle for {trade.get('trade_id')}: {e}", exc_info=True)
+                    updated_trades.append(trade)  # Keep the trade to avoid data loss
+            
+            # Remove closed trades from the list
+            final_trades = [t for t in updated_trades if t.get('trade_id') not in trades_to_close]
+            
+            # Save updated open trades
+            self.state_store.save_open_trades(final_trades)
+            
+        except Exception as e:
+            logger.error(f"Error in update_trade_lifecycle: {e}", exc_info=True)
+    
+    def close_trade(self, trade: Dict[str, Any], reason: str, ltp: float):
+        """
+        Close a trade and create an exit order.
+        
+        Args:
+            trade: Trade record to close
+            reason: Reason for closure (sl_hit, tp_hit, trail, time_stop, etc.)
+            ltp: Current LTP for exit price
+        """
+        try:
+            symbol = trade.get('symbol')
+            side = trade.get('side')
+            qty = int(trade.get('qty', 0))
+            entry_price = float(trade.get('entry_price', 0))
+            
+            # Create exit order
+            self._create_exit_order(trade, qty, ltp, reason)
+            
+            # Calculate PnL
+            if side == "BUY":
+                pnl = (ltp - entry_price) * qty
+            else:  # SELL
+                pnl = (entry_price - ltp) * qty
+            
+            # Update state_store positions and realized PnL
+            if self.state_store:
+                try:
+                    # Load current checkpoint
+                    state = self.state_store.load_checkpoint()
+                    if state:
+                        equity = state.get('equity', {})
+                        equity['realized_pnl'] = float(equity.get('realized_pnl', 0.0)) + pnl
+                        
+                        # Update positions - remove the closed position
+                        positions = state.get('positions', [])
+                        positions = [p for p in positions if p.get('symbol') != symbol]
+                        state['positions'] = positions
+                        
+                        self.state_store.save_checkpoint(state)
+                except Exception as e:
+                    logger.error(f"Error updating state store after trade close: {e}", exc_info=True)
+            
+            logger.info(f"Trade closed: {trade.get('trade_id')} - {reason}, PnL: {pnl:.2f}")
+            
+        except Exception as e:
+            logger.error(f"Error closing trade {trade.get('trade_id')}: {e}", exc_info=True)
+    
+    def _create_exit_order(self, trade: Dict[str, Any], qty: int, price: float, reason: str):
+        """
+        Create an exit order record.
+        
+        Args:
+            trade: Trade record
+            qty: Quantity to exit
+            price: Exit price
+            reason: Exit reason
+        """
+        try:
+            symbol = trade.get('symbol')
+            side = trade.get('side')
+            entry_price = float(trade.get('entry_price', 0))
+            
+            # Opposite side for exit
+            exit_side = "SELL" if side == "BUY" else "BUY"
+            
+            # Calculate PnL
+            if side == "BUY":
+                pnl = (price - entry_price) * qty
+            else:  # SELL
+                pnl = (entry_price - price) * qty
+            
+            # Create exit order record
+            exit_order = {
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'order_id': f"EXIT-{trade.get('trade_id')}-{uuid.uuid4().hex[:8]}",
+                'symbol': symbol,
+                'side': exit_side,
+                'transaction_type': exit_side,
+                'quantity': qty,
+                'filled_quantity': qty,
+                'price': price,
+                'average_price': price,
+                'status': 'FILLED',
+                'exchange': 'NSE',
+                'product': 'MIS',
+                'variety': 'regular',
+                'tag': f'exit_{reason}',
+                'entry_price': entry_price,
+                'exit_price': price,
+                'realized_pnl': pnl,
+                'exit_reason': reason,
+                'trade_id': trade.get('trade_id'),
+            }
+            
+            # Log via trade_recorder
+            if self.trade_recorder:
+                if hasattr(self.trade_recorder, 'record_execution'):
+                    self.trade_recorder.record_execution(exit_order)
+                elif hasattr(self.trade_recorder, 'log_order'):
+                    self.trade_recorder.log_order(exit_order)
+            
+            logger.info(f"Exit order created: {exit_side} {qty} {symbol} @ {price:.2f}, PnL: {pnl:.2f}, reason: {reason}")
+            
+        except Exception as e:
+            logger.error(f"Error creating exit order: {e}", exc_info=True)
+
