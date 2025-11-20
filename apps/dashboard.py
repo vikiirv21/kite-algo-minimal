@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import datetime as dt
+import json
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -598,6 +601,58 @@ async def update_risk_limits(payload: dict) -> JSONResponse:
             "status": "error",
             "message": str(exc),
         }, status_code=500)
+
+
+def load_engine_telemetry() -> dict:
+    """
+    Load telemetry for all engines from artifacts/telemetry/*_engine.json.
+    
+    Returns:
+        {
+          "asof": "...",
+          "engines": [ ... ]
+        }
+    """
+    telemetry_dir = BASE_DIR / "artifacts" / "telemetry"
+    telemetry_dir.mkdir(parents=True, exist_ok=True)
+    engines = []
+    for path in telemetry_dir.glob("*_engine.json"):
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+                engines.append(data)
+        except Exception:
+            logger = logging.getLogger(__name__)
+            logger.exception("Failed to read engine telemetry from %s", path)
+    return {
+        "asof": dt.datetime.now().isoformat(),
+        "engines": engines,
+    }
+
+
+@router.get("/api/telemetry/engines")
+async def get_telemetry_engines():
+    """
+    Aggregate engine telemetry for dashboard.
+    
+    Returns health status for all running engine processes (fno, equity, options).
+    """
+    try:
+        return load_engine_telemetry()
+    except Exception:
+        logger = logging.getLogger(__name__)
+        logger.exception("Failed to load engine telemetry")
+        return {"asof": dt.datetime.now().isoformat(), "engines": []}
+
+
+@router.get("/api/telemetry/engine_logs")
+async def get_engine_logs(engine: str, lines: int = 200):
+    """
+    (Optional stub)
+    In future, return last N lines from engine-specific log file.
+    For now, just return {"engine": engine, "lines": []}.
+    """
+    return {"engine": engine, "lines": []}
 
 
 router.include_router(dashboard_module.router)
