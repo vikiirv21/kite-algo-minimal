@@ -32,10 +32,10 @@
     "largest_loss": 0.0,
     "avg_r": 0.0
   },
-  "ts": "2025-11-17T18:27:47.902538Z",
+  "ts": "2025-11-20T04:04:18.074399Z",
   "mode": "paper",
   "equity": {
-    "realized_pnl": 0.0,
+    "realized_pnl": 5000.0,
     "unrealized_pnl": 0.0,
     "day_pnl": 0.0
   },

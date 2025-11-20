@@ -14,6 +14,7 @@ artifacts/backtests/
 artifacts/market_data/
 artifacts/scanner/
 artifacts/logs/
+artifacts/runtime/
 ui/static/dashboard_old.js
 ui/static/js/dashboard_old.js
 ui/static/css/dashboard_old.css
