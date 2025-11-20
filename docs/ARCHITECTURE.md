@@ -229,6 +229,7 @@ ui/
 ### Risk & Portfolio Management
 - **Risk Engine v2** (`core/risk_engine_v2.py`): Position sizing, loss limits, exposure management
 - **Portfolio Engine** (`core/portfolio_engine.py`): Portfolio-level P&L and position tracking
+- **Paper Account Manager** (`core/account_manager.py`): Daily reset rule for paper accounts based on drawdown thresholds
 - **Trade Guardian** (`core/trade_guardian.py`): Pre-trade validation and safety checks
 - **Adaptive Risk Manager** (`risk/adaptive_risk_manager.py`): Dynamic risk adjustment
 
@@ -268,6 +269,30 @@ ui/
 - **Main Config**: `configs/dev.yaml` (and other environment configs)
 - **Secrets**: `secrets/` (API keys, tokens - gitignored)
 - **Artifacts**: `artifacts/` (logs, checkpoints, market data cache)
+
+## Paper Account Lifecycle
+
+The paper trading account includes automated reset logic to simulate real-world capital management:
+
+**Daily Reset Rule:**
+1. On engine startup, `PaperAccountManager` checks yesterday's metrics from `artifacts/analytics/`
+2. If `overall.net_pnl <= -max_drawdown_reset` (default: -50000), the account resets:
+   - Equity reset to `starting_capital` (default: 500000)
+   - All positions cleared
+   - Realized/unrealized PnL reset to zero
+   - Old checkpoint archived with timestamp
+3. If no reset needed, engine continues from existing state
+
+**Configuration:**
+```yaml
+paper_account:
+  starting_capital: 500000       # Starting capital
+  max_drawdown_reset: 50000      # Reset threshold
+```
+
+**Metrics Sources:**
+- `artifacts/analytics/runtime_metrics.json` (real-time)
+- `artifacts/analytics/YYYY-MM-DD-metrics.json` (daily snapshots)
 
 ## Data Flow
 

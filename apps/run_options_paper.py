@@ -23,6 +23,7 @@ from core.engine_bootstrap import (
     setup_engine_logging,
     build_options_universe,
 )
+from core.telemetry import EngineTelemetryReporter
 from engine.options_paper_engine import OptionsPaperEngine
 
 logger = logging.getLogger(__name__)
@@ -129,6 +130,13 @@ def main() -> None:
             logger.error("Failed to initialize options paper engine: %s", exc, exc_info=True)
             sys.exit(1)
         
+        # Initialize telemetry reporter
+        telemetry_reporter = EngineTelemetryReporter(name="options", mode=args.mode)
+        telemetry_reporter.heartbeat(
+            universe_size=len(_engine.logical_underlyings),
+            status="running",
+        )
+        
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
@@ -136,12 +144,33 @@ def main() -> None:
         # Start engine in foreground (synchronous)
         logger.info("Starting options paper engine... (Press Ctrl+C to stop)")
         
+        # Wrap engine.run_forever to inject telemetry heartbeat
+        original_loop_once = _engine._loop_once
+        
+        def _loop_once_with_telemetry():
+            """Wrapper to inject telemetry heartbeat into engine loop."""
+            original_loop_once()
+            # Update telemetry every loop iteration
+            try:
+                open_pos_count = len(_engine.paper_broker.get_all_positions()) if hasattr(_engine, 'paper_broker') else 0
+                telemetry_reporter.heartbeat(
+                    loop_tick=_engine._loop_counter,
+                    universe_size=len(_engine.logical_underlyings),
+                    open_positions=open_pos_count,
+                    status="running",
+                )
+            except Exception as exc:
+                logger.debug("Failed to update telemetry: %s", exc)
+        
+        _engine._loop_once = _loop_once_with_telemetry
+        
         try:
             _engine.run_forever()
         except KeyboardInterrupt:
             logger.info("Interrupted by user")
         except Exception as exc:
             logger.error("Engine failed with exception: %s", exc, exc_info=True)
+            telemetry_reporter.heartbeat(status="error", last_error=str(exc))
             sys.exit(1)
         finally:
             # Perform cleanup and save final checkpoint
@@ -152,6 +181,8 @@ def main() -> None:
             except Exception as exc:
                 logger.warning("Failed to save final state: %s", exc)
             
+            # Mark telemetry as stopped
+            telemetry_reporter.mark_stopped()
             logger.info("Options paper engine shutdown complete")
     
     except Exception as exc:
