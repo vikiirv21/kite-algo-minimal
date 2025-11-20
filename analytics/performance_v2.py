@@ -238,16 +238,18 @@ def compute_metrics(
     # Compute equity metrics
     realized_pnl = net_pnl
     unrealized_pnl = 0.0
+    total_notional = 0.0
     
-    # Try to load unrealized PnL from state if available
+    # Try to load unrealized PnL and total_notional from state if available
     if state_path and state_path.exists():
         try:
             with state_path.open("r", encoding="utf-8") as f:
                 state = json.load(f)
                 equity_data = state.get("equity", {})
                 unrealized_pnl = float(equity_data.get("unrealized_pnl", 0.0))
+                total_notional = float(equity_data.get("total_notional", 0.0))
         except Exception as exc:
-            logger.debug("Could not load unrealized PnL from state: %s", exc)
+            logger.debug("Could not load unrealized PnL/notional from state: %s", exc)
     
     current_equity = starting_capital + realized_pnl + unrealized_pnl
     
@@ -360,6 +362,7 @@ def compute_metrics(
             "current_equity": current_equity,
             "realized_pnl": realized_pnl,
             "unrealized_pnl": unrealized_pnl,
+            "total_notional": total_notional,
             "max_drawdown": max_drawdown,
             "max_equity": max_equity,
             "min_equity": min_equity,
@@ -426,3 +429,70 @@ def write_metrics(
     except Exception as exc:
         logger.error("Failed to write metrics to %s: %s", output_path, exc)
         raise
+
+
+def update_runtime_metrics(
+    orders_path: Path | str,
+    state_path: Path | str | None = None,
+    starting_capital: float = 500_000.0,
+    output_path: Path | str | None = None,
+) -> dict[str, Any]:
+    """
+    Idempotent helper to update runtime_metrics.json.
+    
+    This is the canonical way to update runtime metrics for both CLI and dashboard.
+    Handles missing/empty orders gracefully by returning safe default metrics.
+    
+    Args:
+        orders_path: Path to orders.csv file
+        state_path: Optional path to state checkpoint for unrealized PnL/notional
+        starting_capital: Starting capital (default: 500000)
+        output_path: Output JSON path (default: artifacts/analytics/runtime_metrics.json)
+        
+    Returns:
+        Dictionary containing the computed metrics
+        
+    Examples:
+        >>> # Update runtime metrics from current orders and state
+        >>> metrics = update_runtime_metrics(
+        ...     orders_path="artifacts/orders.csv",
+        ...     state_path="artifacts/checkpoints/paper_state_latest.json",
+        ...     starting_capital=500000.0,
+        ... )
+        >>> print(f"Equity: {metrics['equity']['current_equity']}")
+    """
+    # Convert to Path objects
+    orders_path = Path(orders_path)
+    state_path = Path(state_path) if state_path else None
+    
+    # Default output path if not specified
+    if output_path is None:
+        # Assume we're in project root or can find it
+        base_dir = Path(__file__).resolve().parents[1]
+        artifacts_dir = base_dir / "artifacts" / "analytics"
+        output_path = artifacts_dir / "runtime_metrics.json"
+    else:
+        output_path = Path(output_path)
+    
+    # Load orders (returns empty list if missing)
+    orders = load_orders(orders_path)
+    
+    # Reconstruct trades
+    trades = reconstruct_trades(orders)
+    
+    # Compute metrics
+    metrics = compute_metrics(trades, starting_capital, state_path)
+    
+    # Ensure output directory exists
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Write metrics to file
+    try:
+        with output_path.open("w", encoding="utf-8") as f:
+            json.dump(metrics, f, indent=2, default=str)
+        logger.info("Runtime metrics updated: %s", output_path)
+    except Exception as exc:
+        logger.error("Failed to write runtime metrics to %s: %s", output_path, exc)
+        raise
+    
+    return metrics

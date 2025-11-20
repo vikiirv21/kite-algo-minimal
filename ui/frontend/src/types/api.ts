@@ -172,29 +172,56 @@ export interface AuthStatus {
 }
 
 export interface AnalyticsSummary {
-  daily: {
+  asof: string | null;
+  status: 'ok' | 'stale' | 'empty';
+  mode: string;
+  equity: {
+    starting_capital: number;
+    current_equity: number;
     realized_pnl: number;
-    num_trades: number;
+    unrealized_pnl: number;
+    total_notional: number;
+    max_drawdown: number;
+    max_equity: number;
+    min_equity: number;
+  };
+  overall: {
+    total_trades: number;
+    win_trades: number;
+    loss_trades: number;
+    breakeven_trades: number;
     win_rate: number;
-    loss_rate: number;
+    gross_profit: number;
+    gross_loss: number;
+    net_pnl: number;
+    profit_factor: number;
     avg_win: number;
     avg_loss: number;
-    pnl_distribution: {
-      wins: number;
-      losses: number;
-      breakeven: number;
-    };
-    biggest_winner: number;
-    biggest_loser: number;
+    avg_r_multiple: number;
+    biggest_win: number;
+    biggest_loss: number;
   };
-  strategies: Record<string, {
-    pnl: number;
+  per_strategy: Record<string, {
     trades: number;
+    win_trades: number;
+    loss_trades: number;
+    gross_profit: number;
+    gross_loss: number;
+    net_pnl: number;
     win_rate: number;
+    profit_factor: number;
+    avg_win: number;
+    avg_loss: number;
   }>;
-  symbols: Record<string, {
-    pnl: number;
+  per_symbol: Record<string, {
     trades: number;
+    win_trades: number;
+    loss_trades: number;
+    gross_profit: number;
+    gross_loss: number;
+    net_pnl: number;
+    win_rate: number;
+    profit_factor: number;
   }>;
 }
 
