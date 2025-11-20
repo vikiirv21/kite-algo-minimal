@@ -738,6 +738,55 @@ class OptionsPaperEngine:
                         vol_spike=indicators.get("vol_spike"),
                         strategy=strategy_label,
                     )
+                    
+                    # Emit diagnostics (non-blocking, best-effort)
+                    try:
+                        from analytics.diagnostics import build_diagnostic_record, append_diagnostic
+                        
+                        # Extract indicator values
+                        ema20 = indicators.get("ema20")
+                        ema50 = indicators.get("ema50")
+                        trend_strength = indicators.get("adx14")  # Use ADX as trend strength
+                        
+                        # Get regime label
+                        regime_label = market_regime if market_regime else None
+                        
+                        # Determine risk block
+                        risk_block = "none"
+                        if final_signal == "HOLD":
+                            reason_lower = reason.lower()
+                            if "loss" in reason_lower or "capital" in reason_lower:
+                                risk_block = "max_loss"
+                            elif "cooldown" in reason_lower or "throttle" in reason_lower:
+                                risk_block = "cooldown"
+                            elif "slippage" in reason_lower:
+                                risk_block = "slippage"
+                            elif "pattern_filter" in reason_lower or "regime_block" in reason_lower:
+                                risk_block = "pattern_filter"
+                        
+                        # Build diagnostic record
+                        diagnostic = build_diagnostic_record(
+                            price=price,
+                            decision=final_signal,
+                            reason=reason,
+                            confidence=decision.confidence,
+                            ema20=ema20,
+                            ema50=ema50,
+                            trend_strength=trend_strength,
+                            rr=None,  # Not available in options legacy flow
+                            regime=regime_label,
+                            risk_block=risk_block,
+                            # Additional fields
+                            strategy_id=strategy_label,
+                            timeframe=tf_label,
+                            option_type=opt_type,
+                            underlying=logical_base,
+                        )
+                        
+                        append_diagnostic(base_logical, strategy_label, diagnostic)
+                    except Exception as diag_exc:
+                        # Never let diagnostics crash the engine
+                        logger.debug("Diagnostics emission failed for %s: %s", ts, diag_exc)
 
                     if final_signal in ("BUY", "SELL"):
                         record_strategy_signal(self.primary_strategy_code, timestamp=signal_ts)
