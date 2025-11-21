@@ -984,6 +984,19 @@ class EquityPaperEngine:
             )
         logger.info("Equity order executed (mode=%s): %s", self.mode.value, order)
 
+        # --- Resolve market regime (safe fallback) ---
+        try:
+            # Prefer an explicit attribute if present (future integration)
+            if hasattr(self, "market_regime") and self.market_regime:
+                market_regime = self.market_regime
+            # Otherwise try paper_state
+            elif hasattr(self, "paper_state") and isinstance(self.paper_state, dict):
+                market_regime = self.paper_state.get("market_regime", "UNKNOWN")
+            else:
+                market_regime = "UNKNOWN"
+        except Exception:
+            market_regime = "UNKNOWN"
+
         extra_payload: Dict[str, Any] = {
             "status": getattr(order, "status", "FILLED"),
             "strategy": strategy_label,
