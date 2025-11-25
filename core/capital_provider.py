@@ -10,6 +10,7 @@ This ensures position sizing uses accurate capital at trade time.
 from __future__ import annotations
 
 import logging
+import time
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 
@@ -117,8 +118,6 @@ class LiveCapitalProvider(CapitalProvider):
         Returns:
             Available capital from Kite API or fallback
         """
-        import time
-
         now = time.time()
         if (
             self._cached_capital is not None
@@ -135,8 +134,6 @@ class LiveCapitalProvider(CapitalProvider):
         Returns:
             Available capital from Kite margins("equity") API
         """
-        import time
-
         try:
             from core.kite_http import kite_request
 
