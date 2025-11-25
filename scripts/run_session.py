@@ -345,6 +345,147 @@ def is_market_open(session_config: Optional[Dict[str, Any]] = None) -> bool:
         return True  # Default to allowing execution
 
 
+def get_allowed_sessions(config_path: str) -> list:
+    """
+    Load allowed trading sessions from config file.
+    
+    Reads risk.time_filter.allow_sessions from the config.
+    
+    Args:
+        config_path: Path to config file
+    
+    Returns:
+        List of session dicts with 'start' and 'end' keys (IST times)
+    """
+    try:
+        cfg = load_config(config_path)
+        raw_config = getattr(cfg, "raw", {})
+        risk_cfg = raw_config.get("risk", {})
+        time_filter = risk_cfg.get("time_filter", {})
+        allow_sessions = time_filter.get("allow_sessions", [])
+        
+        if not allow_sessions:
+            # Default: single session for entire market hours
+            return [{"start": "09:15", "end": "15:30"}]
+        
+        return allow_sessions
+    except Exception as exc:
+        logger.warning("Failed to load allowed sessions: %s. Using default.", exc)
+        return [{"start": "09:15", "end": "15:30"}]
+
+
+def get_current_session_info(config_path: str) -> Dict[str, Any]:
+    """
+    Get information about current trading session based on allowed sessions.
+    
+    Args:
+        config_path: Path to config file
+    
+    Returns:
+        Dict with:
+            - in_session: bool - whether currently in an allowed session
+            - session_name: str - description of current session or gap
+            - current_session: dict - current session info if in session
+            - next_session: dict - next session info if not in session
+    """
+    now = datetime.now(IST)
+    current_time = now.time()
+    
+    sessions = get_allowed_sessions(config_path)
+    
+    for i, session in enumerate(sessions):
+        try:
+            start_str = session.get("start", "09:15")
+            end_str = session.get("end", "15:30")
+            
+            start_h, start_m = map(int, start_str.split(":"))
+            end_h, end_m = map(int, end_str.split(":"))
+            
+            start_time = dt_time(start_h, start_m)
+            end_time = dt_time(end_h, end_m)
+            
+            if start_time <= current_time <= end_time:
+                session_num = i + 1
+                if len(sessions) == 1:
+                    session_name = "Market Session"
+                elif session_num == 1:
+                    session_name = "Morning Session"
+                elif session_num == 2:
+                    session_name = "Afternoon Session"
+                else:
+                    session_name = f"Session {session_num}"
+                
+                return {
+                    "in_session": True,
+                    "session_name": f"{session_name} ({start_str}-{end_str})",
+                    "current_session": session,
+                    "next_session": sessions[i + 1] if i + 1 < len(sessions) else None,
+                }
+        except Exception as exc:
+            logger.debug("Error parsing session %d: %s", i, exc)
+            continue
+    
+    # Not in any session - find next session
+    next_session = None
+    for session in sessions:
+        try:
+            start_str = session.get("start", "09:15")
+            start_h, start_m = map(int, start_str.split(":"))
+            start_time = dt_time(start_h, start_m)
+            
+            if start_time > current_time:
+                next_session = session
+                break
+        except Exception:
+            continue
+    
+    # Determine gap name
+    if next_session:
+        session_name = f"Break (next: {next_session.get('start', '??:??')})"
+    else:
+        session_name = "Market Closed"
+    
+    return {
+        "in_session": False,
+        "session_name": session_name,
+        "current_session": None,
+        "next_session": next_session,
+    }
+
+
+def log_session_status(config_path: str) -> None:
+    """
+    Log current trading session status.
+    
+    Args:
+        config_path: Path to config file
+    """
+    session_info = get_current_session_info(config_path)
+    sessions = get_allowed_sessions(config_path)
+    
+    logger.info("=" * 60)
+    logger.info("TRADING SESSION STATUS")
+    logger.info("=" * 60)
+    logger.info("Current time (IST): %s", datetime.now(IST).strftime("%H:%M:%S"))
+    logger.info("Configured sessions: %d", len(sessions))
+    
+    for i, session in enumerate(sessions, 1):
+        start = session.get("start", "??:??")
+        end = session.get("end", "??:??")
+        logger.info("  Session %d: %s - %s", i, start, end)
+    
+    if session_info["in_session"]:
+        logger.info("Active Session: %s ✓", session_info["session_name"])
+    else:
+        logger.info("Current Status: %s", session_info["session_name"])
+        if session_info["next_session"]:
+            next_start = session_info["next_session"].get("start", "??:??")
+            next_end = session_info["next_session"].get("end", "??:??")
+            logger.info("Next Session: %s - %s", next_start, next_end)
+    
+    logger.info("=" * 60)
+
+
 def start_engines_subprocess(mode: str, config_path: str) -> subprocess.Popen:
     """
     Start engines via run_day in a subprocess (single-process mode).
@@ -427,29 +568,44 @@ def start_multi_process_engines(mode: str, config_path: str) -> Dict[str, subpro
     """
     base_cmd = [sys.executable, "-m"]
     
-    engines = {
-        "fno": {
-            "module": "apps.run_fno_paper",
-            "log": LOGS_DIR / "fno_paper.log",
-        },
-        "equity": {
-            "module": "apps.run_equity_paper",
-            "log": LOGS_DIR / "equity_paper.log",
-        },
-        "options": {
-            "module": "apps.run_options_paper",
-            "log": LOGS_DIR / "options_paper.log",
-        },
-    }
+    # In LIVE mode, only start the live equity engine (paper engines don't support live mode)
+    if mode == "live":
+        engines = {
+            "live_equity": {
+                "module": "scripts.run_live_equity",
+                "log": LOGS_DIR / "live_equity.log",
+            },
+        }
+        logger.info("LIVE mode: Starting live equity engine only (paper engines skipped)")
+    else:
+        # PAPER mode: start all paper engines
+        engines = {
+            "fno": {
+                "module": "apps.run_fno_paper",
+                "log": LOGS_DIR / "fno_paper.log",
+            },
+            "equity": {
+                "module": "apps.run_equity_paper",
+                "log": LOGS_DIR / "equity_paper.log",
+            },
+            "options": {
+                "module": "apps.run_options_paper",
+                "log": LOGS_DIR / "options_paper.log",
+            },
+        }
     
     processes: Dict[str, subprocess.Popen] = {}
     
     logger.info("=" * 60)
-    logger.info("Starting multi-process engines")
+    logger.info("Starting multi-process engines (mode=%s)", mode)
     logger.info("=" * 60)
     
     for engine_name, info in engines.items():
-        cmd = base_cmd + [info["module"], "--mode", mode, "--config", config_path]
+        # For live equity, we use --config only (no --mode flag needed)
+        if mode == "live" and engine_name == "live_equity":
+            cmd = base_cmd + [info["module"], "--config", config_path]
+        else:
+            cmd = base_cmd + [info["module"], "--mode", mode, "--config", config_path]
         log_path = info["log"]
         
         logger.info("Starting %s engine: %s", engine_name, " ".join(cmd))
@@ -970,6 +1126,9 @@ def main() -> None:
     
     # Get session config
     session_config = get_session_config(args.config)
+    
+    # Log multi-session status
+    log_session_status(args.config)
     
     # Optional: Log market status
     if is_market_open(session_config):
