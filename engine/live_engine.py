@@ -1,917 +1,383 @@
 """
-Live Trading Engine
+Live Equity Engine (ExecutionEngine V3 first)
 
-Parallel to PaperEngine but places REAL orders via Kite.
+Minimal live trading loop for equities using:
+- StrategyEngineV2 for signal generation
+- MarketDataEngineV2 for live candles/ltp
+- ExecutionEngine V3 (via V2 adapter) for order lifecycle
+- TradeRecorder + RuntimeMetricsTracker for artifacts
 
-Shares:
-- StrategyEngine v2
-- RiskEngine
-- MarketDataEngine
-- StateStore concepts
-
-Diverges at:
-- Execution layer (real Kite orders vs simulated)
-- Fill handling (WebSocket order updates vs immediate fills)
+The class is intentionally small and conservative. It focuses on wiring the
+live path without touching existing paper/backtest flows.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
-from datetime import datetime, time as dt_time, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from kiteconnect import KiteConnect
-
+from analytics.runtime_metrics import RuntimeMetricsTracker
+from analytics.trade_recorder import TradeRecorder
 from broker.kite_bridge import KiteBroker
+from broker.kite_client import KiteClient
 from core.config import AppConfig
-from core.market_data_engine import MarketDataEngine
+from core.market_data_engine_v2 import MarketDataEngineV2
 from core.market_session import is_market_open
 from core.modes import TradingMode
-from core.risk_engine import RiskAction, RiskDecision, RiskEngine
 from core.state_store import JournalStateStore, StateStore
 from core.strategy_engine_v2 import StrategyEngineV2
-from core.event_logging import log_event
-from core.portfolio_engine import PortfolioEngine, PortfolioConfig
-from analytics.telemetry_bus import (
-    publish_engine_health,
-    publish_signal_event,
-    publish_order_event,
-    publish_position_event,
-    publish_decision_trace,
-)
+from core.universe import load_equity_universe
+from core.reconciliation_engine import ReconciliationEngine
+from engine.execution_engine_v3_adapter import create_execution_engine
+from engine.execution_engine import OrderIntent
+from risk.position_sizer import SizerConfig, DynamicPositionSizer
 
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 ARTIFACTS_DIR = BASE_DIR / "artifacts"
-
-# IST market hours (approx) - 9:15 AM to 3:30 PM IST
-MARKET_OPEN_TIME = dt_time(9, 15)
-MARKET_CLOSE_TIME = dt_time(15, 30)
+CHECKPOINTS_DIR = ARTIFACTS_DIR / "checkpoints"
 
 
-class LiveEngine:
+class LiveEquityEngine:
     """
-    LIVE trading engine that places real orders via Kite.
-    
-    Key features:
-    - WebSocket-based tick processing
-    - Real order placement through KiteBroker
-    - Shared strategy and risk engines with paper mode
-    - Safety guardrails (login checks, market hours, risk engine)
+    Lightweight LIVE equity engine built on StrategyEngineV2 + ExecutionEngineV3.
     """
-    
+
     def __init__(
         self,
         cfg: AppConfig,
-        broker: KiteBroker,
-        market_data_engine: MarketDataEngine,
-        strategy_engine: StrategyEngineV2,
-        risk_engine: RiskEngine,
-        state_store: StateStore,
-        journal_store: Optional[JournalStateStore] = None,
+        kite_client: Optional[KiteClient] = None,
         *,
         artifacts_dir: Optional[Path] = None,
-        execution_engine_v2: Any = None,
-    ):
-        """
-        Initialize LiveEngine.
-        
-        Args:
-            cfg: Application config
-            broker: KiteBroker instance
-            market_data_engine: Market data engine
-            strategy_engine: Strategy engine v2
-            risk_engine: Risk engine
-            state_store: State checkpoint store
-            journal_store: Journal store for orders/fills
-            artifacts_dir: Artifacts directory override
-            execution_engine_v2: Optional ExecutionEngine v2 instance
-        """
+    ) -> None:
         self.cfg = cfg
-        self.broker = broker
-        self.market_data_engine = market_data_engine
-        self.strategy_engine = strategy_engine
-        self.risk_engine = risk_engine
-        self.state_store = state_store
-        
+        self.mode = TradingMode.LIVE
         self.artifacts_dir = Path(artifacts_dir).resolve() if artifacts_dir else ARTIFACTS_DIR
-        
-        if journal_store is None:
-            journal_store = JournalStateStore(mode="live", artifacts_dir=self.artifacts_dir)
-        self.journal = journal_store
-        
+        self.checkpoint_path = self.artifacts_dir / "checkpoints" / "live_state_latest.json"
+
+        # Brokers/clients
+        self.kite_client = kite_client or KiteClient()
+        self.kite = self.kite_client.api
+        self.broker = KiteBroker(cfg.raw, logger_instance=logger)
+
+        # State + journal
+        self.state_store = StateStore(checkpoint_path=self.checkpoint_path)
+        self.journal_store = JournalStateStore(mode="live", artifacts_dir=self.artifacts_dir)
+        self.recorder = TradeRecorder(artifacts_dir=self.artifacts_dir)
+
+        # Metrics
+        starting_capital = float(
+            cfg.trading.get("live_capital", cfg.trading.get("paper_capital", 500_000))
+        )
+        self.metrics_tracker = RuntimeMetricsTracker(
+            starting_capital=starting_capital,
+            mode="live",
+            artifacts_dir=self.artifacts_dir,
+            equity_curve_maxlen=500,
+        )
+
+        # Universe + sizing
+        self.universe: List[str] = self._load_equity_universe()
+        self.primary_timeframe = str(
+            (cfg.trading.get("multi_tf_config") or [{"timeframe": "5m"}])[0].get("timeframe", "5m")
+        )
+        self.default_qty = int(cfg.trading.get("default_quantity", 1))
+        trading_cfg = cfg.trading or {}
+        risk_cfg = cfg.risk or {}
+        sizer_cfg = SizerConfig(
+            max_exposure_pct=float(
+                risk_cfg.get(
+                    "max_gross_exposure_pct",
+                    risk_cfg.get("max_exposure_pct", trading_cfg.get("max_notional_multiplier", 1.0)),
+                )
+            ),
+            risk_per_trade_pct=float(risk_cfg.get("risk_per_trade_pct", 0.005)),
+            min_order_notional=float(risk_cfg.get("min_order_notional", 0.0)),
+            max_order_notional_pct=float(risk_cfg.get("max_order_notional_pct", 0.2)),
+            max_trades=int(risk_cfg.get("max_concurrent_trades", trading_cfg.get("max_open_positions", 5))),
+            risk_scale_min=float(risk_cfg.get("risk_scale_min", 0.3)),
+            risk_scale_max=float(risk_cfg.get("risk_scale_max", 2.0)),
+            risk_down_threshold=float(risk_cfg.get("risk_down_threshold", -0.02)),
+            risk_up_threshold=float(risk_cfg.get("risk_up_threshold", 0.02)),
+        )
+        self.position_sizer = DynamicPositionSizer(sizer_cfg)
+
+        # Market data v2 (live ticks)
+        data_cfg = cfg.raw.get("data", {})
+        data_cfg.setdefault("feed", "kite")
+        self.market_data_engine = MarketDataEngineV2(
+            cfg=data_cfg,
+            kite=self.kite,
+            universe=self.universe,
+            meta={},
+            logger_instance=logger,
+        )
+
+        # Strategy engine v2 (signals) wired to this engine for execution
+        self.strategy_engine = StrategyEngineV2.from_config(cfg.raw, logger)
+        self.strategy_engine.market_data = self.market_data_engine
+        self.strategy_engine.market_data_engine = self.market_data_engine
+        self.strategy_engine.mde = self.market_data_engine
+        self.strategy_engine.set_paper_engine(self)
+
+        # Execution engine v3 (adapter)
+        self.execution_engine = create_execution_engine(
+            mode="live",
+            config=cfg.raw,
+            state_store=self.state_store,
+            journal_store=self.journal_store,
+            mde=self.market_data_engine,
+            broker=self.broker,
+            logger_instance=logger,
+            use_v3=True,
+        )
+
+        # Reconciliation engine (polling)
+        self.reconciler = None
+        try:
+            recon_exec = getattr(self.execution_engine, "v3_engine", self.execution_engine)
+            recon_bus = getattr(self.execution_engine, "event_bus", None)
+            self.reconciler = ReconciliationEngine(
+                execution_engine=recon_exec,
+                state_store=self.execution_engine.state_store
+                if hasattr(self.execution_engine, "state_store")
+                else self.state_store,
+                event_bus=recon_bus,
+                kite_broker=self.broker,
+                config=cfg.raw,
+                mode="LIVE",
+                logger_instance=logger,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to initialize reconciliation engine: %s", exc, exc_info=True)
+
         self.running = True
-        self.universe: List[str] = []
-        self.instrument_tokens: Dict[str, int] = {}
-        
-        # Pending orders tracking
-        self.pending_orders: Dict[str, Dict[str, Any]] = {}  # order_id -> order_info
-        
-        # Last known prices for each symbol
         self.last_prices: Dict[str, float] = {}
-        
-        # Initialize ExecutionEngine v2 (optional)
-        self.execution_engine_v2 = execution_engine_v2
-        if self.execution_engine_v2 is None:
-            exec_config = self.cfg.raw.get("execution", {})
-            use_exec_v2 = exec_config.get("use_execution_engine_v2", False)
-            if use_exec_v2:
-                try:
-                    from engine.execution_bridge import create_execution_engine_v2
-                    from core.trade_throttler import TradeThrottler, build_throttler_config
-                    
-                    logger.info("Initializing ExecutionEngine v2 for live mode")
-                    
-                    # Create throttler if not exists
-                    throttler_config = build_throttler_config(cfg.raw.get("trading", {}).get("trade_throttler"))
-                    throttler = TradeThrottler(config=throttler_config, capital=100000.0)
-                    
-                    self.execution_engine_v2 = create_execution_engine_v2(
-                        mode="live",
-                        broker=self.broker,
-                        state_store=self.state_store,
-                        journal_store=self.journal,
-                        trade_throttler=throttler,
-                        config=self.cfg.raw,
-                        mde=None,  # Live mode doesn't need MDE for fills
-                    )
-                except Exception as exc:
-                    logger.warning("Failed to initialize ExecutionEngine v2: %s", exc)
-                    self.execution_engine_v2 = None
-        
-        # Initialize Trade Guardian v1 (optional, for legacy path when ExecutionEngine v2 not used)
-        self.guardian = None
+        logger.info("✅ LiveEquityEngine initialized (symbols=%d)", len(self.universe))
+
+    def _load_equity_universe(self) -> List[str]:
+        trading_cfg = self.cfg.trading or {}
+        cfg_list = trading_cfg.get("equity_universe") or trading_cfg.get("equity_symbols") or []
+        if isinstance(cfg_list, str):
+            cfg_list = [cfg_list]
+        cleaned = [str(sym).strip().upper() for sym in cfg_list if sym]
+        if cleaned:
+            return cleaned
         try:
-            from core.trade_guardian import TradeGuardian
-            self.guardian = TradeGuardian(self.cfg.raw, self.state_store, logger)
-        except Exception as exc:
-            logger.warning("Failed to initialize TradeGuardian: %s", exc)
-        
-        # Initialize PortfolioEngine v1 (optional)
-        self.portfolio_engine = None
-        portfolio_config_raw = self.cfg.raw.get("portfolio")
-        if portfolio_config_raw:
-            try:
-                logger.info("Initializing PortfolioEngine v1 for live mode")
-                portfolio_config = PortfolioConfig.from_dict(portfolio_config_raw)
-                self.portfolio_engine = PortfolioEngine(
-                    portfolio_config=portfolio_config,
-                    state_store=self.state_store,
-                    journal_store=self.journal,
-                    logger_instance=logger,
-                    mde=None,  # Live mode can use MDE if available
-                )
-                logger.info(
-                    "PortfolioEngine v1 initialized for LIVE: mode=%s, max_exposure_pct=%.2f",
-                    portfolio_config.position_sizing_mode,
-                    portfolio_config.max_exposure_pct,
-                )
-            except Exception as exc:
-                logger.warning("Failed to initialize PortfolioEngine v1: %s", exc, exc_info=True)
-                self.portfolio_engine = None
-        
-        # Initialize Runtime Metrics Tracker for unified analytics
-        try:
-            from analytics.runtime_metrics import RuntimeMetricsTracker
-            from analytics.equity_curve import EquityCurveWriter
-            
-            # Get starting capital from config
-            live_capital = float(cfg.raw.get("trading", {}).get("live_capital", 500000))
-            
-            self.metrics_tracker = RuntimeMetricsTracker(
-                starting_capital=live_capital,
-                mode="live",
-                artifacts_dir=self.artifacts_dir,
-                equity_curve_maxlen=500,
-            )
-            
-            self.equity_curve_writer = EquityCurveWriter(
-                artifacts_dir=self.artifacts_dir,
-                filename="snapshots.csv",
-                min_interval_sec=5.0,
-            )
-            
-            logger.info("Runtime metrics tracker initialized for live mode")
-        except Exception as exc:
-            logger.warning("Failed to initialize runtime metrics tracker: %s. Continuing without analytics.", exc)
-            self.metrics_tracker = None
-            self.equity_curve_writer = None
-        
-        logger.info("✅ LiveEngine initialized (mode=LIVE)")
-        logger.warning("⚠️ LIVE TRADING MODE ACTIVE - REAL ORDERS WILL BE PLACED ⚠️")
-    
-    def start(self) -> None:
-        """
-        Start the live trading engine.
-        
-        - Validates login
-        - Subscribes to WebSocket ticks
-        - Runs main event loop
-        """
-        # Ensure logged in
+            return load_equity_universe()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Falling back to empty equity universe (load error: %s)", exc)
+            return []
+
+    # ------------------------------------------------------------------ ticks
+    def _on_tick(self, tick: Dict[str, Any]) -> None:
+        """Handle normalized tick from KiteBroker."""
+        if not tick:
+            return
+        symbol = tick.get("tradingsymbol")
+        ltp = tick.get("last_price")
+        if symbol and ltp:
+            self.last_prices[symbol] = float(ltp)
+            self.market_data_engine.on_tick_batch([tick])
+
+    # ------------------------------------------------------------------ loop
+    def run_forever(self) -> None:
+        """Main live loop."""
         if not self.broker.ensure_logged_in():
-            logger.error("❌ Cannot start LiveEngine: not logged in to Kite")
-            self.running = False
-            publish_engine_health(
-                "live_engine",
-                "error",
-                {"mode": "live", "error": "not_logged_in"}
-            )
+            logger.error("Cannot start LiveEquityEngine: not logged in. Run scripts/login_kite.py")
             return
-        
-        # Load universe from config
-        trading = getattr(self.cfg, "trading", {}) or {}
-        logical_universe = trading.get("logical_universe") or trading.get("fno_universe") or []
-        if isinstance(logical_universe, str):
-            logical_universe = [logical_universe]
-        self.universe = [str(s).strip().upper() for s in logical_universe if s]
-        
-        if not self.universe:
-            logger.error("❌ No symbols configured for LIVE trading - cannot start")
-            self.running = False
-            publish_engine_health(
-                "live_engine",
-                "error",
-                {"mode": "live", "error": "no_universe"}
-            )
-            return
-        
-        logger.info("📊 LIVE universe: %s", self.universe)
-        
-        # Resolve instrument tokens for WebSocket subscription
-        self._resolve_instrument_tokens()
-        
-        if not self.instrument_tokens:
-            logger.error("❌ Could not resolve any instrument tokens - cannot subscribe to ticks")
-            self.running = False
-            publish_engine_health(
-                "live_engine",
-                "error",
-                {"mode": "live", "error": "no_tokens"}
-            )
-            return
-        
-        # Subscribe to WebSocket ticks
-        tokens = list(self.instrument_tokens.values())
-        if not self.broker.subscribe_ticks(tokens, self.on_tick):
-            logger.error("❌ Failed to subscribe to WebSocket ticks")
-            self.running = False
-            publish_engine_health(
-                "live_engine",
-                "error",
-                {"mode": "live", "error": "subscribe_failed"}
-            )
-            return
-        
-        logger.info("✅ LiveEngine started - processing ticks")
-        
-        # Publish engine startup telemetry
-        publish_engine_health(
-            "live_engine",
-            "starting",
-            {
-                "mode": "live",
-                "universe_size": len(self.universe),
-                "universe": self.universe,
-            }
-        )
-        
-        # Main event loop (keeps engine alive)
+
+        # Start market data + tick subscription
+        self.market_data_engine.start()
+        tokens = list(self.market_data_engine.symbol_tokens.values())
+        if tokens:
+            self.broker.subscribe_ticks(tokens, self._on_tick)
+
+        logger.info("LiveEquityEngine starting loop (tf=%s)", self.primary_timeframe)
         try:
-            self._run_event_loop()
-        except Exception as exc:
-            logger.error("LiveEngine error: %s", exc, exc_info=True)
-            publish_engine_health(
-                "live_engine",
-                "error",
-                {"mode": "live", "error": str(exc)}
-            )
-            raise
-        finally:
-            # Publish engine shutdown telemetry
-            publish_engine_health(
-                "live_engine",
-                "stopped",
-                {"mode": "live"}
-            )
-    
-    def _run_event_loop(self) -> None:
-        """
-        Main event loop - keeps engine alive and performs periodic checks.
-        """
-        snapshot_interval = 60  # seconds
-        last_snapshot = time.time()
-        
-        while self.running:
-            try:
-                # Check if market is open
+            while self.running:
                 if not is_market_open():
-                    logger.info("Market closed - engine sleeping")
-                    time.sleep(60)
+                    logger.info("Market closed; sleeping 30s")
+                    time.sleep(30)
                     continue
-                
-                # Periodic snapshot
-                now = time.time()
-                if now - last_snapshot >= snapshot_interval:
-                    self._snapshot_state("periodic")
-                    last_snapshot = now
-                
-                # Update metrics with unrealized PnL and push equity snapshot
-                if self.metrics_tracker:
-                    try:
-                        # Get current positions from broker
-                        positions = self.broker.get_positions()
-                        
-                        # Calculate total unrealized PnL from positions
-                        total_unrealized = 0.0
-                        for pos in positions:
-                            symbol = pos.get("tradingsymbol")
-                            qty = pos.get("quantity", 0)
-                            avg_price = pos.get("average_price", 0)
-                            last_price = self.last_prices.get(symbol, avg_price)
-                            
-                            if qty != 0 and avg_price and last_price:
-                                if qty > 0:
-                                    unrealized = (last_price - avg_price) * qty
-                                else:
-                                    unrealized = (avg_price - last_price) * abs(qty)
-                                total_unrealized += unrealized
-                        
-                        # Update unrealized PnL
-                        self.metrics_tracker.update_unrealized_pnl(total_unrealized)
-                        
-                        # Push equity snapshot (rate-limited to every 5 seconds)
-                        self.metrics_tracker.push_equity_snapshot(min_interval_sec=5.0)
-                        
-                        # Write to equity curve CSV (rate-limited to every 5 seconds)
-                        if self.equity_curve_writer:
-                            metrics = self.metrics_tracker.get_metrics()
-                            self.equity_curve_writer.append_snapshot(
-                                equity=metrics.current_equity,
-                                realized_pnl=metrics.realized_pnl,
-                                unrealized_pnl=metrics.unrealized_pnl,
-                            )
-                    except Exception as exc:
-                        logger.debug("Failed to update metrics in event loop: %s", exc)
-                
-                # Sleep to avoid tight loop
-                time.sleep(5)
-                
-            except KeyboardInterrupt:
-                logger.info("Keyboard interrupt - stopping LiveEngine")
-                self.running = False
-                break
-            except Exception as exc:
-                logger.error("Error in event loop: %s", exc, exc_info=True)
-                time.sleep(10)
-    
-    def on_tick(self, tick: Dict[str, Any]) -> None:
-        """
-        Handle incoming tick from WebSocket.
-        
-        - Updates market data engine
-        - Runs strategy engine
-        - Processes signals through risk engine
-        - Places orders via broker
-        
-        Args:
-            tick: Normalized tick dict from KiteBroker
-        """
-        try:
-            symbol = tick.get("tradingsymbol")
-            price = tick.get("last_price")
-            
-            if not symbol or not price:
-                return
-            
-            # Update last known price
-            self.last_prices[symbol] = float(price)
-            
-            # Update market data engine (if needed for strategy)
-            # This would typically update candle windows
-            # For now, strategies will use the tick price directly
-            
-            # Run strategy engine for this symbol
-            # StrategyEngineV2.run() expects a list of symbols
-            # It will internally fetch data and generate signals
-            signals = self.strategy_engine.run([symbol])
-            
-            # Process each signal
-            for signal in signals:
-                self._process_signal(signal, price)
-                
-        except Exception as exc:
-            logger.error("Error processing tick for %s: %s", tick.get("tradingsymbol"), exc)
-    
-    def _process_signal(self, signal: Dict[str, Any], current_price: float) -> None:
-        """
-        Process a strategy signal through risk engine and place order if approved.
-        
-        Args:
-            signal: Signal dict from strategy engine
-            current_price: Current market price
-        """
-        symbol = signal.get("symbol")
-        action = signal.get("action", "HOLD").upper()
-        
-        if action == "HOLD":
-            return
-        
-        # Check if we're still logged in
-        if not self.broker.ensure_logged_in():
-            logger.error("❌ Lost Kite session - cannot place order")
-            self.running = False
-            return
-        
-        # Check market hours
-        if not self._is_market_hours():
-            logger.warning("Market closed - cannot place order for %s", symbol)
-            return
-        
-        # Build order intent
-        order_intent = self._build_order_intent(signal, current_price)
-        
-        # Pass through risk engine
-        portfolio_state = self._get_portfolio_state()
-        strategy_snapshot = self._get_strategy_snapshot()
-        
-        risk_decision = self.risk_engine.check_order(
-            order_intent,
-            portfolio_state,
-            strategy_snapshot,
-        )
-        
-        # Handle risk decision
-        if risk_decision.action == RiskAction.BLOCK:
-            logger.info(
-                "❌ Risk engine BLOCKED order: %s %s - %s",
-                action, symbol, risk_decision.reason
-            )
-            log_event(
-                "RISK_BLOCK",
-                risk_decision.reason,
-                symbol=symbol,
-                extra=order_intent,
-            )
-            return
-        elif risk_decision.action == RiskAction.REDUCE:
-            logger.info(
-                "⚠️ Risk engine REDUCED order: %s %s - %s (qty: %s -> %s)",
-                action, symbol, risk_decision.reason,
-                order_intent.get("qty"), risk_decision.adjusted_qty
-            )
-            order_intent["qty"] = risk_decision.adjusted_qty
-        elif risk_decision.action == RiskAction.HALT_SESSION:
-            logger.warning(
-                "🛑 Risk engine HALT_SESSION: %s - stopping engine",
-                risk_decision.reason
-            )
-            log_event(
-                "HALT_SESSION",
-                risk_decision.reason,
-                symbol=symbol,
-                level=logging.WARNING,
-            )
-            self.running = False
-            return
-        
-        # Exits always allowed (but still logged)
-        if action in ("EXIT", "CLOSE"):
-            logger.info("✅ EXIT signal approved for %s", symbol)
-        
-        # Place the order
-        self.place_order(order_intent)
-    
-    def place_order(self, intent: Dict[str, Any]) -> None:
-        """
-        Place a LIVE order via broker.
-        
-        Args:
-            intent: Order intent dict
-        """
-        try:
-            # Use ExecutionEngine v2 if available
-            if self.execution_engine_v2 is not None:
+
+                # Run strategies (will call _handle_signal via StrategyEngineV2)
                 try:
-                    from engine.execution_engine import OrderIntent
-                    # Convert to ExecutionEngine v2 OrderIntent
-                    exec_intent = OrderIntent(
-                        symbol=intent.get("symbol", ""),
-                        strategy_code=intent.get("strategy", "unknown"),
-                        side=intent.get("side", "BUY"),
-                        qty=intent.get("qty", 0),
-                        order_type=intent.get("order_type", "MARKET"),
-                        product=intent.get("product", "MIS"),
-                        validity=intent.get("validity", "DAY"),
-                        price=intent.get("price"),
-                        trigger_price=intent.get("trigger_price"),
-                        tag=intent.get("tag"),
-                        reason=intent.get("reason", ""),
-                    )
-                    
-                    # Execute via ExecutionEngine v2
-                    result = self.execution_engine_v2.execute_intent(exec_intent)
-                    
-                    order_id = result.order_id
-                    status = result.status
-                    message = result.message or ""
-                    
-                    if order_id:
-                        # Track pending order
-                        self.pending_orders[order_id] = {
-                            "intent": intent,
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                            "status": status,
-                        }
-                        logger.info(
-                            "✅ Order placed via ExecutionEngine v2: ID=%s status=%s symbol=%s side=%s qty=%s",
-                            order_id, status, intent.get("symbol"), intent.get("side"), intent.get("qty")
-                        )
-                        
-                        # Journal handled by ExecutionEngine v2
-                    else:
-                        logger.error(
-                            "❌ Order placement failed via ExecutionEngine v2: %s (symbol=%s side=%s)",
-                            message, intent.get("symbol"), intent.get("side")
-                        )
-                        log_event(
-                            "ORDER_ERROR",
-                            f"Order placement failed: {message}",
-                            symbol=intent.get("symbol"),
-                            extra=intent,
-                            level=logging.ERROR,
-                        )
-                    return
-                except Exception as exc:
-                    logger.warning("ExecutionEngine v2 failed, falling back to legacy: %s", exc)
-                    # Guardian check for legacy fallback path
-                    if self.guardian:
-                        from engine.execution_engine import OrderIntent
-                        exec_intent = OrderIntent(
-                            symbol=intent.get("symbol", ""),
-                            strategy_code=intent.get("strategy", "unknown"),
-                            side=intent.get("side", "BUY"),
-                            qty=intent.get("qty", 0),
-                            order_type=intent.get("order_type", "MARKET"),
-                            product=intent.get("product", "MIS"),
-                            price=intent.get("price"),
-                        )
-                        guardian_decision = self.guardian.validate_pre_trade(exec_intent, None)
-                        if not guardian_decision.allow:
-                            logger.warning(
-                                "[guardian-block] %s - skipping order", guardian_decision.reason
-                            )
-                            return
-                    # Fall through to legacy path
-            
-            # Legacy execution path - check guardian before placing order
-            if self.guardian:
-                from engine.execution_engine import OrderIntent
-                exec_intent = OrderIntent(
-                    symbol=intent.get("symbol", ""),
-                    strategy_code=intent.get("strategy", "unknown"),
-                    side=intent.get("side", "BUY"),
-                    qty=intent.get("qty", 0),
-                    order_type=intent.get("order_type", "MARKET"),
-                    product=intent.get("product", "MIS"),
-                    price=intent.get("price"),
-                )
-                guardian_decision = self.guardian.validate_pre_trade(exec_intent, None)
-                if not guardian_decision.allow:
-                    logger.warning(
-                        "[guardian-block] %s - skipping order", guardian_decision.reason
-                    )
-                    log_event(
-                        "GUARDIAN_BLOCK",
-                        f"Trade guardian blocked order: {guardian_decision.reason}",
-                        symbol=intent.get("symbol"),
-                        extra=intent,
-                        level=logging.WARNING,
-                    )
-                    return
-            
-            result = self.broker.place_order(intent)
-            
-            order_id = result.get("order_id")
-            status = result.get("status")
-            message = result.get("message", "")
-            
-            if order_id:
-                # Track pending order
-                self.pending_orders[order_id] = {
-                    "intent": intent,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "status": status,
-                }
-                logger.info(
-                    "✅ Order placed: ID=%s status=%s symbol=%s side=%s qty=%s",
-                    order_id, status, intent.get("symbol"), intent.get("side"), intent.get("qty")
-                )
-                
-                # Journal the order
-                self._journal_order(order_id, intent, status)
-            else:
-                logger.error(
-                    "❌ Order placement failed: %s (symbol=%s side=%s)",
-                    message, intent.get("symbol"), intent.get("side")
-                )
-                log_event(
-                    "ORDER_ERROR",
-                    f"Order placement failed: {message}",
-                    symbol=intent.get("symbol"),
-                    extra=intent,
-                    level=logging.ERROR,
-                )
-                
-        except Exception as exc:
-            logger.error("❌ Exception placing order: %s", exc, exc_info=True)
-            log_event(
-                "ORDER_ERROR",
-                f"Exception placing order: {exc}",
-                symbol=intent.get("symbol"),
-                extra=intent,
-                level=logging.ERROR,
+                    self.strategy_engine.run(self.universe, timeframe=self.primary_timeframe)
+                except Exception as exc:  # noqa: BLE001
+                    logger.error("Strategy engine run failed: %s", exc, exc_info=True)
+
+                # Update unrealized + equity snapshots
+                self._update_unrealized_and_metrics()
+
+                # Optional reconciliation
+                if self.reconciler and self.reconciler.enabled:
+                    try:
+                        asyncio.run(self.reconciler.reconcile_orders())
+                        asyncio.run(self.reconciler.reconcile_positions())
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug("Reconciliation error (live): %s", exc)
+
+                time.sleep(5)
+        except KeyboardInterrupt:
+            logger.info("Stopping LiveEquityEngine (keyboard interrupt)")
+        finally:
+            self.stop()
+
+    # ------------------------------------------------------------------ signals
+    def _handle_signal(
+        self,
+        symbol: str,
+        action: str,
+        price: float,
+        logical: Optional[str] = None,
+        *,
+        tf: str = "",
+        strategy_name: Optional[str] = None,
+        strategy_code: Optional[str] = None,
+        confidence: Optional[float] = None,
+        reason: str = "",
+        **_: Any,
+    ) -> None:
+        """Handle StrategyEngineV2 intent -> send to execution v3."""
+        side = "BUY" if action.upper() in ("BUY", "LONG") else "SELL"
+        qty = max(1, self.default_qty)
+
+        # Apply simple sizing if position_sizer present
+        try:
+            portfolio_state = self._build_portfolio_state()
+            qty = self.position_sizer.size_order(
+                portfolio_state,
+                symbol=symbol,
+                last_price=price,
+                side=side,
+                lot_size=max(1, self.default_qty),
             )
-    
-    def handle_order_update(self, order_update: Dict[str, Any]) -> None:
-        """
-        Handle order update from WebSocket or polling.
-        
-        Updates:
-        - Pending orders tracking
-        - Position state
-        - PnL calculations
-        - Journal/checkpoint
-        
-        Args:
-            order_update: Order update dict from Kite
-        """
-        order_id = order_update.get("order_id")
-        status = order_update.get("status", "").upper()
-        
-        if not order_id:
+        except Exception:
+            qty = max(1, self.default_qty)
+
+        if qty == 0:
+            logger.info("Skipping %s for %s: sized qty=0", side, symbol)
             return
-        
-        logger.info(
-            "📝 Order update: ID=%s status=%s symbol=%s",
-            order_id, status, order_update.get("tradingsymbol")
+
+        intent = OrderIntent(
+            symbol=symbol,
+            strategy_code=strategy_code or strategy_name or "EQUITY_LIVE",
+            side=side,
+            qty=qty,
+            order_type="MARKET",
+            product="MIS",
+            validity="DAY",
+            price=None,
+            trigger_price=None,
+            tag=logical or f"EQ_{symbol}",
+            reason=reason or "",
+            confidence=confidence or 0.0,
+            metadata={"tf": tf or self.primary_timeframe, "mode": "live"},
         )
-        
-        # Update pending orders
-        if order_id in self.pending_orders:
-            self.pending_orders[order_id]["status"] = status
-            
-            # If filled or rejected, remove from pending
-            if status in ("COMPLETE", "REJECTED", "CANCELLED"):
-                self.pending_orders.pop(order_id, None)
-        
-        # Update metrics after fill
-        if status == "COMPLETE" and self.metrics_tracker:
-            try:
-                symbol = order_update.get("tradingsymbol", "")
-                side = order_update.get("transaction_type", "")
-                qty = order_update.get("filled_quantity", 0)
-                fill_price = order_update.get("average_price", 0)
-                
-                # Get strategy from pending order info
-                strategy = "unknown"
-                if order_id in self.pending_orders:
-                    strategy = self.pending_orders[order_id].get("intent", {}).get("strategy", "unknown")
-                
-                # Calculate realized PnL from fill (rough estimate - actual PnL calculation would need position tracking)
-                # For now, we'll update after we get the position update
-                realized_pnl = 0.0
-                
-                # Update metrics
-                self.metrics_tracker.update_after_fill(
-                    symbol=symbol,
-                    strategy=strategy,
-                    realized_pnl=realized_pnl,
-                    fill_price=fill_price,
-                    qty=qty,
-                    side=side,
-                )
-                
-                # Save metrics to JSON
-                self.metrics_tracker.save()
-            except Exception as exc:
-                logger.debug("Failed to update metrics after fill: %s", exc)
-        
-        # Journal the update
-        self._journal_order_update(order_update)
-        
-        # Update state checkpoint
-        self._snapshot_state("order_update")
-    
-    def _build_order_intent(self, signal: Dict[str, Any], current_price: float) -> Dict[str, Any]:
-        """
-        Build order intent from strategy signal.
-        
-        Args:
-            signal: Signal dict from strategy
-            current_price: Current market price
-            
-        Returns:
-            Order intent dict for broker
-        """
-        symbol = signal.get("symbol")
-        action = signal.get("action", "HOLD").upper()
-        qty = signal.get("qty", 1)
-        
-        # Map action to side
-        if action in ("BUY", "LONG"):
-            side = "BUY"
-        elif action in ("SELL", "SHORT"):
-            side = "SELL"
-        elif action in ("EXIT", "CLOSE"):
-            # Determine exit side based on current position
-            # For now, default to SELL (close long)
-            side = "SELL"
-        else:
-            side = "BUY"
-        
-        # Default to MIS (intraday) product
-        product = signal.get("product", "MIS")
-        order_type = signal.get("order_type", "MARKET")
-        
-        return {
-            "symbol": symbol,
-            "side": side,
-            "qty": qty,
-            "price": current_price if order_type == "LIMIT" else None,
-            "order_type": order_type,
-            "product": product,
-            "validity": "DAY",
-            "exchange": signal.get("exchange", "NFO"),
-            "strategy": signal.get("strategy", "unknown"),
-            "reason": signal.get("reason", ""),
-        }
-    
-    def _resolve_instrument_tokens(self) -> None:
-        """
-        Resolve instrument tokens for WebSocket subscription.
-        
-        Uses Kite instruments() API to map trading symbols to tokens.
-        """
-        if not self.broker.kite:
-            logger.error("No Kite client - cannot resolve instrument tokens")
-            return
-        
+
         try:
-            instruments = self.broker.kite.instruments("NFO")
-            
-            for symbol in self.universe:
-                # Find matching instrument
-                for inst in instruments:
-                    if inst.get("tradingsymbol") == symbol:
-                        token = inst.get("instrument_token")
-                        if token:
-                            self.instrument_tokens[symbol] = token
-                            logger.info("✅ Resolved %s -> token %s", symbol, token)
-                        break
-                        
-            logger.info("Resolved %d/%d instrument tokens", len(self.instrument_tokens), len(self.universe))
-            
-        except Exception as exc:
-            logger.error("Failed to resolve instrument tokens: %s", exc)
-    
-    def _is_market_hours(self) -> bool:
-        """
-        Check if current time is within market hours (IST).
-        
-        Returns:
-            True if within market hours, False otherwise
-        """
-        # Use the shared market session checker
-        return is_market_open()
-    
-    def _get_portfolio_state(self) -> Dict[str, Any]:
-        """
-        Get current portfolio state for risk engine.
-        
-        Returns:
-            Portfolio state dict
-        """
-        # Load latest checkpoint
-        state = self.state_store.load_checkpoint() or {}
-        
-        # Get positions from broker
-        positions = self.broker.fetch_positions()
-        
-        # Compute portfolio metrics
-        total_pnl = sum(p.get("pnl", 0.0) for p in positions)
-        total_notional = sum(abs(p.get("quantity", 0) * p.get("last_price", 0)) for p in positions)
-        
-        return {
-            "equity": state.get("equity", {}),
-            "positions": positions,
-            "total_pnl": total_pnl,
-            "total_notional": total_notional,
-            "free_notional": 0.0,  # Would need margin data
-        }
-    
-    def _get_strategy_snapshot(self) -> Dict[str, Any]:
-        """
-        Get current strategy state snapshot for risk engine.
-        
-        Returns:
-            Strategy state dict
-        """
-        state = self.state_store.load_checkpoint() or {}
-        return state.get("strategies", {})
-    
-    def _journal_order(self, order_id: str, intent: Dict[str, Any], status: str) -> None:
-        """
-        Journal an order to the orders.csv file.
-        
-        Args:
-            order_id: Kite order ID
-            intent: Order intent
-            status: Order status
-        """
-        try:
-            order_record = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "order_id": order_id,
-                "symbol": intent.get("symbol"),
-                "side": intent.get("side"),
-                "quantity": intent.get("qty"),
-                "price": intent.get("price", ""),
-                "order_type": intent.get("order_type", "MARKET"),
-                "product": intent.get("product", "MIS"),
-                "status": status,
-                "exchange": intent.get("exchange", "NFO"),
-                "strategy": intent.get("strategy", ""),
-                "reason": intent.get("reason", ""),
-            }
-            
-            self.journal.append_orders([order_record])
-            
-        except Exception as exc:
-            logger.error("Failed to journal order: %s", exc)
-    
-    def _journal_order_update(self, order_update: Dict[str, Any]) -> None:
-        """
-        Journal an order update/fill.
-        
-        Args:
-            order_update: Order update dict from Kite
-        """
-        try:
-            # Normalize the order update
-            normalized = JournalStateStore.normalize_order(order_update)
-            self.journal.append_orders([normalized])
-            
-        except Exception as exc:
-            logger.error("Failed to journal order update: %s", exc)
-    
-    def _snapshot_state(self, reason: str = "") -> None:
-        """
-        Save a checkpoint of current state.
-        
-        Args:
-            reason: Reason for snapshot (for logging)
-        """
-        try:
-            # Fetch current positions
-            positions = self.broker.fetch_positions()
-            
-            # Build state payload
-            state = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "mode": "LIVE",
-                "positions": positions,
-                "pending_orders": list(self.pending_orders.values()),
-                "last_prices": self.last_prices,
-                "reason": reason,
-            }
-            
-            # Save checkpoint
-            self.state_store.save_checkpoint(state)
-            
-            logger.info(
-                "💾 State snapshot saved (reason=%s, positions=%d, pending=%d)",
-                reason, len(positions), len(self.pending_orders)
+            result = self.execution_engine.execute_intent(intent)
+            order_id = getattr(result, "order_id", None) or getattr(result, "id", None)
+            status = getattr(result, "status", "UNKNOWN")
+            self.recorder.record_order(
+                symbol=symbol,
+                side=side,
+                quantity=qty,
+                price=price,
+                status=status,
+                tf=tf or self.primary_timeframe,
+                profile="INTRADAY",
+                strategy=strategy_code or strategy_name or "EQUITY_LIVE",
+                parent_signal_timestamp="",
+                extra={
+                    "mode": "live",
+                    "order_id": order_id,
+                    "reason": reason or "",
+                    "confidence": confidence or 0.0,
+                },
             )
-            
-        except Exception as exc:
-            logger.error("Failed to save state snapshot: %s", exc)
-    
+
+            # Metrics
+            if self.metrics_tracker:
+                try:
+                    self.metrics_tracker.update_after_fill(
+                        symbol=symbol,
+                        strategy=strategy_code or strategy_name or "EQUITY_LIVE",
+                        realized_pnl=0.0,
+                        fill_price=price,
+                        qty=qty,
+                        side=side,
+                    )
+                    self.metrics_tracker.save()
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("Failed to update live metrics: %s", exc)
+
+            logger.info("Live order placed: %s %s x%s (id=%s status=%s)", side, symbol, qty, order_id, status)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Live order failed for %s: %s", symbol, exc, exc_info=True)
+
+    # ------------------------------------------------------------------ helpers
+    def _build_portfolio_state(self) -> Dict[str, Any]:
+        positions = []
+        try:
+            positions = self.broker.fetch_positions()
+        except Exception:
+            positions = []
+        return {
+            "capital": self.metrics_tracker.starting_capital if self.metrics_tracker else 0.0,
+            "positions": positions,
+            "free_notional": 0.0,
+        }
+
+    def _update_unrealized_and_metrics(self) -> None:
+        if not self.metrics_tracker:
+            return
+        try:
+            positions = self.broker.fetch_positions()
+            total_unrealized = 0.0
+            for pos in positions or []:
+                symbol = pos.get("tradingsymbol") or pos.get("symbol")
+                qty = float(pos.get("quantity") or 0.0)
+                avg_price = float(pos.get("average_price") or 0.0)
+                last_price = self.last_prices.get(symbol, avg_price)
+                if qty > 0:
+                    unreal = (last_price - avg_price) * qty
+                elif qty < 0:
+                    unreal = (avg_price - last_price) * abs(qty)
+                else:
+                    unreal = 0.0
+                total_unrealized += unreal
+
+            self.metrics_tracker.update_unrealized_pnl(total_unrealized)
+            self.metrics_tracker.push_equity_snapshot(min_interval_sec=5.0)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Failed to update unrealized metrics: %s", exc)
+
     def stop(self) -> None:
-        """
-        Stop the live engine gracefully.
-        """
-        logger.info("Stopping LiveEngine...")
         self.running = False
-        
-        # Stop WebSocket
-        if self.broker.ticker:
-            self.broker.stop_ticker()
-        
-        # Final snapshot
-        self._snapshot_state("engine_stop")
-        
-        logger.info("✅ LiveEngine stopped")
+        try:
+            self.market_data_engine.stop()
+        except Exception:
+            pass
+        try:
+            self.state_store.save_checkpoint(
+                {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "mode": "LIVE",
+                    "positions": [],
+                    "reason": "stop",
+                }
+            )
+        except Exception:
+            pass
+        logger.info("LiveEquityEngine stopped")
+
+
+# Backward-compatible name
+LiveEngine = LiveEquityEngine

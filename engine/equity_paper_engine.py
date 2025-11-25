@@ -985,17 +985,29 @@ class EquityPaperEngine:
         logger.info("Equity order executed (mode=%s): %s", self.mode.value, order)
 
         # --- Resolve market regime (safe fallback) ---
+        market_regime = "unknown"
         try:
-            # Prefer an explicit attribute if present (future integration)
-            if hasattr(self, "market_regime") and self.market_regime:
-                market_regime = self.market_regime
-            # Otherwise try paper_state
+            # Prefer live market context if available
+            mc = getattr(self, "market_context", None)
+            if mc is not None:
+                current = getattr(mc, "current_regime", None)
+                market_regime = current() if callable(current) else (current or market_regime)
+            # Fallback: signal context/payload hint
+            elif isinstance(filter_payload, dict):
+                market_regime = (
+                    filter_payload.get("market_regime")
+                    or filter_payload.get("regime")
+                    or market_regime
+                )
+            # Fallback: paper_state snapshot
             elif hasattr(self, "paper_state") and isinstance(self.paper_state, dict):
-                market_regime = self.paper_state.get("market_regime", "UNKNOWN")
-            else:
-                market_regime = "UNKNOWN"
-        except Exception:
-            market_regime = "UNKNOWN"
+                market_regime = self.paper_state.get("market_regime", market_regime)
+            # Fallback: regime detector snapshot
+            elif getattr(self, "regime_detector", None):
+                market_regime = self.regime_detector.current_regime()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Failed to derive market_regime: %s", exc)
+        market_regime = (market_regime or "unknown")
 
         extra_payload: Dict[str, Any] = {
             "status": getattr(order, "status", "FILLED"),
@@ -1045,6 +1057,20 @@ class EquityPaperEngine:
             pnl_delta=pnl_delta,
             strategy_code=strategy_code_value,
         )
+        metrics_tracker = getattr(self, "metrics_tracker", None)
+        if metrics_tracker:
+            try:
+                metrics_tracker.update_after_fill(
+                    symbol=symbol,
+                    strategy=strategy_label,
+                    realized_pnl=pnl_delta,
+                    fill_price=price,
+                    qty=qty,
+                    side=side,
+                )
+                metrics_tracker.save()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Failed to update metrics after fill: %s", exc)
 
         meta = self._compute_portfolio_meta()
         self.recorder.snapshot_paper_state(self.paper_broker, last_prices=self.last_prices, meta=meta)
@@ -1149,6 +1175,20 @@ class EquityPaperEngine:
             pnl_delta=pnl_delta,
             strategy_code=code_for_metrics,
         )
+        metrics_tracker = getattr(self, "metrics_tracker", None)
+        if metrics_tracker:
+            try:
+                metrics_tracker.update_after_fill(
+                    symbol=symbol,
+                    strategy=self.strategy_name,
+                    realized_pnl=pnl_delta,
+                    fill_price=price,
+                    qty=qty,
+                    side=side,
+                )
+                metrics_tracker.save()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Failed to update metrics after close: %s", exc)
 
         meta = self._compute_portfolio_meta()
         self.recorder.snapshot_paper_state(self.paper_broker, last_prices=self.last_prices, meta=meta)

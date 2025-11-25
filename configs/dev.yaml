@@ -6,6 +6,10 @@ session:
 
 trading:
   mode: "paper"            # "paper" or "live"
+  enable_equity_paper: true
+  enable_fno_paper: true
+  enable_options_paper: true
+  live_capital: 500000      # capital reference for LIVE metrics
 
   # Logical FnO universe. Code resolves these into current NFO FUT contracts.
   fno_universe:

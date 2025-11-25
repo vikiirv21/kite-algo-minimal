@@ -464,10 +464,14 @@ async def get_risk_breaches() -> JSONResponse:
         mode = config.get("trading", {}).get("mode", "paper")
         
         runtime_metrics_path = BASE_DIR / "artifacts" / "analytics" / "runtime_metrics.json"
-        checkpoint_path = BASE_DIR / "artifacts" / "checkpoints" / "paper_state_latest.json"
+        paper_checkpoint = BASE_DIR / "artifacts" / "checkpoints" / "paper_state_latest.json"
+        live_checkpoint = BASE_DIR / "artifacts" / "checkpoints" / "live_state_latest.json"
+        checkpoint_path = paper_checkpoint
         
-        # Try alternative checkpoint name if paper_state_latest doesn't exist
-        if not checkpoint_path.exists():
+        # Prefer live checkpoint when in live mode
+        if mode == "live" and live_checkpoint.exists():
+            checkpoint_path = live_checkpoint
+        elif not paper_checkpoint.exists():
             checkpoint_path = BASE_DIR / "artifacts" / "checkpoints" / "runtime_state_latest.json"
         
         orders_path = BASE_DIR / "artifacts" / "orders.csv"
