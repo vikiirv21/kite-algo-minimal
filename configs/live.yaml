@@ -90,6 +90,27 @@ strategy_engine:
         max_risk_per_trade_pct: 0.01
         min_trend_strength: 0.4
         min_confidence: 0.55
+    
+    # Scalping / Support-Resistance Strategy Placeholder
+    # Uncomment and configure when ready to use
+    # - id: EXPIRY_SCALPER
+    #   module: strategies.expiry_scalper
+    #   class: ExpiryScalper
+    #   enabled: false
+    #   params:
+    #     timeframe: "1m"
+    #     max_hold_bars: 10
+    #     min_rr: 1.2
+    
+    # Support-Resistance Strategy Placeholder
+    # - id: SR_ZONE_TRADER
+    #   module: strategies.sr_zones
+    #   class: SRZoneTrader
+    #   enabled: false
+    #   params:
+    #     timeframe: "5m"
+    #     zone_width_pct: 0.5
+    #     min_touches: 2
   
   # Additional config for v2 engine
   window_size: 200          # Historical candle window for indicators
@@ -192,7 +213,10 @@ execution:
   # - Set to v2 to fall back to legacy behavior while testing
   engine: v3  # "v2" or "v3" - use v3 for enhanced order lifecycle management
   use_execution_engine_v2: false  # Set to true to enable ExecutionEngine v2
-  dry_run: true  # When true, simulates live orders without actual placement
+  
+  # IMPORTANT: Set to false when you are ready to place real orders.
+  # When true, simulates live orders without actual placement (paper-like mode in live).
+  dry_run: true
   
   # Fill configuration (ExecutionEngine V3)
   fill_mode: "mid"  # "mid", "bid_ask", or "ltp"

@@ -69,7 +69,9 @@ class LiveEquityEngine:
         # State + journal
         self.state_store = StateStore(checkpoint_path=self.checkpoint_path)
         self.journal_store = JournalStateStore(mode="live", artifacts_dir=self.artifacts_dir)
-        self.recorder = TradeRecorder(artifacts_dir=self.artifacts_dir)
+        # TradeRecorder expects base_dir (parent of artifacts), not artifacts_dir directly
+        # Pass the base_dir so TradeRecorder creates artifacts_dir correctly
+        self.recorder = TradeRecorder(base_dir=str(self.artifacts_dir.parent))
 
         # Metrics - use config capital as starting value for metrics tracker
         config_capital = float(
@@ -168,7 +170,79 @@ class LiveEquityEngine:
 
         self.running = True
         self.last_prices: Dict[str, float] = {}
-        logger.info("✅ LiveEquityEngine initialized (symbols=%d)", len(self.universe))
+
+        # Log startup summary
+        self._log_startup_summary(cfg)
+
+    def _log_startup_summary(self, cfg: AppConfig) -> None:
+        """Log comprehensive startup summary for LIVE mode."""
+        logger.info("=" * 60)
+        logger.info("LiveEquityEngine STARTUP SUMMARY")
+        logger.info("=" * 60)
+        logger.info("Mode: LIVE")
+        logger.info("Symbols: %d", len(self.universe))
+        logger.info("Primary Timeframe: %s", self.primary_timeframe)
+
+        # Log live capital info
+        try:
+            initial_capital = self.capital_provider.get_available_capital()
+            config_capital = float(
+                cfg.trading.get("live_capital", cfg.trading.get("paper_capital", 500_000))
+            )
+            logger.info(
+                "Live Capital: fetched=%.2f (config fallback=%.2f)",
+                initial_capital,
+                config_capital
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not fetch live capital at startup: %s", exc)
+
+        # Log ExecutionEngine V3 config summary
+        exec_cfg = cfg.raw.get("execution", {})
+        risk_engine_cfg = cfg.raw.get("risk_engine", {})
+        risk_cfg = cfg.raw.get("risk", {}).get("atr", {})
+
+        trailing_enabled = exec_cfg.get("enable_trailing", risk_engine_cfg.get("enable_trailing", False))
+        trail_step_r = exec_cfg.get("trail_step_r", risk_engine_cfg.get("trail_step_r", 0.5))
+        partial_exit = exec_cfg.get("enable_partial_exit", risk_engine_cfg.get("enable_partial_exits", False))
+        partial_exit_pct = exec_cfg.get("partial_exit_pct", risk_engine_cfg.get("partial_exit_fraction", 0.5))
+        time_stop = exec_cfg.get("enable_time_stop", risk_engine_cfg.get("enable_time_stop", False))
+        time_stop_bars = exec_cfg.get("time_stop_bars", risk_engine_cfg.get("time_stop_bars", 20))
+        hard_sl_pct = risk_cfg.get("hard_sl_pct_cap", risk_engine_cfg.get("hard_sl_pct_cap", 0.03))
+        hard_tp_pct = risk_cfg.get("hard_tp_pct_cap", risk_engine_cfg.get("hard_tp_pct_cap", 0.06))
+        dry_run = exec_cfg.get("dry_run", True)
+
+        logger.info(
+            "ExecutionEngineV3 (LIVE): trailing=%s(step=%.1fR), partial_exit=%s(%.0f%%), "
+            "time_stop=%s(%d bars), hard_sl=%.1f%%, hard_tp=%.1f%%, dry_run=%s",
+            "on" if trailing_enabled else "off",
+            trail_step_r,
+            "on" if partial_exit else "off",
+            partial_exit_pct * 100 if partial_exit_pct < 1 else partial_exit_pct,
+            "on" if time_stop else "off",
+            time_stop_bars,
+            hard_sl_pct * 100,
+            hard_tp_pct * 100,
+            dry_run,
+        )
+
+        # Log StrategyEngineV2 strategies
+        strategy_cfg = cfg.raw.get("strategy_engine", {})
+        strategies_v2 = strategy_cfg.get("strategies_v2", [])
+        enabled_strategies = [s.get("id") for s in strategies_v2 if s.get("enabled", True)]
+        logger.info("StrategyEngineV2: %d strategies enabled (%s)", len(enabled_strategies), ", ".join(enabled_strategies) if enabled_strategies else "none")
+
+        # Log reconciliation and guardian status
+        recon_enabled = self.reconciler is not None and getattr(self.reconciler, "enabled", False)
+        logger.info("ReconciliationEngine: enabled=%s", recon_enabled)
+
+        guardian_cfg = cfg.raw.get("guardian", {})
+        guardian_enabled = guardian_cfg.get("enabled", False)
+        logger.info("Guardian: enabled=%s", guardian_enabled)
+
+        logger.info("=" * 60)
+        logger.info("✅ LiveEquityEngine initialized successfully")
+        logger.info("=" * 60)
 
     def _load_equity_universe(self) -> List[str]:
         trading_cfg = self.cfg.trading or {}
