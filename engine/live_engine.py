@@ -24,6 +24,7 @@ from analytics.runtime_metrics import RuntimeMetricsTracker
 from analytics.trade_recorder import TradeRecorder
 from broker.kite_bridge import KiteBroker
 from broker.kite_client import KiteClient
+from core.capital_provider import CapitalProvider, create_capital_provider
 from core.config import AppConfig
 from core.market_data_engine_v2 import MarketDataEngineV2
 from core.market_session import is_market_open
@@ -34,7 +35,7 @@ from core.universe import load_equity_universe
 from core.reconciliation_engine import ReconciliationEngine
 from engine.execution_engine_v3_adapter import create_execution_engine
 from engine.execution_engine import OrderIntent
-from risk.position_sizer import SizerConfig, DynamicPositionSizer
+from risk.position_sizer import SizerConfig, DynamicPositionSizer, PortfolioState
 
 logger = logging.getLogger(__name__)
 
@@ -70,15 +71,23 @@ class LiveEquityEngine:
         self.journal_store = JournalStateStore(mode="live", artifacts_dir=self.artifacts_dir)
         self.recorder = TradeRecorder(artifacts_dir=self.artifacts_dir)
 
-        # Metrics
-        starting_capital = float(
+        # Metrics - use config capital as starting value for metrics tracker
+        config_capital = float(
             cfg.trading.get("live_capital", cfg.trading.get("paper_capital", 500_000))
         )
         self.metrics_tracker = RuntimeMetricsTracker(
-            starting_capital=starting_capital,
+            starting_capital=config_capital,
             mode="live",
             artifacts_dir=self.artifacts_dir,
             equity_curve_maxlen=500,
+        )
+
+        # Capital provider - fetches real-time capital from Kite API in LIVE mode
+        self.capital_provider: CapitalProvider = create_capital_provider(
+            mode="LIVE",
+            kite=self.kite,
+            config_capital=config_capital,
+            cache_ttl_seconds=30.0,
         )
 
         # Universe + sizing
@@ -152,6 +161,7 @@ class LiveEquityEngine:
                 config=cfg.raw,
                 mode="LIVE",
                 logger_instance=logger,
+                capital_provider=self.capital_provider,  # Wire up capital provider for LIVE mode
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to initialize reconciliation engine: %s", exc, exc_info=True)
@@ -318,22 +328,77 @@ class LiveEquityEngine:
                 except Exception as exc:  # noqa: BLE001
                     logger.debug("Failed to update live metrics: %s", exc)
 
+            # Refresh capital after fill to get updated available margin
+            self._refresh_capital_after_fill()
+
             logger.info("Live order placed: %s %s x%s (id=%s status=%s)", side, symbol, qty, order_id, status)
         except Exception as exc:  # noqa: BLE001
             logger.error("Live order failed for %s: %s", symbol, exc, exc_info=True)
 
     # ------------------------------------------------------------------ helpers
-    def _build_portfolio_state(self) -> Dict[str, Any]:
+    def _build_portfolio_state(self) -> PortfolioState:
+        """
+        Build portfolio state with real-time capital from Kite API.
+
+        In LIVE mode, fetches fresh capital from margins("equity") API
+        before every trade to ensure accurate position sizing.
+        """
         positions = []
+        positions_dict = {}
+        total_notional = 0.0
         try:
             positions = self.broker.fetch_positions()
+            for pos in positions or []:
+                symbol = pos.get("tradingsymbol") or pos.get("symbol")
+                qty = int(pos.get("quantity") or 0)
+                if symbol and qty != 0:
+                    positions_dict[symbol] = qty
+                    avg_price = float(pos.get("average_price") or 0.0)
+                    total_notional += abs(qty) * avg_price
         except Exception:
             positions = []
-        return {
-            "capital": self.metrics_tracker.starting_capital if self.metrics_tracker else 0.0,
-            "positions": positions,
-            "free_notional": 0.0,
-        }
+
+        # Fetch real-time capital from Kite API (or config fallback)
+        live_capital = self.capital_provider.refresh()
+
+        # Calculate equity (capital + unrealized PnL)
+        unrealized_pnl = 0.0
+        for pos in positions or []:
+            symbol = pos.get("tradingsymbol") or pos.get("symbol")
+            qty = float(pos.get("quantity") or 0.0)
+            avg_price = float(pos.get("average_price") or 0.0)
+            last_price = self.last_prices.get(symbol, avg_price)
+            if qty > 0:
+                unrealized_pnl += (last_price - avg_price) * qty
+            elif qty < 0:
+                unrealized_pnl += (avg_price - last_price) * abs(qty)
+
+        equity = live_capital + unrealized_pnl
+
+        return PortfolioState(
+            capital=live_capital,
+            equity=equity,
+            total_notional=total_notional,
+            realized_pnl=0.0,  # Will be updated from journal if needed
+            unrealized_pnl=unrealized_pnl,
+            free_notional=max(0.0, equity - total_notional),
+            open_positions=len(positions_dict),
+            positions=positions_dict,
+        )
+
+    def _refresh_capital_after_fill(self) -> None:
+        """
+        Refresh capital from Kite API after a fill.
+
+        This ensures subsequent trades use the updated available margin
+        after funds are utilized by the completed order.
+        """
+        try:
+            # Force refresh capital from Kite API
+            fresh_capital = self.capital_provider.refresh()
+            logger.debug("Capital refreshed after fill: %.2f", fresh_capital)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Failed to refresh capital after fill: %s", exc)
 
     def _update_unrealized_and_metrics(self) -> None:
         if not self.metrics_tracker:

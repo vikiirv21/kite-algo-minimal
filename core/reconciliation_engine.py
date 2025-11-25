@@ -7,12 +7,14 @@ This module provides robust reconciliation for LIVE and PAPER trading:
 - Resolves discrepancies automatically
 - Updates order state and publishes events
 - Synchronizes positions with broker (LIVE mode only)
+- Refreshes capital from broker after position reconciliation (LIVE mode)
 
 Key Features:
 - Configurable reconciliation intervals (2s for LIVE, 5s for PAPER)
 - Never crashes - all exceptions are caught and logged
 - No impact on existing execution flow
 - Zero breakage for paper trading
+- Dynamic capital refresh after fills in LIVE mode
 """
 
 from __future__ import annotations
@@ -20,9 +22,12 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from core.execution_engine_v3 import EventBus, EventType, ExecutionEngine, Order, OrderStatus
+
+if TYPE_CHECKING:
+    from core.capital_provider import CapitalProvider
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +43,7 @@ class ReconciliationEngine:
     - Update StateStore positions
     - Publish reconciliation events to EventBus
     - Rebuild positions from broker data (LIVE mode only)
+    - Refresh capital from broker after position changes (LIVE mode)
     """
     
     def __init__(
@@ -48,7 +54,8 @@ class ReconciliationEngine:
         kite_broker: Optional[Any] = None,
         config: Optional[Dict[str, Any]] = None,
         mode: str = "PAPER",
-        logger_instance: Optional[logging.Logger] = None
+        logger_instance: Optional[logging.Logger] = None,
+        capital_provider: Optional["CapitalProvider"] = None,
     ):
         """
         Initialize ReconciliationEngine.
@@ -61,6 +68,7 @@ class ReconciliationEngine:
             config: Configuration dict
             mode: Trading mode ("PAPER" or "LIVE")
             logger_instance: Optional logger instance
+            capital_provider: Optional CapitalProvider for refreshing capital after fills
         """
         self.execution_engine = execution_engine
         self.state_store = state_store
@@ -69,6 +77,7 @@ class ReconciliationEngine:
         self.config = config or {}
         self.mode = mode.upper()
         self.logger = logger_instance or logger
+        self.capital_provider = capital_provider
         
         # Extract reconciliation config
         reconciliation_config = self.config.get("reconciliation", {})
@@ -87,10 +96,11 @@ class ReconciliationEngine:
         self.last_reconciliation_time: Optional[datetime] = None
         
         self.logger.info(
-            "ReconciliationEngine initialized: mode=%s, interval=%.1fs, enabled=%s",
+            "ReconciliationEngine initialized: mode=%s, interval=%.1fs, enabled=%s, capital_provider=%s",
             self.mode,
             self.interval_seconds,
-            self.enabled
+            self.enabled,
+            "yes" if capital_provider else "no",
         )
     
     async def reconcile_orders(self):
@@ -350,6 +360,9 @@ class ReconciliationEngine:
                 # Update position in StateStore
                 self._update_position(local_order)
                 
+                # Refresh capital after fill (LIVE mode)
+                self._refresh_capital_after_fill()
+                
                 # Write checkpoint after fill
                 self._write_checkpoint()
                 
@@ -388,6 +401,9 @@ class ReconciliationEngine:
                     
                     # Update position
                     self._update_position(local_order)
+                    
+                    # Refresh capital after partial fill (LIVE mode)
+                    self._refresh_capital_after_fill()
                     
                     self.logger.info(
                         "✅ Order %s reconciled PARTIAL: filled %d → %d",
@@ -571,6 +587,33 @@ class ReconciliationEngine:
                 "Error writing checkpoint: %s",
                 exc,
                 exc_info=True
+            )
+    
+    def _refresh_capital_after_fill(self) -> None:
+        """
+        Refresh capital from Kite API after a fill is detected.
+        
+        This ensures subsequent position sizing uses updated available margin
+        after funds are utilized by completed orders.
+        
+        Only applies in LIVE mode with a capital_provider.
+        """
+        if self.mode != "LIVE":
+            return
+        
+        if self.capital_provider is None:
+            return
+        
+        try:
+            fresh_capital = self.capital_provider.refresh()
+            self.logger.debug(
+                "Capital refreshed after reconciled fill: %.2f",
+                fresh_capital
+            )
+        except Exception as exc:
+            self.logger.debug(
+                "Failed to refresh capital after reconciled fill: %s",
+                exc
             )
     
     def _normalize_broker_positions(self, broker_positions_raw: Any) -> List[Dict[str, Any]]:

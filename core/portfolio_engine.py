@@ -7,20 +7,25 @@ This module provides position sizing and portfolio management capabilities:
 - Overall account equity management
 - Optional volatility (ATR) based sizing
 - Risk rules enforcement (max risk per trade, max leverage)
+- Dynamic capital integration for LIVE mode via CapitalProvider
 
 The PortfolioEngine sits between StrategyEngine and ExecutionEngine:
     StrategyEngine v2 → (raw trade idea: direction only)
     PortfolioEngine v1 → (fills in qty/size)
     RiskEngine + ExecutionEngine → (approve + execute)
 
-Works in both PAPER and LIVE modes.
+Works in both PAPER and LIVE modes. In LIVE mode, can use CapitalProvider
+to fetch real-time capital from Kite API.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 from dataclasses import dataclass, field
+
+if TYPE_CHECKING:
+    from core.capital_provider import CapitalProvider
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +92,9 @@ class PortfolioEngine:
     - Risk per trade limits
     - Exposure limits
     - Optional ATR-based volatility sizing
+    
+    In LIVE mode, can use a CapitalProvider to fetch real-time capital
+    from Kite API via margins("equity").
     """
     
     def __init__(
@@ -97,6 +105,7 @@ class PortfolioEngine:
         logger_instance: Optional[logging.Logger] = None,
         mde: Optional[Any] = None,
         regime_engine: Optional[Any] = None,
+        capital_provider: Optional["CapitalProvider"] = None,
     ):
         """
         Initialize PortfolioEngine.
@@ -108,6 +117,7 @@ class PortfolioEngine:
             logger_instance: Logger instance
             mde: MarketDataEngineV2 (optional, for ATR or current price)
             regime_engine: RegimeEngine (optional, for regime-based adjustments)
+            capital_provider: CapitalProvider (optional, for LIVE mode dynamic capital)
         """
         self.config = portfolio_config
         self.state_store = state_store
@@ -115,23 +125,43 @@ class PortfolioEngine:
         self.logger = logger_instance or logger
         self.mde = mde
         self.regime_engine = regime_engine
+        self.capital_provider = capital_provider
         
         self.logger.info(
-            "PortfolioEngine initialized: mode=%s, max_exposure_pct=%.2f, max_risk_per_trade_pct=%.4f",
+            "PortfolioEngine initialized: mode=%s, max_exposure_pct=%.2f, max_risk_per_trade_pct=%.4f, capital_provider=%s",
             self.config.position_sizing_mode,
             self.config.max_exposure_pct,
             self.config.max_risk_per_trade_pct,
+            "yes" if capital_provider else "no",
         )
         if self.regime_engine:
             self.logger.info("PortfolioEngine: RegimeEngine integration enabled")
     
     def get_equity(self) -> float:
         """
-        Get current equity from state_store.
+        Get current equity.
+        
+        In LIVE mode with capital_provider, fetches real-time available capital
+        from Kite API via margins("equity").
+        
+        In PAPER mode or without capital_provider, reads from state_store.
         
         Returns:
             Current equity value (including unrealized PnL)
         """
+        # If capital_provider is available, use it for LIVE capital
+        if self.capital_provider is not None:
+            try:
+                live_capital = self.capital_provider.get_available_capital()
+                if live_capital > 0:
+                    return live_capital
+            except Exception as exc:
+                self.logger.warning(
+                    "CapitalProvider.get_available_capital() failed: %s, falling back to state_store",
+                    exc
+                )
+        
+        # Fallback to state_store-based equity
         try:
             state = self.state_store.load_checkpoint()
             if not state:
