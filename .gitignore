@@ -92,4 +92,3 @@ artifacts/**
 
 # (optional) keep a placeholder if you want the folder in fresh clones
 #!artifacts/.keep
-tomorrow_plan.py
