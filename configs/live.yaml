@@ -1,0 +1,320 @@
+ENABLE_LIVE_QUOTES_IN_APP: true
+
+session:
+  market_open_ist: "09:15"
+  market_close_ist: "15:30"
+
+trading:
+  mode: "live"            # "paper" or "live"
+  enable_equity_paper: true
+  enable_fno_paper: true
+  enable_options_paper: true
+  live_capital: 500000      # capital reference for LIVE metrics
+
+  # Logical FnO universe. Code resolves these into current NFO FUT contracts.
+  fno_universe:
+    - "NIFTY"
+    - "BANKNIFTY"
+    - "FINNIFTY"
+
+  # Logical underlyings for index options trading (options engine).
+  options_underlyings:
+    - "NIFTY"
+    - "BANKNIFTY"
+    - "FINNIFTY"
+
+  equity_universe: []      # Managed via config/universe_equity.csv
+
+  # Equity universe filtering configuration
+  equity_universe_config:
+    mode: "nifty_lists"              # supported: "nifty_lists" or "all" (default)
+    include_indices: ["NIFTY50", "NIFTY100"]
+    max_symbols: 120                 # soft cap
+    min_price: 100                   # drop penny/very low-priced stocks
+
+  default_product: "MIS"
+  default_quantity: 1       # units per order (strategy can override)
+
+  # Risk and capital model for PAPER mode
+  paper_capital: 500000         # starting capital used for paper equity calculation
+  max_daily_loss: 3000          # stop trading when realized PnL <= -max_daily_loss
+  per_symbol_max_loss: 1500     # stop trading a specific symbol when realized PnL(symbol) <= -per_symbol_max_loss
+  max_loss_pct_per_trade: 0.01  # per-trade max loss (1% = 0.01) on entry price
+  max_notional_multiplier: 1.0  # max total notional as multiple of paper_capital
+
+  max_open_positions: null  # null = unlimited positions
+
+# Paper Account Management Configuration
+paper_account:
+  starting_capital: 500000       # Starting capital for paper account
+  max_drawdown_reset: 50000      # Reset account if yesterday's loss >= this amount
+
+# Expiry-Aware Risk Configuration
+expiry_risk:
+  enabled: true                              # Enable expiry-aware risk adjustments
+  expiry_day_risk_scale: 0.8                 # Scale risk down to 80% on expiry day
+  expiry_last_hour_risk_scale: 0.6           # Scale risk down to 60% in last hour of expiry day
+  expiry_week_risk_scale: 0.9                # Scale risk down to 90% during expiry week
+  block_new_option_entries_after_ist: "15:00"  # Block new option entries after this time on expiry day (IST)
+  expiry_day_last_hour_threshold_minutes: 60   # Minutes before market close considered "last hour"
+
+data:
+  source: "broker"          # for now, always "broker" (Kite). Later: "nse", "cached".
+  timeframe: "5minute"      # base timeframe for intraday decisions
+  history_lookback: 50      # number of candles for indicators
+  
+  # Market Data Engine v2 Configuration
+  use_mde_v2: true         # Enable Market Data Engine v2 (set to true to activate)
+  feed: "kite"              # Data feed mode: "kite" (live) or "replay" (historical/backtest)
+  timeframes:               # Active timeframes for candle building
+    - "1m"
+    - "5m"
+  symbols: []               # Specific symbols for MDE v2 (empty = use universe)
+  replay_speed: 1.0         # Replay speed multiplier (1.0 = real-time, 10.0 = 10x faster)
+
+strategy_engine:
+  engine: v2                # Use StrategyEngineV2
+  version: 2                # 2 = StrategyEngineV2
+  enabled: true             # Enable strategy engine
+  primary_strategy_id: EMA_20_50  # Primary strategy to use
+  
+  # V2 strategies configuration
+  strategies_v2:
+    - id: EMA_20_50
+      module: strategies.ema20_50_intraday_v2
+      class: EMA2050IntradayV2
+      enabled: true
+      params:
+        timeframe: "5m"
+        min_rr: 1.5
+        max_risk_per_trade_pct: 0.01
+        min_trend_strength: 0.4
+        min_confidence: 0.55
+  
+  # Additional config for v2 engine
+  window_size: 200          # Historical candle window for indicators
+  history_lookback: 200     # Alias for window_size
+  use_unified_indicators: true
+  
+  # V2 filtering and conflict resolution
+  conflict_resolution: "highest_confidence"  # "highest_confidence", "priority", or "net_out"
+  strategy_priorities: {}   # E.g., {"EMA_20_50": 100, "other_strategy": 50}
+  max_trades_per_day: 10    # Per-strategy daily trade limit
+  max_loss_streak: 3        # Disable strategy after N consecutive losses
+
+logging:
+  level: "INFO"
+  directory: "logs"
+  file_prefix: "kite_algo"
+
+kite:
+  preflight_check: true
+
+meta:
+  enabled: true
+  symbols_focus:
+    - "BANKNIFTY"
+    - "NIFTY"
+    - "FINNIFTY"
+  allow_equity_satellites: true
+  max_active_symbols: 5
+  cost_per_trade_pct: 0.0005
+  fallback_intraday_when_no_decision: true
+  decision_cache_ttl_sec: 120
+
+risk:
+  enable_cost_model: true
+  enable_trade_quality_filter: true
+  default_raw_edge_bps: 20.0
+  cost:
+    brokerage_per_order: 20.0
+    turnover_pct: 0.0003
+    stt_pct: 0.00025
+    gst_pct: 0.18
+    stamp_duty_pct: 0.00003
+    other_pct: 0.0
+  quality:
+    min_edge_after_costs_bps: 10.0
+    max_trades_per_symbol_per_day: 5
+    cooldown_after_loss_trades: 2
+  atr:
+    enabled: true
+    lookback: 14
+    sl_r_multiple: 1.0
+    tp_r_multiple: 2.0
+    hard_sl_pct_cap: 0.03
+    hard_tp_pct_cap: 0.06
+    min_atr_value: 0.5
+    per_product:
+      OPT:
+        sl_r_multiple: 1.2
+        tp_r_multiple: 2.2
+      FUT:
+        sl_r_multiple: 1.0
+        tp_r_multiple: 2.0
+  time_filter:
+    enabled: true
+    allow_sessions:
+      - { start: "09:20", end: "11:30" }
+      - { start: "13:15", end: "15:10" }
+    block_expiry_scalps_after: "15:00"
+    min_time: "09:20"
+    max_time: "15:20"
+
+risk_engine:
+  enabled: true
+  max_loss_per_trade_pct: 0.01    # 1% default hard guard
+  soft_stop_pct: -0.7            # percent PnL, partial exit trigger
+  hard_stop_pct: -1.2            # percent PnL, force exit
+  take_profit_r: 2.0
+  trail_start_r: 1.0
+  trail_step_r: 0.5
+  time_stop_bars: 25
+  partial_exit_fraction: 0.5
+  enable_partial_exits: true
+  enable_trailing: true
+  enable_time_stop: true
+  hard_sl_pct_cap: 0.03          # 3% hard stop loss cap (fallback if ATR unavailable)
+  hard_tp_pct_cap: 0.06          # 6% hard take profit cap (fallback if ATR unavailable)
+
+learning_engine:
+  enabled: false
+  lookback_days: 5
+  tuning_path: "artifacts/learning/strategy_tuning.json"
+  min_risk_multiplier: 0.25
+  max_risk_multiplier: 2.0
+
+execution:
+  # ExecutionEngine configuration
+  # Toggle ExecutionEngine V3 by setting engine to "v3" or "v2"
+  # - v3: Enhanced order lifecycle management with SL/TP/trailing/time-stop support
+  # - v2: Legacy execution engine
+  # - Set to v2 to fall back to legacy behavior while testing
+  engine: v3  # "v2" or "v3" - use v3 for enhanced order lifecycle management
+  use_execution_engine_v2: false  # Set to true to enable ExecutionEngine v2
+  dry_run: true  # When true, simulates live orders without actual placement
+  
+  # Fill configuration (ExecutionEngine V3)
+  fill_mode: "mid"  # "mid", "bid_ask", or "ltp"
+  slippage_bps: 5  # Slippage in basis points for paper fills (5 bps = 0.05%)
+  use_bid_ask_spread: false  # Use bid-ask spread for more realistic paper fills
+  
+  # Partial exit configuration (ExecutionEngine V3)
+  enable_partial_exit: true  # Enable partial exits on SL breach
+  partial_exit_pct: 0.5  # Exit 50% of position on SL breach
+  
+  # Trailing stop configuration (ExecutionEngine V3)
+  enable_trailing: true  # Enable trailing stop loss
+  trail_step_r: 0.5  # Trail step as multiple of initial risk (0.5R)
+  
+  # Time stop configuration (ExecutionEngine V3)
+  enable_time_stop: true  # Enable time-based exits
+  time_stop_bars: 20  # Close position after N bars if no SL/TP hit
+  
+  circuit_breakers:
+    max_daily_loss_rupees: 5000.0  # Stop trading when daily loss exceeds this
+    max_daily_drawdown_pct: 0.02  # Stop trading when drawdown exceeds 2%
+    max_trades_per_day: 100  # Maximum trades per day
+    max_trades_per_strategy_per_day: 50  # Maximum trades per strategy per day
+    max_loss_streak: 5  # Stop trading after N consecutive losses
+
+# Reconciliation Engine Configuration
+reconciliation:
+  enabled: true                    # Enable reconciliation engine (set to false to disable)
+  interval_seconds: 5              # Reconciliation interval in seconds (2 for LIVE, 5 for PAPER)
+
+
+guardian:
+  # Trade Guardian v1 - Pre-execution safety gate (DISABLED by default)
+  enabled: true                      # Set to true to enable guardian
+  max_order_per_second: 5             # Maximum orders per second (rate limiting)
+  max_lot_size: 50                    # Maximum quantity per order
+  reject_if_price_stale_secs: 3       # Reject if market data older than N seconds
+  reject_if_slippage_pct: 2.0         # Reject if slippage exceeds N%
+  max_daily_drawdown_pct: 3.0         # Block trades if drawdown exceeds N%
+  halt_on_pnl_drop_pct: 5.0           # Halt trading if PnL drops below -N%
+
+regime_engine:
+  # Market Regime Engine v2 - Computes TREND, VOLATILITY, and STRUCTURE signals
+  enabled: true                   # Enable regime detection (set to false to disable)
+  bar_period: "1m"                # Timeframe for regime analysis (1m, 5m, etc.)
+  slope_period: 20                # Period for EMA slope calculation (trend detection)
+  atr_period: 14                  # Period for ATR calculation (volatility detection)
+  volatility_high_pct: 1.0        # ATR% threshold for high volatility (1.0 = 1%)
+  volatility_low_pct: 0.35        # ATR% threshold for low volatility (0.35 = 0.35%)
+  compression_pct: 0.25           # BB width% threshold for compression/range detection
+
+portfolio:
+  # Portfolio & Position Sizing Engine v1 Configuration
+  max_leverage: 2.0               # Maximum leverage (2x = can use 2x equity as exposure)
+  max_exposure_pct: 0.8           # Max 80% of equity in open positions
+  max_risk_per_trade_pct: 0.01    # Risk 1% of equity per trade
+  max_risk_per_strategy_pct: 0.2  # Max 20% of equity risk per strategy (fallback)
+  position_sizing_mode: "fixed_qty"  # "fixed_qty" or "fixed_risk_atr"
+  lot_size_fallback: 25           # Default lot size for FnO when not available
+  default_fixed_qty: 1            # Default quantity when mode is fixed_qty
+  atr_stop_multiplier: 2.0        # For ATR mode: stop distance = k * ATR
+  
+  # Per-strategy capital budgets
+  strategy_budgets:
+    ema20_50_intraday:
+      capital_pct: 0.3            # 30% of equity for this strategy
+      fixed_qty: 1                # Optional: override default_fixed_qty for this strategy
+    expiry_scalper:
+      capital_pct: 0.4            # 40% of equity for this strategy
+
+# Strategy Orchestrator v3 Configuration (DISABLED by default)
+strategy_orchestrator:
+  enabled: false                      # Set to true to enable orchestrator
+  health_scoring_window: 20           # Number of recent trades to consider for health score
+  loss_streak_disable: 3              # Disable strategy after N consecutive losses
+  disable_duration_seconds: 900       # Cooldown duration (15 minutes)
+  enforce_regimes: true               # Enable regime compatibility checks
+  enforce_capital_budgets: true       # Enable capital budget checks
+  min_health_score: 0.0               # Minimum health score to allow strategy (0.0 = no threshold)
+
+# Strategy metadata (optional per-strategy configuration)
+strategies:
+  ema20_50_intraday:
+    mode: intraday
+    capital_pct: 0.3
+    # Optional: regime requirements
+    # requires_regime: ["trend"]
+    # avoid_regime: ["low_vol"]
+    # Optional: session times (IST format HH:MM)
+    # session_times:
+    #   start: "09:25"
+    #   end: "14:55"
+    # Optional: allowed days
+    # allowed_days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+
+# Market Context Layer Configuration
+market_context:
+  enabled: false  # Set to true to enable market context filters
+  
+  # India VIX regime classification
+  vix:
+    enabled: true
+    symbol: "INDIA VIX"  # Kite instrument symbol
+    low_threshold: 12.0      # VIX < 12 = low volatility
+    normal_threshold: 18.0   # VIX 12-18 = normal
+    high_threshold: 25.0     # VIX 18-25 = high
+    panic_threshold: 35.0    # VIX > 35 = panic
+  
+  # Market breadth metrics
+  breadth:
+    enabled: true
+    universe: "NIFTY50"  # Universe to compute breadth for
+    ema_periods: [20, 50]  # Track % of stocks above these EMAs
+  
+  # Relative volume filters
+  relative_volume:
+    enabled: true
+    lookback_periods: 20  # Average volume over N periods
+    min_rvol: 0.7  # Minimum relative volume threshold (0.7 = 70% of average)
+  
+  # Conservative filters (only restrict, never loosen)
+  filters:
+    block_shorts_on_panic: true  # Block short entries when VIX > panic_threshold
+    require_stronger_edge_on_weak_breadth: true  # Require confidence > 0.7 when breadth < 30%
+    skip_low_rvol: true  # Skip entries when symbol RVOL < min_rvol
