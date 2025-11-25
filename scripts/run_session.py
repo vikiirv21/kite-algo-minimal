@@ -369,7 +369,7 @@ def get_allowed_sessions(config_path: str) -> list:
             return [{"start": "09:15", "end": "15:30"}]
         
         return allow_sessions
-    except Exception as exc:
+    except (FileNotFoundError, KeyError, TypeError, AttributeError) as exc:
         logger.warning("Failed to load allowed sessions: %s. Using default.", exc)
         return [{"start": "09:15", "end": "15:30"}]
 
@@ -421,7 +421,7 @@ def get_current_session_info(config_path: str) -> Dict[str, Any]:
                     "current_session": session,
                     "next_session": sessions[i + 1] if i + 1 < len(sessions) else None,
                 }
-        except Exception as exc:
+        except (ValueError, KeyError, AttributeError) as exc:
             logger.debug("Error parsing session %d: %s", i, exc)
             continue
     
@@ -436,7 +436,7 @@ def get_current_session_info(config_path: str) -> Dict[str, Any]:
             if start_time > current_time:
                 next_session = session
                 break
-        except Exception:
+        except (ValueError, KeyError, AttributeError):
             continue
     
     # Determine gap name
