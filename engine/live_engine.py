@@ -110,6 +110,7 @@ class LiveEquityEngine:
             equity_curve_maxlen=500,
         )
         self.live_capital = config_capital
+        logger.info("[LIVE] Effective live capital for sizing: %.2f", self.live_capital)
 
         # Capital provider - fetches real-time capital from Kite API in LIVE mode
         self.capital_provider: CapitalProvider = create_capital_provider(
@@ -500,6 +501,100 @@ class LiveEquityEngine:
             self.market_data_engine.on_tick_batch([tick])
 
     # ------------------------------------------------------------------ loop
+    def _tick_once(self) -> None:
+        """
+        Run one iteration of the main trading loop.
+        
+        This helper is used by both run_forever() and run_smoke_test() to
+        perform a single loop iteration:
+        - Log session status
+        - Run strategies (generate signals)
+        - Update unrealized P&L and metrics
+        - Run reconciliation if enabled
+        """
+        self._log_session_status()
+
+        # Run strategies (will call _handle_signal via StrategyEngineV2)
+        try:
+            self.strategy_engine.run(self.universe, timeframe=self.primary_timeframe)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Strategy engine run failed: %s", exc, exc_info=True)
+
+        # Update unrealized + equity snapshots
+        self._update_unrealized_and_metrics()
+
+        # Optional reconciliation
+        if self.reconciler and self.reconciler.enabled:
+            try:
+                asyncio.run(self.reconciler.reconcile_orders())
+                asyncio.run(self.reconciler.reconcile_positions())
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Reconciliation error (live): %s", exc)
+
+    def run_smoke_test(self, max_loops: int = 60, sleep_seconds: float = 1.0) -> None:
+        """
+        Run a short, bounded main loop for smoke testing.
+        
+        - Uses the same internal logic as run_forever, but breaks after max_loops.
+        - Logs basic heartbeat each loop.
+        - Never places real orders if execution.dry_run=True.
+        
+        Args:
+            max_loops: Maximum number of loop iterations (default: 60)
+            sleep_seconds: Sleep time between loops in seconds (default: 1.0)
+        """
+        logger.info("Starting LIVE smoke test loop: max_loops=%s, sleep=%ss", max_loops, sleep_seconds)
+        
+        # Ensure broker is logged in before starting
+        if not self.broker.ensure_logged_in():
+            logger.error("Cannot start smoke test: not logged in. Run scripts/login_kite.py")
+            return
+
+        # Start market data + tick subscription
+        self.market_data_engine.start()
+        tokens = list(self.market_data_engine.symbol_tokens.values())
+        if tokens:
+            self.broker.subscribe_ticks(tokens, self._on_tick)
+        
+        # Initial capital refresh
+        self._refresh_live_capital(force=True)
+        # Save initial live state
+        self._save_live_state()
+
+        logger.info("[LIVE-SMOKE] LiveEquityEngine smoke test starting (tf=%s)", self.primary_timeframe)
+        loops = 0
+        try:
+            while loops < max_loops and self.running:
+                loops += 1
+                
+                # Note: For smoke test, we run even if market is closed
+                # but log the status
+                if not is_market_open():
+                    logger.debug("[LIVE-SMOKE] Market appears closed, but continuing smoke test")
+                
+                # Run one tick of the main loop
+                self._tick_once()
+                
+                # Periodic heartbeat
+                if loops % 10 == 0:
+                    logger.info("LIVE smoke test heartbeat — loop %s/%s", loops, max_loops)
+                
+                # Refresh capital periodically
+                if loops % 20 == 0:
+                    self._refresh_live_capital()
+                    self._save_live_state()
+                
+                time.sleep(sleep_seconds)
+        except KeyboardInterrupt:
+            logger.info("Smoke test interrupted by user")
+        finally:
+            logger.info("LIVE smoke test completed after %s loops", loops)
+            # Minimal cleanup - don't write full stop checkpoint
+            try:
+                self.market_data_engine.stop()
+            except Exception:
+                pass
+
     def run_forever(self) -> None:
         """Main live loop."""
         if not self.broker.ensure_logged_in():
@@ -526,29 +621,14 @@ class LiveEquityEngine:
                     logger.info("Market closed; sleeping 30s")
                     time.sleep(30)
                     continue
-                self._log_session_status()
 
-                # Run strategies (will call _handle_signal via StrategyEngineV2)
-                try:
-                    self.strategy_engine.run(self.universe, timeframe=self.primary_timeframe)
-                except Exception as exc:  # noqa: BLE001
-                    logger.error("Strategy engine run failed: %s", exc, exc_info=True)
-
-                # Update unrealized + equity snapshots
-                self._update_unrealized_and_metrics()
+                # Run one tick of the main loop
+                self._tick_once()
                 
                 # Refresh capital every N loops (N=20)
                 if loop_count % 20 == 0:
                     self._refresh_live_capital()
                     self._save_live_state()
-
-                # Optional reconciliation
-                if self.reconciler and self.reconciler.enabled:
-                    try:
-                        asyncio.run(self.reconciler.reconcile_orders())
-                        asyncio.run(self.reconciler.reconcile_positions())
-                    except Exception as exc:  # noqa: BLE001
-                        logger.debug("Reconciliation error (live): %s", exc)
 
                 time.sleep(5)
         except KeyboardInterrupt:
