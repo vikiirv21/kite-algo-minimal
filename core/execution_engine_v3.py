@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 import uuid
 from abc import ABC, abstractmethod
@@ -758,10 +759,11 @@ class LiveExecutionEngine(ExecutionEngine):
         # Order tracking
         self.orders: Dict[str, Order] = {}
         self._reconciliation_task = None
+        self._reconciliation_task_started = False
+        self._reconciliation_lock = threading.Lock()  # Thread-safe reconciliation task startup
         
-        # Start reconciliation loop if enabled
-        if self.reconciliation_enabled:
-            self._reconciliation_task = asyncio.create_task(self._reconciliation_loop())
+        # Don't start reconciliation loop in __init__ - it will be started lazily
+        # when the first async method is called or when start() is called
         
         self.logger.info(
             "LiveExecutionEngine initialized: retry=%s (max=%d), reconciliation=%s (interval=%.1fs), guardian=%s",
@@ -771,6 +773,22 @@ class LiveExecutionEngine(ExecutionEngine):
             self.reconciliation_interval,
             "enabled" if self.guardian_enabled else "disabled"
         )
+    
+    def _ensure_reconciliation_started(self) -> None:
+        """Lazily start reconciliation loop if enabled and not already started (thread-safe)."""
+        if self.reconciliation_enabled and not self._reconciliation_task_started:
+            with self._reconciliation_lock:
+                # Double-check after acquiring lock to avoid race condition
+                if self._reconciliation_task_started:
+                    return
+                try:
+                    loop = asyncio.get_running_loop()
+                    self._reconciliation_task = loop.create_task(self._reconciliation_loop())
+                    self._reconciliation_task_started = True
+                    self.logger.info("Reconciliation loop started")
+                except RuntimeError:
+                    # No running event loop - reconciliation will be started later
+                    pass
     
     async def place_order(self, order: Order) -> Order:
         """
@@ -782,6 +800,9 @@ class LiveExecutionEngine(ExecutionEngine):
         Returns:
             Updated order with execution details
         """
+        # Ensure reconciliation loop is started
+        self._ensure_reconciliation_started()
+        
         # Guardian safety validation
         if self.guardian_enabled:
             # Convert order to intent format for guardian

@@ -14,6 +14,7 @@ live path without touching existing paper/backtest flows.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from datetime import datetime, timezone
@@ -47,6 +48,11 @@ ARTIFACTS_DIR = BASE_DIR / "artifacts"
 CHECKPOINTS_DIR = ARTIFACTS_DIR / "checkpoints"
 
 
+def create_dir_if_not_exists(path: Path) -> None:
+    """Create directory if it doesn't exist."""
+    path.mkdir(parents=True, exist_ok=True)
+
+
 class LiveEquityEngine:
     """
     Lightweight LIVE equity engine built on StrategyEngineV2 + ExecutionEngineV3.
@@ -63,6 +69,10 @@ class LiveEquityEngine:
         self.mode = TradingMode.LIVE
         self.artifacts_dir = Path(artifacts_dir).resolve() if artifacts_dir else ARTIFACTS_DIR
         self.checkpoint_path = self.artifacts_dir / "checkpoints" / "live_state_latest.json"
+        self.live_state_path = self.artifacts_dir / "live_state.json"
+        
+        # Create required directories
+        self._create_required_directories()
 
         # Brokers/clients
         self.kite_client = kite_client or KiteClient()
@@ -138,7 +148,12 @@ class LiveEquityEngine:
             risk_per_trade_pct=float(risk_cfg.get("risk_per_trade_pct", 0.005)),
             min_order_notional=float(risk_cfg.get("min_order_notional", 0.0)),
             max_order_notional_pct=float(risk_cfg.get("max_order_notional_pct", 0.2)),
-            max_trades=int(risk_cfg.get("max_concurrent_trades", trading_cfg.get("max_open_positions", 5))),
+            # Handle null config values explicitly (max_open_positions can be null = unlimited)
+            max_trades=int(
+                risk_cfg.get("max_concurrent_trades") 
+                if risk_cfg.get("max_concurrent_trades") is not None 
+                else (trading_cfg.get("max_open_positions") if trading_cfg.get("max_open_positions") is not None else 5)
+            ),
             risk_scale_min=float(risk_cfg.get("risk_scale_min", 0.3)),
             risk_scale_max=float(risk_cfg.get("risk_scale_max", 2.0)),
             risk_down_threshold=float(risk_cfg.get("risk_down_threshold", -0.02)),
@@ -169,14 +184,13 @@ class LiveEquityEngine:
         # Strategy engine v2 (signals) wired to this engine for execution
         self.strategy_engine = StrategyEngineV2.from_config(
             cfg.raw,
-            logger_instance=logger,
-            market_data_engine=self.market_data_engine,
-            state_store=self.state_store,
-            regime_engine=self.regime_engine,
+            logger=logger,
         )
         self.strategy_engine.market_data = self.market_data_engine
         self.strategy_engine.market_data_engine = self.market_data_engine
         self.strategy_engine.mde = self.market_data_engine
+        self.strategy_engine.state_store = self.state_store
+        self.strategy_engine.regime_engine = self.regime_engine
         self.strategy_engine.set_paper_engine(self)
 
         # Execution engine v3 (adapter)
@@ -302,6 +316,71 @@ class LiveEquityEngine:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Falling back to empty equity universe (load error: %s)", exc)
             return []
+
+    def _create_required_directories(self) -> None:
+        """Create all required directories for LIVE mode."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        directories = [
+            self.artifacts_dir / "logs",
+            self.artifacts_dir / "analytics",
+            self.artifacts_dir / "checkpoints",
+            self.artifacts_dir / "journal" / today,
+        ]
+        for directory in directories:
+            create_dir_if_not_exists(directory)
+        logger.debug("Created required directories for LIVE mode")
+
+    def _save_live_state(self) -> None:
+        """
+        Save live state to artifacts/live_state.json.
+        
+        This file contains:
+        - timestamp
+        - mode
+        - live_capital
+        - positions
+        - unrealized_pnl
+        - realized_pnl
+        """
+        try:
+            positions = []
+            total_unrealized = 0.0
+            
+            try:
+                positions_raw = self.broker.fetch_positions()
+                for pos in positions_raw or []:
+                    symbol = pos.get("tradingsymbol") or pos.get("symbol")
+                    qty = float(pos.get("quantity") or 0.0)
+                    if qty != 0:
+                        avg_price = float(pos.get("average_price") or 0.0)
+                        last_price = self.last_prices.get(symbol, avg_price)
+                        unrealized = (last_price - avg_price) * qty if qty > 0 else (avg_price - last_price) * abs(qty)
+                        total_unrealized += unrealized
+                        positions.append({
+                            "symbol": symbol,
+                            "qty": qty,
+                            "avg_price": avg_price,
+                            "last_price": last_price,
+                            "unrealized_pnl": unrealized,
+                        })
+            except Exception:
+                pass
+            
+            state = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "mode": "LIVE",
+                "live_capital": self.live_capital,
+                "positions": positions,
+                "open_positions_count": len(positions),
+                "unrealized_pnl": total_unrealized,
+                "realized_pnl": 0.0,  # To be updated from journal
+            }
+            
+            with open(self.live_state_path, "w", encoding="utf-8") as f:
+                json.dump(state, f, indent=2, default=str)
+                
+        except Exception as exc:
+            logger.debug("Failed to save live state: %s", exc)
 
     def _log_session_status(self) -> None:
         """Log transitions between session active/break based on time filter."""
@@ -434,10 +513,15 @@ class LiveEquityEngine:
             self.broker.subscribe_ticks(tokens, self._on_tick)
         # Initial capital refresh
         self._refresh_live_capital(force=True)
+        # Save initial live state
+        self._save_live_state()
 
-        logger.info("LiveEquityEngine starting loop (tf=%s)", self.primary_timeframe)
+        logger.info("[LIVE] LiveEquityEngine starting loop (tf=%s)", self.primary_timeframe)
+        loop_count = 0
         try:
             while self.running:
+                loop_count += 1
+                
                 if not is_market_open():
                     logger.info("Market closed; sleeping 30s")
                     time.sleep(30)
@@ -452,7 +536,11 @@ class LiveEquityEngine:
 
                 # Update unrealized + equity snapshots
                 self._update_unrealized_and_metrics()
-                self._refresh_live_capital()
+                
+                # Refresh capital every N loops (N=20)
+                if loop_count % 20 == 0:
+                    self._refresh_live_capital()
+                    self._save_live_state()
 
                 # Optional reconciliation
                 if self.reconciler and self.reconciler.enabled:
@@ -487,24 +575,34 @@ class LiveEquityEngine:
         side = "BUY" if action.upper() in ("BUY", "LONG") else "SELL"
         qty = max(1, self.default_qty)
 
+        # Log signal creation
+        strategy_label = strategy_code or strategy_name or "EQUITY_LIVE"
+        logger.info(
+            "[LIVE] Signal: %s %s price=%.2f conf=%.2f strategy=%s reason=%s",
+            action.upper(), symbol, price, confidence or 0.0, strategy_label, reason
+        )
+
         # Enforce session/time filter for entries only (exits allowed anytime)
         if action.upper() in ("BUY", "LONG", "SELL", "SHORT") and self.time_filter_config.enabled:
-            allowed, reason = is_entry_time_allowed(
+            allowed, block_reason = is_entry_time_allowed(
                 self.time_filter_config,
                 symbol=symbol,
-                strategy_id=strategy_code or strategy_name or "EQUITY_LIVE",
+                strategy_id=strategy_label,
                 is_expiry_instrument=False,
             )
             if not allowed:
                 now_hhmm = datetime.now().strftime("%H:%M")
                 logger.info(
-                    "Blocked entry for %s: outside allowed session (now=%s, reason=%s, sessions=%s)",
+                    "[LIVE] Blocked entry for %s: outside allowed session (now=%s, reason=%s, sessions=%s)",
                     symbol,
                     now_hhmm,
-                    reason,
+                    block_reason,
                     self.time_filter_config.allow_sessions,
                 )
                 return
+
+        # Refresh capital before placing order
+        self._refresh_live_capital()
 
         # Apply simple sizing if position_sizer present
         try:
@@ -517,7 +615,7 @@ class LiveEquityEngine:
                 lot_size=max(1, self.default_qty),
             )
             if not self._within_portfolio_limits(
-                strategy=strategy_code or strategy_name or "EQUITY_LIVE",
+                strategy=strategy_label,
                 notional=abs(qty * price),
                 portfolio_state=portfolio_state,
             ):
@@ -526,10 +624,10 @@ class LiveEquityEngine:
             qty = max(1, self.default_qty)
 
         # Learning engine adjustments (optional, allow block/scale)
-        qty = self._apply_learning_adjustments(symbol, strategy_code or strategy_name or "EQUITY_LIVE", qty)
+        qty = self._apply_learning_adjustments(symbol, strategy_label, qty)
 
         if qty == 0:
-            logger.info("Skipping %s for %s: sized qty=0", side, symbol)
+            logger.info("[LIVE] Skipping %s for %s: sized qty=0", side, symbol)
             return
 
         intent = OrderIntent(
@@ -588,9 +686,9 @@ class LiveEquityEngine:
             # Refresh capital after fill to get updated available margin
             self._refresh_capital_after_fill()
 
-            logger.info("Live order placed: %s %s x%s (id=%s status=%s)", side, symbol, qty, order_id, status)
+            logger.info("[LIVE] Order placed: %s %s x%s (id=%s status=%s)", side, symbol, qty, order_id, status)
         except Exception as exc:  # noqa: BLE001
-            logger.error("Live order failed for %s: %s", symbol, exc, exc_info=True)
+            logger.error("[LIVE] Order failed for %s: %s", symbol, exc, exc_info=True)
 
     # ------------------------------------------------------------------ helpers
     def _build_portfolio_state(self) -> PortfolioState:
@@ -658,24 +756,36 @@ class LiveEquityEngine:
             logger.debug("Failed to refresh capital after fill: %s", exc)
 
     def _refresh_live_capital(self, *, force: bool = False) -> None:
-        """Refresh live_capital from broker margins API."""
+        """
+        Refresh live_capital from broker margins API.
+        
+        Uses the new get_live_capital() method which provides:
+        - cash: Available cash
+        - available: Total available margin
+        - utilized: Utilized margin
+        - net: Net equity
+        """
         now = time.time()
         if not force and (now - self._last_capital_refresh) < 60:
             return
         try:
-            snapshot = self.broker.get_live_equity_snapshot()
-            new_cap = float(
-                snapshot.get("net_equity")
-                or snapshot.get("available_cash")
-                or self.live_capital
-            )
+            # Use new get_live_capital method
+            funds = self.broker.get_live_capital()
+            new_cap = float(funds.get("available", 0.0))
+            
             if new_cap > 0 and new_cap != self.live_capital:
+                old_cap = self.live_capital
                 self.live_capital = new_cap
                 self.metrics_tracker.starting_capital = new_cap
-                logger.info("LiveEquityEngine: updated live_capital from broker: %.2f", self.live_capital)
+                logger.info(
+                    "[LIVE] Updated live capital from broker: %.2f -> %.2f (net=%.2f, utilized=%.2f)",
+                    old_cap, self.live_capital, 
+                    funds.get("net", 0.0),
+                    funds.get("utilized", 0.0)
+                )
             self._last_capital_refresh = now
         except Exception as exc:  # noqa: BLE001
-            logger.warning("LiveEquityEngine: failed to refresh live capital: %s", exc)
+            logger.warning("[LIVE] Failed to refresh capital: %s", exc)
 
     def _update_unrealized_and_metrics(self) -> None:
         if not self.metrics_tracker:

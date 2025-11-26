@@ -216,6 +216,58 @@ class KiteBroker:
             }
 
     # ------------------------------------------------------------------ capital
+    def get_live_capital(self) -> Dict[str, Any]:
+        """
+        Fetch real-time capital information from Kite margins API.
+        
+        This method is specifically designed for LIVE trading capital queries.
+        
+        Returns:
+            Dict with keys:
+                - cash: Available cash balance
+                - available: Total available margin (cash + adhoc margin)
+                - utilized: Margin currently utilized
+                - net: Net equity value
+        
+        Raises:
+            RuntimeError: If not logged in to Kite
+        """
+        if not self.ensure_logged_in():
+            raise RuntimeError("Not logged in to Kite - cannot fetch live capital")
+        
+        try:
+            margins = self.kite.margins("equity")
+            
+            # Extract available funds
+            available_section = margins.get("available", {})
+            cash = float(available_section.get("cash", 0.0))
+            # Note: Kite API returns 'adHocMargin' (camelCase) but some SDKs convert to 'adhoc_margin'
+            # Check both keys for compatibility across different SDK versions
+            adhoc_margin = float(available_section.get("adHocMargin", 0.0) or available_section.get("adhoc_margin", 0.0))
+            available = cash + adhoc_margin
+            
+            # Extract utilized margin
+            utilized_section = margins.get("utilised", {})
+            utilized = float(utilized_section.get("debits", 0.0))
+            
+            # Net equity
+            net = float(margins.get("net", 0.0) or margins.get("equity", 0.0))
+            
+            result = {
+                "cash": cash,
+                "available": available,
+                "utilized": utilized,
+                "net": net,
+            }
+            
+            self.logger.debug("Kite live capital: cash=%.2f, available=%.2f, utilized=%.2f, net=%.2f", 
+                             cash, available, utilized, net)
+            return result
+            
+        except Exception as exc:
+            self.logger.error("Failed to fetch live capital: %s", exc)
+            raise
+    
     def get_live_equity_snapshot(self) -> Dict[str, Any]:
         """
         Fetch current funds/equity from Kite.

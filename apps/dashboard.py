@@ -120,6 +120,80 @@ async def get_meta() -> dict[str, Any]:
     }
 
 
+@router.get("/api/status")
+async def api_status() -> JSONResponse:
+    """
+    Return current system status including mode and live capital.
+    
+    This endpoint provides:
+    - mode: "paper" or "live"
+    - live_capital: Current capital (from live_state.json in live mode)
+    - market_open: Whether market is currently open
+    - timestamp: Current server time
+    """
+    cfg = load_app_config()
+    trading = cfg.trading or {}
+    mode = str(trading.get("mode", "paper")).lower()
+    
+    # Default capital from config
+    live_capital = float(trading.get("live_capital", trading.get("paper_capital", 500000)))
+    
+    # Try to load live capital from live_state.json if in live mode
+    if mode == "live":
+        live_state_path = BASE_DIR / "artifacts" / "live_state.json"
+        if live_state_path.exists():
+            try:
+                with live_state_path.open("r", encoding="utf-8") as f:
+                    live_state = json.load(f)
+                    live_capital = float(live_state.get("live_capital", live_capital))
+            except Exception:
+                pass
+    
+    return JSONResponse({
+        "mode": mode,
+        "live_capital": live_capital,
+        "market_open": is_market_open(),
+        "timestamp": datetime.now().isoformat(),
+    })
+
+
+@router.get("/api/live/capital")
+async def api_live_capital() -> JSONResponse:
+    """
+    Return live capital information.
+    
+    Reads from artifacts/live_state.json which is updated by LiveEquityEngine.
+    """
+    live_state_path = BASE_DIR / "artifacts" / "live_state.json"
+    
+    default_response = {
+        "live_capital": 0.0,
+        "positions": [],
+        "open_positions_count": 0,
+        "unrealized_pnl": 0.0,
+        "realized_pnl": 0.0,
+        "timestamp": None,
+        "mode": "live",
+    }
+    
+    if not live_state_path.exists():
+        # Fall back to config capital
+        cfg = load_app_config()
+        trading = cfg.trading or {}
+        default_response["live_capital"] = float(trading.get("live_capital", trading.get("paper_capital", 500000)))
+        return JSONResponse(default_response)
+    
+    try:
+        with live_state_path.open("r", encoding="utf-8") as f:
+            live_state = json.load(f)
+        return JSONResponse(live_state)
+    except Exception as exc:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error("Failed to load live state: %s", exc)
+        return JSONResponse(default_response)
+
+
 @router.get("/api/config/summary")
 async def api_config_summary() -> JSONResponse:
     cfg = load_app_config()

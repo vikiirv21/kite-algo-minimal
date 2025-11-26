@@ -6,10 +6,10 @@ session:
 
 trading:
   mode: "live"            # "paper" or "live"
-  enable_equity_paper: true
-  enable_fno_paper: true
-  enable_options_paper: true
-  live_capital: 500000      # capital reference for LIVE metrics
+  enable_equity_paper: false   # Disable paper engines in LIVE mode
+  enable_fno_paper: false      # Disable paper engines in LIVE mode
+  enable_options_paper: false  # Disable paper engines in LIVE mode
+  live_capital: 500000      # capital reference for LIVE metrics (fetched from broker)
 
   # Logical FnO universe. Code resolves these into current NFO FUT contracts.
   fno_universe:
@@ -202,7 +202,10 @@ execution:
   # - Set to v2 to fall back to legacy behavior while testing
   engine: v3  # "v2" or "v3" - use v3 for enhanced order lifecycle management
   use_execution_engine_v2: false  # Set to true to enable ExecutionEngine v2
-  dry_run: true  # When true, simulates live orders without actual placement
+  
+  # IMPORTANT: Set dry_run=false to place real orders in LIVE mode
+  # When true, orders are simulated without actual broker placement
+  dry_run: true  # Set to false for real orders in LIVE mode
   
   # Fill configuration (ExecutionEngine V3)
   fill_mode: "mid"  # "mid", "bid_ask", or "ltp"
