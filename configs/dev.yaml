@@ -44,6 +44,25 @@ trading:
 
   max_open_positions: null  # null = unlimited positions
 
+engines:
+  paper:
+    equity:
+      enabled: true
+      runner: apps.run_equity_paper
+    fno:
+      enabled: true
+      runner: apps.run_fno_paper
+    options:
+      enabled: true
+      runner: apps.run_options_paper
+  live:
+    equity:
+      enabled: false
+      runner: scripts.run_live_equity
+    options:
+      enabled: false
+      runner: scripts.run_live_options
+
 # Paper Account Management Configuration
 paper_account:
   starting_capital: 500000       # Starting capital for paper account

@@ -30,6 +30,12 @@ def main() -> int:
     setup_logging(cfg.logging)
     logger = logging.getLogger("run_live_equity")
 
+    # Force dry-run for all live runs for now
+    if "execution" not in cfg.raw:
+        cfg.raw["execution"] = {}
+    cfg.raw["execution"]["dry_run"] = True
+    logger.warning("[LIVE] Forcing execution.dry_run=True (no real orders will be sent).")
+
     mode = str(cfg.trading.get("mode", "paper")).lower()
     if mode != "live":
         logger.warning("Config mode is %s; forcing LIVE for this runner.", mode)

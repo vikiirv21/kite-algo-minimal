@@ -567,33 +567,85 @@ def start_multi_process_engines(mode: str, config_path: str) -> Dict[str, subpro
         Dict mapping engine name to Popen handle
     """
     base_cmd = [sys.executable, "-m"]
-    
-    # In LIVE mode, only start the live equity engine (paper engines don't support live mode)
-    if mode == "live":
-        engines = {
-            "live_equity": {
+
+    cfg = None
+    engines_cfg = {}
+    live_engines_cfg: Dict[str, Any] = {}
+    try:
+        cfg = load_config(config_path)
+        engines_cfg = cfg.raw.get("engines", {}) if isinstance(cfg.raw, dict) else {}
+        live_engines_cfg = cfg.raw.get("live_engines", {}) if isinstance(cfg.raw, dict) else {}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to read engines config from %s: %s", config_path, exc)
+
+    engines: Dict[str, Dict[str, Any]] = {}
+
+    if mode == "live" and live_engines_cfg:
+        logger.info("LIVE mode: engine selection driven by live_engines flags from config.")
+        # Live equity (optional)
+        if live_engines_cfg.get("equity"):
+            engines["live_equity"] = {
                 "module": "scripts.run_live_equity",
                 "log": LOGS_DIR / "live_equity.log",
-            },
-        }
-        logger.info("LIVE mode: Starting live equity engine only (paper engines skipped)")
+            }
+        # Live FnO placeholder (reuse paper runner for now)
+        if live_engines_cfg.get("fno"):
+            engines["live_fno"] = {
+                "module": "scripts.run_paper_fno",
+                "log": LOGS_DIR / "live_fno.log",
+            }
+        # Live options (reuse paper options runner with live config)
+        if live_engines_cfg.get("options"):
+            engines["live_options"] = {
+                "module": "scripts.run_paper_options",
+                "log": LOGS_DIR / "live_options.log",
+            }
+        if not engines:
+            logger.warning("LIVE mode: no engines enabled under live_engines in config.")
     else:
-        # PAPER mode: start all paper engines
-        engines = {
-            "fno": {
-                "module": "apps.run_fno_paper",
-                "log": LOGS_DIR / "fno_paper.log",
-            },
-            "equity": {
-                "module": "apps.run_equity_paper",
-                "log": LOGS_DIR / "equity_paper.log",
-            },
-            "options": {
-                "module": "apps.run_options_paper",
-                "log": LOGS_DIR / "options_paper.log",
-            },
-        }
-    
+        mode_engines = engines_cfg.get(mode, {}) if isinstance(engines_cfg, dict) else {}
+        if mode_engines:
+            for name, eng_cfg in mode_engines.items():
+                if not isinstance(eng_cfg, dict):
+                    continue
+                if not eng_cfg.get("enabled", False):
+                    continue
+                runner = eng_cfg.get("runner")
+                if not runner:
+                    continue
+                log_file = eng_cfg.get("log") or (LOGS_DIR / f"{name}.log")
+                engines[name] = {
+                    "module": runner,
+                    "log": Path(log_file),
+                }
+            logger.info("Using config-driven engine matrix for mode=%s", mode)
+        else:
+            # Fallback to legacy behavior
+            if mode == "live":
+                engines = {
+                    "live_equity": {
+                        "module": "scripts.run_live_equity",
+                        "log": LOGS_DIR / "live_equity.log",
+                    },
+                }
+                logger.info("LIVE mode: Starting live equity engine only (paper engines skipped)")
+            else:
+                engines = {
+                    "fno": {
+                        "module": "apps.run_fno_paper",
+                        "log": LOGS_DIR / "fno_paper.log",
+                    },
+                    "equity": {
+                        "module": "apps.run_equity_paper",
+                        "log": LOGS_DIR / "equity_paper.log",
+                    },
+                    "options": {
+                        "module": "apps.run_options_paper",
+                        "log": LOGS_DIR / "options_paper.log",
+                    },
+                }
+                logger.info("PAPER mode: starting default paper engines (fallback)")
+
     processes: Dict[str, subprocess.Popen] = {}
     
     logger.info("=" * 60)

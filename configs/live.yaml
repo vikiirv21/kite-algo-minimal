@@ -51,6 +51,31 @@ trading:
 
   max_open_positions: null  # null = unlimited positions
 
+# Live engine toggles (mirror paper engines, but run with live config)
+live_engines:
+  equity: false    # keep off for now
+  fno: false       # reserved for future live FnO
+  options: true    # enable options engine for live dry-run
+
+engines:
+  paper:
+    equity:
+      enabled: true
+      runner: apps.run_equity_paper
+    fno:
+      enabled: true
+      runner: apps.run_fno_paper
+    options:
+      enabled: true
+      runner: apps.run_options_paper
+  live:
+    equity:
+      enabled: false
+      runner: scripts.run_live_equity
+    options:
+      enabled: true
+      runner: scripts.run_paper_options
+
 # Paper Account Management Configuration
 paper_account:
   starting_capital: 500000       # Starting capital for paper account
