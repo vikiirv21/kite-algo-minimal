@@ -148,7 +148,12 @@ class LiveEquityEngine:
             risk_per_trade_pct=float(risk_cfg.get("risk_per_trade_pct", 0.005)),
             min_order_notional=float(risk_cfg.get("min_order_notional", 0.0)),
             max_order_notional_pct=float(risk_cfg.get("max_order_notional_pct", 0.2)),
-            max_trades=int(risk_cfg.get("max_concurrent_trades") or trading_cfg.get("max_open_positions") or 5),
+            # Handle null config values explicitly (max_open_positions can be null = unlimited)
+            max_trades=int(
+                risk_cfg.get("max_concurrent_trades") 
+                if risk_cfg.get("max_concurrent_trades") is not None 
+                else (trading_cfg.get("max_open_positions") if trading_cfg.get("max_open_positions") is not None else 5)
+            ),
             risk_scale_min=float(risk_cfg.get("risk_scale_min", 0.3)),
             risk_scale_max=float(risk_cfg.get("risk_scale_max", 2.0)),
             risk_down_threshold=float(risk_cfg.get("risk_down_threshold", -0.02)),
@@ -338,8 +343,6 @@ class LiveEquityEngine:
         - realized_pnl
         """
         try:
-            import json
-            
             positions = []
             total_unrealized = 0.0
             

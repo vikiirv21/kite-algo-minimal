@@ -241,6 +241,8 @@ class KiteBroker:
             # Extract available funds
             available_section = margins.get("available", {})
             cash = float(available_section.get("cash", 0.0))
+            # Note: Kite API returns 'adHocMargin' (camelCase) but some SDKs convert to 'adhoc_margin'
+            # Check both keys for compatibility across different SDK versions
             adhoc_margin = float(available_section.get("adHocMargin", 0.0) or available_section.get("adhoc_margin", 0.0))
             available = cash + adhoc_margin
             

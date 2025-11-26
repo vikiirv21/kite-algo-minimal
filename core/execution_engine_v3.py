@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 import uuid
 from abc import ABC, abstractmethod
@@ -759,6 +760,7 @@ class LiveExecutionEngine(ExecutionEngine):
         self.orders: Dict[str, Order] = {}
         self._reconciliation_task = None
         self._reconciliation_task_started = False
+        self._reconciliation_lock = threading.Lock()  # Thread-safe reconciliation task startup
         
         # Don't start reconciliation loop in __init__ - it will be started lazily
         # when the first async method is called or when start() is called
@@ -773,16 +775,20 @@ class LiveExecutionEngine(ExecutionEngine):
         )
     
     def _ensure_reconciliation_started(self) -> None:
-        """Lazily start reconciliation loop if enabled and not already started."""
+        """Lazily start reconciliation loop if enabled and not already started (thread-safe)."""
         if self.reconciliation_enabled and not self._reconciliation_task_started:
-            try:
-                loop = asyncio.get_running_loop()
-                self._reconciliation_task = loop.create_task(self._reconciliation_loop())
-                self._reconciliation_task_started = True
-                self.logger.info("Reconciliation loop started")
-            except RuntimeError:
-                # No running event loop - reconciliation will be started later
-                pass
+            with self._reconciliation_lock:
+                # Double-check after acquiring lock to avoid race condition
+                if self._reconciliation_task_started:
+                    return
+                try:
+                    loop = asyncio.get_running_loop()
+                    self._reconciliation_task = loop.create_task(self._reconciliation_loop())
+                    self._reconciliation_task_started = True
+                    self.logger.info("Reconciliation loop started")
+                except RuntimeError:
+                    # No running event loop - reconciliation will be started later
+                    pass
     
     async def place_order(self, order: Order) -> Order:
         """
