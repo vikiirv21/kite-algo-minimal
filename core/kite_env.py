@@ -50,7 +50,7 @@ def read_api_creds() -> Tuple[str, str]:
     if not api_key or not api_secret:
         raise RuntimeError(
             f"Missing KITE_API_KEY/KITE_API_SECRET in {API_FILE}. "
-            "Populate /secrets/kite.env before running."
+            f"Populate {API_FILE} before running."
         )
     return api_key, api_secret
 
@@ -76,7 +76,7 @@ def write_token(
     api_key_for_token: Optional[str] = None,
 ) -> None:
     """
-    Write tokens ONLY to /secrets/kite_tokens.env (atomic).
+    Write tokens to TOK_FILE (atomic).
     - access_token: required
     - public_token: optional
     - login_ts_iso: optional; default is current UTC ISO
