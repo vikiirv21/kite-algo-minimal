@@ -6,6 +6,54 @@
 
 ---
 
+## Process Architecture: run_session vs live_smoke_test
+
+### Understanding "Multi-Process Layout"
+
+When you run:
+```bash
+python -m scripts.run_session --mode live --config configs/live.yaml --layout multi
+```
+
+The `--layout multi` option means **"one process per engine"**, not "many engines for live". In LIVE mode, the orchestrator deliberately starts **only the `live_equity` engine**.
+
+**Why only one engine in LIVE mode?**
+
+From `scripts/run_session.py`:
+```python
+if mode == "live":
+    engines_to_start = ["live_equity"]  # only this one
+    logger.info("LIVE mode: Starting live equity engine only (paper engines skipped)")
+```
+
+This is intentional:
+- Paper engines don't support live mode
+- Only `live_equity` is designed for real trading
+- Having paper + live engines would cause conflicts
+
+### Where Multi-Timeframe/Multi-Strategy Lives
+
+All the "multi" behavior happens **inside the single `live_equity` engine**:
+
+1. **Multi-timeframe:** `MarketDataEngineV2` subscribes to `["1m", "5m"]` when `trading.strategy_mode: "multi"`
+2. **Multi-strategy:** `StrategyEngineV2` can register both scalping and intraday variants
+3. **Single execution pipeline:** `ExecutionEngineV3` + Guardian handle all orders
+
+So even though you see **one process**, inside that process you get:
+- Multiple timeframes (1m + 5m)
+- Multiple strategy variants (scalp + intraday)
+- One unified risk + execution pipeline
+
+### Engine Processes Summary
+
+| Command | Engines Started | Real Orders? |
+|---------|-----------------|--------------|
+| `run_session --mode live --layout multi` | `live_equity` only | Yes (if `dry_run: false`) |
+| `run_session --mode paper --layout multi` | `fno`, `equity`, `options` | No (paper trading) |
+| `live_smoke_test` | `live_equity` | **No** (forces `dry_run: true`) |
+
+---
+
 ## Trading Sessions & Schedules
 
 ### Config: `configs/live.yaml`
@@ -358,7 +406,35 @@ When running outside trading session:
 
 ## Is Tomorrow's Live Dry Run Safe?
 
-### ✅ Order Paths Guarded
+### ✅ Recommended Command for Tomorrow (Guaranteed Dry-Run)
+
+**Use the live smoke test** - this is the safest option:
+
+```bash
+# Step 1: Login to Kite (once in the morning)
+python -m scripts.run_day --login --engines none
+
+# Step 2: Run the smoke test (forces dry_run=True automatically)
+python -m scripts.live_smoke_test --config configs/live.yaml --max-loops 60 --sleep-seconds 1.0
+```
+
+This will:
+- Start the full `LiveEquityEngine`
+- Force `execution.dry_run=True` regardless of config
+- Run multi-timeframe strategies (1m + 5m)
+- Generate signals and log them
+- **Never place real orders**
+
+### ⚠️ Do NOT Use This Tomorrow (Unless You Want Real Orders)
+
+```bash
+# WARNING: This can place REAL orders if dry_run is false in config!
+python -m scripts.run_session --mode live --config configs/live.yaml --layout multi
+```
+
+The `run_session` command does NOT force `dry_run=True`. If your config has `execution.dry_run: false`, it **will place real orders**.
+
+### ✅ Order Paths Guarded in Smoke Test
 
 **YES** - All order paths are guarded by `execution.dry_run`:
 
@@ -377,30 +453,34 @@ When running outside trading session:
 **Only if `dry_run=False`:**
 
 - `scripts/run_live_equity.py` - Main production runner
+- `scripts/run_session.py --mode live` - Session orchestrator  
 - Direct `LiveEquityEngine` instantiation without safety overrides
 
 **The smoke test is safe** because it explicitly forces `dry_run=True`.
 
-### TODOs Before Enabling Real (Non-Dry-Run) Live Trading
+### What Would Need to Change for Real Live Trading
 
 1. **Verify capital limits:** Ensure `live_capital` in config matches actual account
 2. **Enable all safety gates:**
    - `guardian.enabled: true` ✅ (already in live.yaml)
    - `risk_engine.enabled: true` ✅ (already in live.yaml)
-3. **Test order cancellation:** Verify cancel orders work correctly
-4. **Test position exit:** Verify emergency exit paths
-5. **Monitor first session manually:** Watch dashboard and logs closely
-6. **Start with minimal quantity:** `default_quantity: 1`
+3. **Set `execution.dry_run: false`** in `configs/live.yaml`
+4. **Test order cancellation:** Verify cancel orders work correctly
+5. **Test position exit:** Verify emergency exit paths
+6. **Monitor first session manually:** Watch dashboard and logs closely
+7. **Start with minimal quantity:** `default_quantity: 1`
 
 ---
 
 ## Known Gaps / TODOs
 
-| File | Function/Area | Issue |
-|------|---------------|-------|
-| `engine/live_engine.py` | `_tick_once()` | Not shown in file - ensure it exists and handles errors gracefully |
-| `engine/live_engine.py` | `_load_learning_tuning()` | Learning engine disabled by default, method should handle missing file |
-| `engine/live_engine.py` | `_on_tick()` | Callback for tick handling - verify error handling |
+| File | Function/Area | Status |
+|------|---------------|--------|
+| `engine/live_engine.py` | `_tick_once()` | ✅ Implemented - runs strategy tick, reconciliation, and metrics |
+| `engine/live_engine.py` | `_load_learning_tuning()` | ✅ Implemented - loads tuning from learning engine path |
+| `engine/live_engine.py` | `_on_tick()` | ✅ Implemented - handles WebSocket ticks, updates last_prices |
+| `engine/live_engine.py` | `_apply_learning_adjustments()` | ✅ Implemented - applies learning engine risk multipliers |
+| `engine/live_engine.py` | `_save_live_state()` | ✅ Implemented - saves live state checkpoints |
 | `core/reconciliation_engine.py` | Mismatch handling | Currently log-only; consider auto-corrective actions |
 | `configs/live.yaml` | `execution.dry_run` | Set to `true` by default - must change for real trading |
 
