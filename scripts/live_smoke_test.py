@@ -193,21 +193,23 @@ def main() -> int:
             from engine.live_engine import LiveEquityEngine
 
             engine = LiveEquityEngine(cfg, artifacts_dir=ARTIFACTS_DIR, warmup_only=True)
+            logger.info("Warmup-only LiveEquityEngine constructed successfully.")
+            
             if not engine._validate_kite_session():
                 logger.error(
                     "Warmup validation failed (auth). Run `python -m scripts.run_day --login --engines none` and retry."
                 )
                 return 1
-            try:
-                cap = engine.capital_provider.get_current_capital() if engine.capital_provider else None
-                logger.info(
-                    "Warmup-only: capital source=%s value=%.2f",
-                    getattr(engine.capital_provider, "capital_source", "unknown"),
-                    cap or 0.0,
-                )
-            except Exception:
-                logger.debug("Warmup-only capital check skipped", exc_info=True)
-            logger.info("Warmup-only validation completed successfully (no ticks started).")
+            
+            # Log warmup capital details
+            cap_source = getattr(engine.capital_provider, "capital_source", "unknown")
+            logger.info(
+                "Warmup live capital: %.2f (source=%s)",
+                engine.live_capital,
+                cap_source,
+            )
+            
+            logger.info("Warmup-only validation succeeded; exiting without ticks.")
             return 0
         except Exception:
             logger.exception("Warmup-only validation failed")

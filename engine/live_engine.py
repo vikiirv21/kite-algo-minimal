@@ -164,7 +164,7 @@ class LiveEquityEngine:
             self.last_prices = {}
             self._last_session_status = None
             self._last_capital_refresh = 0.0
-            self._log_startup_summary(cfg)
+            self._log_warmup_summary()
             return
 
         # Universe + sizing
@@ -325,6 +325,57 @@ class LiveEquityEngine:
         ):
             create_dir_if_not_exists(self.artifacts_dir / sub)
         create_dir_if_not_exists(self.checkpoint_path.parent)
+
+    def _log_warmup_summary(self) -> None:
+        """
+        Log a minimal summary for warmup-only validation.
+
+        Only uses attributes that are guaranteed to exist before the warmup_only return.
+        """
+        cap_source = getattr(self.capital_provider, "capital_source", "unknown")
+        logger.info("=" * 60)
+        logger.info("LIVE ENGINE WARMUP SUMMARY (NO TICKS / NO STRATEGIES)")
+        logger.info("=" * 60)
+        logger.info("Mode: LIVE (warmup_only)")
+        logger.info("Artifacts dir: %s", self.artifacts_dir)
+        logger.info(
+            "Live Capital (warmup): source=%s, value=%.2f",
+            cap_source,
+            self.live_capital,
+        )
+        logger.info("=" * 60)
+
+    def _log_startup_summary(self, cfg: AppConfig) -> None:
+        """
+        Log a detailed startup summary for full live mode.
+
+        Only called when warmup_only=False after all components are initialized.
+        """
+        trading_cfg = cfg.trading or {}
+        risk_cfg = cfg.risk or {}
+        cap_source = getattr(self.capital_provider, "capital_source", "unknown")
+        logger.info("=" * 60)
+        logger.info("LIVE ENGINE STARTUP SUMMARY")
+        logger.info("=" * 60)
+        logger.info("Mode: LIVE (full)")
+        logger.info("Trading style: %s", self.trading_style)
+        logger.info("Primary timeframe: %s", self.primary_timeframe)
+        if self.scalping_mode:
+            logger.info("Scalping timeframe: %s", self.scalping_timeframe)
+        logger.info("Artifacts dir: %s", self.artifacts_dir)
+        logger.info("Universe: %d symbols", len(self.universe))
+        logger.info(
+            "Live Capital: source=%s, value=%.2f",
+            cap_source,
+            self.live_capital,
+        )
+        logger.info("Config fallback capital: %.2f", self.config_fallback_capital)
+        logger.info("Max exposure: %.1f%%", self.max_exposure_pct * 100)
+        logger.info("Default quantity: %d", self.default_qty)
+        logger.info("Learning engine: %s", "enabled" if self.learning_enabled else "disabled")
+        logger.info("Regime engine: %s", "enabled" if self.regime_engine else "disabled")
+        logger.info("Reconciler: %s", "enabled" if self.reconciler else "disabled")
+        logger.info("=" * 60)
 
     def _load_equity_universe(self) -> List[str]:
         """
