@@ -127,6 +127,14 @@ class StateStore:
         }
         self.atomic_write_json(self.checkpoint_path, payload)
 
+    # Adapter for reconciliation expectations
+    def load(self) -> Optional[Dict[str, Any]]:
+        """
+        Return the latest checkpoint; empty dict if missing.
+        """
+        data = self.load_checkpoint()
+        return data or {}
+
     def load_checkpoint(self) -> Optional[Dict[str, Any]]:
         if not self.checkpoint_path.is_file():
             return None

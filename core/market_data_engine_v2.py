@@ -179,6 +179,26 @@ class MarketDataEngineV2:
         
         if self.replay_thread and self.replay_thread.is_alive():
             self.replay_thread.join(timeout=2.0)
+
+    # Adapter for StrategyEngineV2 expectations --------------------------------
+    def get_window(self, symbol: str, timeframe: str, window_size: int):
+        """
+        Adapter for StrategyEngineV2.
+
+        Returns the last `window_size` bars for (symbol, timeframe) in ascending
+        time order. Falls back to an empty list if no data available.
+        """
+        key = (symbol.upper(), timeframe)
+        series = self.candles.get(key)  # deque of dict bars
+        if not series:
+            return []
+
+        try:
+            # deque preserves order; convert tail window_size to list
+            data = list(series)[-window_size:]
+        except Exception:
+            data = []
+        return data
     
     def on_tick_batch(self, ticks: List[Dict[str, Any]]) -> None:
         """

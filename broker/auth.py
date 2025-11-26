@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from kiteconnect import KiteConnect
+from core.kite_client import make_kite_client
 
 # Import canonical paths from kite_env to ensure consistency across the codebase
 from core.kite_env import (
@@ -117,23 +118,18 @@ def read_kite_token() -> Optional[str]:
     return None
 
 
-def make_kite_client_from_env(reload: bool = False) -> KiteConnect:
+def make_kite_client_from_env(strict: bool = True) -> Optional[KiteConnect]:
     """Create KiteConnect client from env/secrets and set access token when present.
 
-    If API key/secret missing raises RuntimeError. Access token is optional.
+    Args:
+        strict: when True, raise on failure; when False, return None on failure.
     """
-    creds = read_kite_api_secrets()
-    api_key = creds.get("api_key")
-    kite = KiteConnect(api_key=api_key)
-
-    token = read_kite_token()
-    if token:
-        try:
-            kite.set_access_token(token)
-        except Exception:
-            # Don't raise here – token may be invalid; leave it to token_is_valid
-            pass
-    return kite
+    try:
+        return make_kite_client()
+    except Exception:
+        if strict:
+            raise
+        return None
 
 
 def token_is_valid(kite: KiteConnect) -> bool:

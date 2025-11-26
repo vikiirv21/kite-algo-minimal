@@ -5,9 +5,10 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
-from kiteconnect import KiteConnect, KiteTicker, exceptions as kite_exceptions
+from kiteconnect import KiteConnect, exceptions as kite_exceptions
 
 from core.kite_http import kite_request
+from core.kite_ticker import make_kite_ticker
 from core.state_store import JournalStateStore
 
 logger = logging.getLogger(__name__)
@@ -29,7 +30,7 @@ class LiveBroker:
         self.kite = kite
         self.store = store or JournalStateStore(mode="live")
         self.state = self.store.load_latest_checkpoint() or self.store.rebuild_from_journal(today_only=False)
-        self._ticker: Optional[KiteTicker] = None
+        self._ticker: Optional[Any] = None
         self._save_interval = max(save_interval, 1.0)
         self._last_save = 0.0
         self._lock = threading.Lock()
@@ -45,7 +46,7 @@ class LiveBroker:
         if not api_key or not access_token:
             raise RuntimeError("LiveBroker requires an authenticated Kite client with api_key and access_token.")
 
-        ticker = KiteTicker(api_key, access_token)
+        ticker = make_kite_ticker()
         ticker.on_order_update = self._handle_order_update
         ticker.on_error = self._handle_error
 

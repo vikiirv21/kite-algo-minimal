@@ -453,6 +453,17 @@ class StrategyEngineV2:
             return engine
         
         log.info("Loading %d strategies from config", len(strategies_v2))
+        trading_cfg = cfg.get("trading", {}) if isinstance(cfg, dict) else {}
+        # Determine trading style: prefer explicit style keys; ignore if value is "live"/"paper"
+        style_raw = trading_cfg.get("strategy_mode") or trading_cfg.get("mode_style") or trading_cfg.get("style")
+        mode_value = trading_cfg.get("mode")
+        trading_style = None
+        if isinstance(style_raw, str):
+            trading_style = style_raw.lower()
+        elif isinstance(mode_value, str) and mode_value.lower() in ("multi", "scalp", "intraday"):
+            trading_style = mode_value.lower()
+        if trading_style not in ("multi", "scalp", "intraday"):
+            trading_style = "intraday"
         
         for strategy_cfg in strategies_v2:
             if not isinstance(strategy_cfg, dict):
@@ -476,38 +487,45 @@ class StrategyEngineV2:
                 )
                 continue
             
-            try:
-                # Import module and class
-                mod = importlib.import_module(module_name)
-                strategy_class = getattr(mod, class_name)
-                
-                # Create strategy state
-                state = StrategyState()
-                
-                # Merge params with strategy_id
-                full_config = {"strategy_id": strategy_id, **params}
-                
-                # Instantiate strategy
-                strategy = strategy_class(config=full_config, strategy_state=state)
-                
-                # Register strategy
-                engine.register_strategy(strategy_id, strategy)
-                
-                log.info(
-                    "StrategyEngineV2: registered %s (enabled=%s, module=%s, class=%s, timeframe=%s)",
-                    strategy_id,
-                    enabled,
-                    module_name,
-                    class_name,
-                    params.get("timeframe"),
-                )
-                
-            except Exception as exc:
-                log.error(
-                    "Failed to load strategy %s from %s.%s: %s",
-                    strategy_id, module_name, class_name, exc,
-                    exc_info=True
-                )
+            # Helper to register one strategy variant
+            def _register_variant(var_id: str, variant_params: Dict[str, Any], role: str) -> None:
+                try:
+                    mod = importlib.import_module(module_name)
+                    strategy_class = getattr(mod, class_name)
+                    state = StrategyState()
+                    full_config = {"strategy_id": var_id, **variant_params, "role": role}
+                    strategy = strategy_class(config=full_config, strategy_state=state)
+                    engine.register_strategy(var_id, strategy)
+                    log.info(
+                        "StrategyEngineV2: registered %s (role=%s, module=%s, class=%s, timeframe=%s)",
+                        var_id,
+                        role,
+                        module_name,
+                        class_name,
+                        variant_params.get("timeframe"),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    log.error(
+                        "Failed to load strategy %s from %s.%s: %s",
+                        var_id,
+                        module_name,
+                        class_name,
+                        exc,
+                        exc_info=True,
+                    )
+
+            # Intraday/base variant always loaded
+            base_params = dict(params)
+            base_params.setdefault("timeframe", base_params.get("intraday_timeframe", base_params.get("timeframe")))
+            _register_variant(strategy_id, base_params, role="intraday")
+
+            # Optional scalping variant for multi/scalp modes
+            scalping_tf = params.get("scalping_timeframe") or trading_cfg.get("scalping_timeframe")
+            if trading_style in ("multi", "scalp") and scalping_tf:
+                scalp_id = f"{strategy_id}_SCALP"
+                scalp_params = dict(params)
+                scalp_params["timeframe"] = scalping_tf
+                _register_variant(scalp_id, scalp_params, role="scalping")
         
         log.info(
             "StrategyEngineV2 loaded with strategies: %s",

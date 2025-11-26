@@ -69,6 +69,10 @@ class ConfigCapitalProvider(CapitalProvider):
         """No-op for config-based capital. Returns current value."""
         return self._capital
 
+    def get_current_capital(self) -> float:
+        """Alias for compatibility with LiveCapitalProvider API."""
+        return self.get_available_capital()
+
     def set_capital(self, capital: float) -> None:
         """
         Update capital (e.g., after PnL calculations).
@@ -77,6 +81,10 @@ class ConfigCapitalProvider(CapitalProvider):
             capital: New capital value
         """
         self._capital = float(capital)
+
+    def get_client(self) -> Optional[KiteConnect]:
+        """PAPER mode uses no Kite client; return None for compatibility."""
+        return None
 
 
 class LiveCapitalProvider(CapitalProvider):
@@ -109,7 +117,7 @@ class LiveCapitalProvider(CapitalProvider):
 
         # Build client using shared auth helper
         try:
-            self._kite = make_kite_client_from_env()
+            self._kite = make_kite_client_from_env(strict=False)
         except Exception as exc:  # noqa: BLE001
             logger.error(
                 "LiveCapitalProvider: failed to build Kite client: %s. "
@@ -117,29 +125,6 @@ class LiveCapitalProvider(CapitalProvider):
                 exc,
             )
             self._kite = None
-            return
-
-        if self._kite is None:
-            logger.warning(
-                "LiveCapitalProvider: no Kite client available from make_kite_client_from_env; "
-                "falling back to config capital"
-            )
-            return
-
-        # Optionally do a lightweight margins() call here, but do not crash if it fails
-        try:
-            margins = self._kite.margins("equity")
-            # If this succeeds, we can mark that broker-based capital works
-            self._using_fallback = False
-            logger.debug("LiveCapitalProvider: margins() sanity check passed")
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "LiveCapitalProvider: margins() sanity check failed in constructor: %s. "
-                "Will try again lazily; starting with fallback capital.",
-                exc,
-            )
-            self._using_fallback = True
-            self._last_error = str(exc)
 
         logger.info(
             "LiveCapitalProvider initialized (fallback=%.2f, cache_ttl=%.1fs, kite=%s)",
@@ -164,6 +149,10 @@ class LiveCapitalProvider(CapitalProvider):
     def get_client(self) -> Optional[KiteConnect]:
         """Return the Kite client (or None if not available)."""
         return self._kite
+
+    def get_current_capital(self) -> float:
+        """Alias for get_available_capital for clarity in callers."""
+        return self.get_available_capital()
 
     def get_available_capital(self) -> float:
         """
@@ -267,7 +256,9 @@ class LiveCapitalProvider(CapitalProvider):
 
     @property
     def capital_source(self) -> str:
-        return "fallback" if self._using_fallback else "broker"
+        if self._kite is None or self._using_fallback:
+            return "fallback"
+        return "broker"
 
     @property
     def last_error(self) -> Optional[str]:

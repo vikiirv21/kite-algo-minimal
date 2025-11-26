@@ -20,12 +20,13 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from core.config import load_config
 from core.logging_utils import setup_logging
+from core.market_session import now_ist
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,33 @@ def _get_session_info(cfg_raw: Dict[str, Any]) -> Dict[str, Any]:
         "allow_sessions": allow_sessions,
         "current_time_ist": current_time,
     }
+
+def _parse_hhmm(text: str) -> Optional[time]:
+    try:
+        hh, mm = text.split(":", 1)
+        return time(int(hh), int(mm))
+    except Exception:
+        return None
+
+
+def _is_within_trading_session(cfg_raw: Dict[str, Any]) -> bool:
+    """
+    Check if current IST time is inside any configured trading session.
+    Falls back to True if no sessions are configured.
+    """
+    sessions = (cfg_raw.get("trading") or {}).get("sessions") or []
+    if not sessions:
+        return True
+
+    now = now_ist().time()
+    for sess in sessions:
+        start = _parse_hhmm(sess.get("start", ""))
+        end = _parse_hhmm(sess.get("end", ""))
+        if not start or not end:
+            continue
+        if start <= now <= end:
+            return True
+    return False
 
 
 def main() -> int:
@@ -154,6 +182,38 @@ def main() -> int:
     else:
         logger.info("No trading sessions configured (will run outside market hours)")
     logger.info("=" * 60)
+
+    inside_trading_session = _is_within_trading_session(cfg.raw)
+    if not inside_trading_session:
+        logger.info(
+            "Outside trading hours (now IST=%s). Skipping live ticks; running warmup-only validation.",
+            session_info["current_time_ist"],
+        )
+        try:
+            from engine.live_engine import LiveEquityEngine
+
+            engine = LiveEquityEngine(cfg, artifacts_dir=ARTIFACTS_DIR)
+            if not engine._validate_kite_session():
+                logger.error(
+                    "Warmup validation failed (auth). Run `python -m scripts.run_day --login --engines none` and retry."
+                )
+                return 1
+            try:
+                cap = engine.capital_provider.get_current_capital() if engine.capital_provider else None
+                logger.info(
+                    "Warmup-only: capital source=%s value=%.2f",
+                    getattr(engine.capital_provider, "capital_source", "unknown"),
+                    cap or 0.0,
+                )
+            except Exception:
+                logger.debug("Warmup-only capital check skipped", exc_info=True)
+            logger.info("Warmup-only validation completed successfully (no ticks started).")
+            return 0
+        except Exception:
+            logger.exception("Warmup-only validation failed")
+            return 1
+    else:
+        logger.info("Inside configured trading session; proceeding with full live smoke test.")
     
     # ============================================================
     # Construct and run LiveEquityEngine
@@ -165,7 +225,10 @@ def main() -> int:
         engine = LiveEquityEngine(cfg, artifacts_dir=ARTIFACTS_DIR)
         
         logger.info("Starting smoke test loop...")
-        engine.run_smoke_test(max_loops=max_loops, sleep_seconds=sleep_seconds)
+        ok = engine.run_smoke_test(max_loops=max_loops, sleep_seconds=sleep_seconds)
+        if not ok:
+            logger.error("Smoke test aborted due to auth/session issues.")
+            return 1
         
         logger.info("=" * 60)
         logger.info("LIVE ENGINE SMOKE TEST COMPLETED SUCCESSFULLY")

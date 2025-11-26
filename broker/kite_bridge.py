@@ -13,7 +13,8 @@ import logging
 import time
 from typing import Any, Callable, Dict, List, Optional
 
-from kiteconnect import KiteConnect, KiteTicker, exceptions as kite_exceptions
+from kiteconnect import KiteConnect, exceptions as kite_exceptions
+from core.kite_ticker import make_kite_ticker
 
 from broker.auth import make_kite_client_from_env, token_is_valid
 from core.kite_http import kite_request
@@ -52,7 +53,7 @@ class KiteBroker:
         Ensure we have a valid Kite session.
         
         Uses existing token from environment/files.
-        Does NOT perform interactive login (use scripts/login_kite.py for that).
+        Does NOT perform interactive login (use `python -m scripts.run_day --login --engines none` for that).
         
         Returns:
             True if logged in successfully, False otherwise
@@ -66,7 +67,9 @@ class KiteBroker:
                 self.logger.info("✅ Kite session validated successfully")
                 return True
             else:
-                self.logger.error("❌ Kite token validation failed - run scripts/login_kite.py first")
+                self.logger.error(
+                    "❌ Kite token validation failed - run `python -m scripts.run_day --login --engines none` first"
+                )
                 return False
         except Exception as exc:
             self.logger.error("❌ Failed to create Kite client: %s", exc)
@@ -295,6 +298,21 @@ class KiteBroker:
         except Exception as exc:
             self.logger.error("Failed to fetch live equity snapshot: %s", exc)
             raise
+
+    # ------------------------------------------------------------------ orders
+    def get_orders(self) -> List[Dict[str, Any]]:
+        """
+        Adapter for ExecutionEngine/Reconciliation expectations.
+
+        Returns current orders from Kite (empty list on failure).
+        """
+        if not self.ensure_logged_in():
+            return []
+        try:
+            return self.kite.orders()
+        except Exception as exc:  # noqa: BLE001
+            self.logger.error("KiteBroker.get_orders failed: %s", exc)
+            return []
     
     def fetch_positions(self) -> List[Dict[str, Any]]:
         """
@@ -356,16 +374,9 @@ class KiteBroker:
             self.logger.error("Not logged in - cannot subscribe to ticks")
             return False
             
-        api_key = getattr(self.kite, "api_key", None) or getattr(self.kite, "_api_key", None)
-        access_token = getattr(self.kite, "access_token", None) or getattr(self.kite, "_access_token", None)
-        
-        if not api_key or not access_token:
-            self.logger.error("Missing API key or access token for WebSocket")
-            return False
-            
         try:
             if self.ticker is None:
-                self.ticker = KiteTicker(api_key, access_token)
+                self.ticker = make_kite_ticker()
                 self.ticker.on_ticks = self._handle_ticks
                 self.ticker.on_connect = self._on_connect
                 self.ticker.on_close = self._on_close
