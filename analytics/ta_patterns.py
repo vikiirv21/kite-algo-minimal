@@ -435,21 +435,22 @@ def atr_volatility_mode(
     atr_avg = atr_values.rolling(window=period, min_periods=1).mean()
 
     # Classify volatility mode
-    def classify_mode(current_atr: float, avg_atr: float) -> str:
-        if pd.isna(current_atr) or pd.isna(avg_atr) or avg_atr == 0:
-            return "normal"
-        ratio = current_atr / avg_atr
-        if ratio >= expand_factor:
-            return "expanding"
-        elif ratio <= compress_factor:
-            return "compressing"
-        else:
-            return "normal"
+    # Calculate ratio (avoid division by zero)
+    atr_avg_safe = atr_avg.replace(0, np.nan)
+    ratio = atr_values / atr_avg_safe
 
-    # Apply classification vectorized
-    mode = pd.Series(index=df.index, dtype="object")
-    for i in range(len(df)):
-        mode.iloc[i] = classify_mode(atr_values.iloc[i], atr_avg.iloc[i])
+    # Vectorized classification using numpy.select
+    conditions = [
+        ratio >= expand_factor,
+        ratio <= compress_factor,
+    ]
+    choices = ["expanding", "compressing"]
+
+    # Default to "normal" for ratios in between or NaN values
+    mode = pd.Series(
+        np.select(conditions, choices, default="normal"),
+        index=df.index,
+    )
 
     return mode
 
@@ -563,7 +564,7 @@ def _run_self_test() -> bool:
     print(f"Bearish engulfing detected: {bear_engulf.sum()}")
     assert isinstance(bull_engulf, pd.Series), "Should return pd.Series"
     assert isinstance(bear_engulf, pd.Series), "Should return pd.Series"
-    assert bull_engulf.iloc[0] == False, "First bar should be False (needs previous)"  # noqa: E712
+    assert not bull_engulf.iloc[0], "First bar should be False (needs previous)"
     print("  ✓ Engulfing detection passed")
 
     # Test 5: Volume spike detection
