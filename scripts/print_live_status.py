@@ -20,7 +20,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from core.config import load_config
 
@@ -55,7 +55,7 @@ def _get_enabled_strategies(cfg_raw: Dict[str, Any]) -> List[str]:
     return enabled
 
 
-def _check_broker_token() -> tuple[bool, str]:
+def _check_broker_token() -> Tuple[bool, str]:
     """
     Check if Kite broker token is valid.
     

@@ -95,7 +95,7 @@ def main() -> int:
     try:
         cfg = load_config(config_path)
     except Exception as exc:
-        print(f"ERROR: Failed to load config: {exc}")
+        print(f"ERROR: Failed to load config {config_path}: {exc}")
         return 1
     
     # Setup logging
