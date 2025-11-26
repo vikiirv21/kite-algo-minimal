@@ -172,8 +172,8 @@ def main() -> int:
         logger.info("=" * 60)
         return 0
         
-    except Exception as exc:
-        logger.error("Smoke test failed with exception: %s", exc, exc_info=True)
+    except Exception:
+        logger.exception("Smoke test failed during LiveEquityEngine initialization")
         return 1
 
 

@@ -15,6 +15,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 
 from kiteconnect import KiteConnect
+from broker.auth import make_kite_client_from_env, token_is_valid
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,7 @@ class LiveCapitalProvider(CapitalProvider):
 
     def __init__(
         self,
-        kite: KiteConnect,
+        kite: Optional[KiteConnect],
         fallback_capital: float = 0.0,
         cache_ttl_seconds: float = 30.0,
     ) -> None:
@@ -101,14 +102,56 @@ class LiveCapitalProvider(CapitalProvider):
             cache_ttl_seconds: How long to cache capital before auto-refresh
         """
         self._kite = kite
+        if self._kite and not token_is_valid(self._kite):
+            logger.error(
+                "LiveCapitalProvider: token invalid in constructor. "
+                "Run `python -m scripts.run_day --login --engines none` and retry."
+            )
+            self._kite = None
         self._fallback_capital = float(fallback_capital)
         self._cache_ttl = cache_ttl_seconds
         self._cached_capital: Optional[float] = None
         self._last_fetch_time: float = 0.0
+        self._using_fallback: bool = False
+        self._last_error: Optional[str] = None
         logger.info(
             "LiveCapitalProvider initialized (fallback=%.2f, cache_ttl=%.1fs)",
             self._fallback_capital,
             self._cache_ttl,
+        )
+
+    @classmethod
+    def from_shared_auth(
+        cls,
+        *,
+        fallback_capital: float,
+        cache_ttl_seconds: float = 30.0,
+    ) -> "LiveCapitalProvider":
+        """Factory that reuses shared auth helper."""
+        kite_client: Optional[KiteConnect] = None
+        try:
+            kite_client = make_kite_client_from_env()
+            if not token_is_valid(kite_client):
+                logger.error(
+                    "LiveCapitalProvider: token invalid in constructor. "
+                    "Run `python -m scripts.run_day --login --engines none` and retry."
+                )
+                kite_client = None
+        except Exception as exc:  # noqa: BLE001
+            logger.error("LiveCapitalProvider: failed to create Kite client: %s", exc)
+            kite_client = None
+
+        if kite_client is None:
+            return cls(
+                kite=None,
+                fallback_capital=fallback_capital,
+                cache_ttl_seconds=cache_ttl_seconds,
+            )
+
+        return cls(
+            kite=kite_client,
+            fallback_capital=fallback_capital,
+            cache_ttl_seconds=cache_ttl_seconds,
         )
 
     def get_available_capital(self) -> float:
@@ -134,6 +177,16 @@ class LiveCapitalProvider(CapitalProvider):
         Returns:
             Available capital from Kite margins("equity") API
         """
+        if self._kite is None:
+            logger.error(
+                "LiveCapitalProvider: no Kite client available. "
+                "Run `python -m scripts.run_day --login --engines none` and retry. Using fallback=%.2f",
+                self._fallback_capital,
+            )
+            self._using_fallback = True
+            self._last_error = "no_kite_client"
+            return self._fallback_capital
+
         try:
             from core.kite_http import kite_request
 
@@ -152,6 +205,8 @@ class LiveCapitalProvider(CapitalProvider):
             if available > 0:
                 self._cached_capital = available
                 self._last_fetch_time = time.time()
+                self._using_fallback = False
+                self._last_error = None
                 logger.debug("LiveCapitalProvider: fetched capital=%.2f", available)
                 return available
 
@@ -162,6 +217,8 @@ class LiveCapitalProvider(CapitalProvider):
                 if cash > 0:
                     self._cached_capital = cash
                     self._last_fetch_time = time.time()
+                    self._using_fallback = False
+                    self._last_error = None
                     logger.debug("LiveCapitalProvider: fallback to cash=%.2f", cash)
                     return cash
 
@@ -169,14 +226,19 @@ class LiveCapitalProvider(CapitalProvider):
                 "LiveCapitalProvider: Could not extract capital from margins response, using fallback=%.2f",
                 self._fallback_capital,
             )
+            self._using_fallback = True
+            self._last_error = "could_not_extract_margins"
             return self._fallback_capital
 
         except Exception as exc:
             logger.error(
-                "LiveCapitalProvider: Failed to fetch margins: %s, using fallback=%.2f",
+                "LiveCapitalProvider: margins() failed (%s). This usually means the access token is invalid or expired. "
+                "Run `python -m scripts.run_day --login --engines none` and retry. Using fallback=%.2f",
                 exc,
                 self._fallback_capital,
             )
+            self._using_fallback = True
+            self._last_error = str(exc)
             return self._fallback_capital
 
     def invalidate_cache(self) -> None:
@@ -191,6 +253,14 @@ class LiveCapitalProvider(CapitalProvider):
             return float(value)
         except (TypeError, ValueError):
             return default
+
+    @property
+    def capital_source(self) -> str:
+        return "fallback" if self._using_fallback else "broker"
+
+    @property
+    def last_error(self) -> Optional[str]:
+        return self._last_error
 
 
 def create_capital_provider(
@@ -214,17 +284,23 @@ def create_capital_provider(
     mode_upper = mode.upper()
 
     if mode_upper == "LIVE":
-        if kite is None:
-            logger.warning(
-                "LIVE mode requested but no Kite client provided, falling back to config capital"
+        if kite:
+            return LiveCapitalProvider(
+                kite=kite,
+                fallback_capital=config_capital,
+                cache_ttl_seconds=cache_ttl_seconds,
             )
-            return ConfigCapitalProvider(config_capital)
-
-        return LiveCapitalProvider(
-            kite=kite,
+        # Preferred: reuse shared auth helper
+        provider = LiveCapitalProvider.from_shared_auth(
             fallback_capital=config_capital,
             cache_ttl_seconds=cache_ttl_seconds,
         )
+        if provider._kite is None:
+            logger.warning(
+                "LIVE mode requested but no valid Kite client available; falling back to config capital"
+            )
+            return ConfigCapitalProvider(config_capital)
+        return provider
 
     # PAPER mode or unknown - use config capital
     return ConfigCapitalProvider(config_capital)

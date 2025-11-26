@@ -26,7 +26,7 @@ from analytics.learning_engine import load_tuning
 from analytics.trade_recorder import TradeRecorder
 from broker.kite_bridge import KiteBroker
 from broker.kite_client import KiteClient
-from core.capital_provider import CapitalProvider, create_capital_provider
+from core.capital_provider import CapitalProvider, create_capital_provider, LiveCapitalProvider
 from core.config import AppConfig
 from core.market_data_engine_v2 import MarketDataEngineV2
 from core.market_session import is_market_open
@@ -70,21 +70,15 @@ class LiveEquityEngine:
         self.artifacts_dir = Path(artifacts_dir).resolve() if artifacts_dir else ARTIFACTS_DIR
         self.checkpoint_path = self.artifacts_dir / "checkpoints" / "live_state_latest.json"
         self.live_state_path = self.artifacts_dir / "live_state.json"
+        self.capital_provider: Optional[LiveCapitalProvider] = None
         
         # Create required directories
         self._create_required_directories()
 
-        # Brokers/clients
+        # Brokers/clients (we keep KiteClient placeholder but rely on capital_provider for auth)
         self.kite_client = kite_client or KiteClient()
-        self.kite = self.kite_client.api
+        self.kite = None
         self.broker = KiteBroker(cfg.raw, logger_instance=logger)
-
-        # State + journal
-        self.state_store = StateStore(checkpoint_path=self.checkpoint_path)
-        self.journal_store = JournalStateStore(mode="live", artifacts_dir=self.artifacts_dir)
-        # TradeRecorder expects base_dir (parent of artifacts), not artifacts_dir directly
-        # Pass the base_dir so TradeRecorder creates artifacts_dir correctly
-        self.recorder = TradeRecorder(base_dir=str(self.artifacts_dir.parent))
 
         # Learning engine tuning (optional)
         learning_cfg = cfg.learning_engine or {}
@@ -109,16 +103,25 @@ class LiveEquityEngine:
             artifacts_dir=self.artifacts_dir,
             equity_curve_maxlen=500,
         )
+        self.config_fallback_capital = config_capital
         self.live_capital = config_capital
-        logger.info("[LIVE] Effective live capital for sizing: %.2f", self.live_capital)
 
         # Capital provider - fetches real-time capital from Kite API in LIVE mode
-        self.capital_provider: CapitalProvider = create_capital_provider(
+        self.capital_provider = create_capital_provider(
             mode="LIVE",
-            kite=self.kite,
+            kite=None,  # provider will build using shared auth helper
             config_capital=config_capital,
             cache_ttl_seconds=30.0,
         )
+        # Use the same Kite client as capital provider for validation
+        self.kite = getattr(self.capital_provider, "_kite", None)
+
+        # State + journal
+        self.state_store = StateStore(checkpoint_path=self.checkpoint_path)
+        self.journal_store = JournalStateStore(mode="live", artifacts_dir=self.artifacts_dir)
+        # TradeRecorder expects base_dir (parent of artifacts), not artifacts_dir directly
+        # Pass the base_dir so TradeRecorder creates artifacts_dir correctly
+        self.recorder = TradeRecorder(base_dir=str(self.artifacts_dir.parent))
 
         # Universe + sizing
         self.universe: List[str] = self._load_equity_universe()
@@ -246,13 +249,14 @@ class LiveEquityEngine:
         # Log live capital info
         try:
             initial_capital = self.capital_provider.get_available_capital()
-            config_capital = float(
-                cfg.trading.get("live_capital", cfg.trading.get("paper_capital", 500_000))
-            )
+            source = getattr(self.capital_provider, "capital_source", "config")
+            if initial_capital > 0:
+                self.live_capital = initial_capital
             logger.info(
-                "Live Capital: fetched=%.2f (config fallback=%.2f)",
+                "Live Capital: source=%s fetched=%.2f (config fallback=%.2f)",
+                source,
                 initial_capital,
-                config_capital
+                self.config_fallback_capital,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Could not fetch live capital at startup: %s", exc)
@@ -531,6 +535,40 @@ class LiveEquityEngine:
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Reconciliation error (live): %s", exc)
 
+    def _validate_kite_session(self) -> bool:
+        """
+        Validate Kite session using the same client as LiveCapitalProvider.
+        """
+        if not self.capital_provider:
+            logger.error(
+                "❌ Kite token validation failed - no capital provider. "
+                "Run `python -m scripts.run_day --login --engines none` and retry."
+            )
+            return False
+        kite = getattr(self.capital_provider, "_kite", None)
+        if kite is None:
+            logger.error(
+                "❌ Kite token validation failed - no valid client from LiveCapitalProvider. "
+                "Run `python -m scripts.run_day --login --engines none` and retry."
+            )
+            return False
+        try:
+            profile = kite.profile()
+            user_id = (
+                profile.get("user_id")
+                if isinstance(profile, dict)
+                else getattr(profile, "user_id", "UNKNOWN")
+            )
+            logger.info("LiveEquityEngine: Kite session OK (user_id=%s)", user_id)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "❌ Kite token validation failed in LiveEquityEngine: %s. "
+                "Run `python -m scripts.run_day --login --engines none` and retry.",
+                exc,
+            )
+            return False
+
     def run_smoke_test(self, max_loops: int = 60, sleep_seconds: float = 1.0) -> None:
         """
         Run a short, bounded main loop for smoke testing.
@@ -545,9 +583,12 @@ class LiveEquityEngine:
         """
         logger.info("Starting LIVE smoke test loop: max_loops=%s, sleep=%ss", max_loops, sleep_seconds)
         
-        # Ensure broker is logged in before starting
-        if not self.broker.ensure_logged_in():
-            logger.error("Cannot start smoke test: not logged in. Run scripts/login_kite.py")
+        # Ensure session is valid before starting
+        if not self._validate_kite_session():
+            logger.error(
+                "Cannot start smoke test: not logged in. "
+                "Run `python -m scripts.run_day --login --engines none`."
+            )
             return
 
         # Start market data + tick subscription
@@ -597,8 +638,7 @@ class LiveEquityEngine:
 
     def run_forever(self) -> None:
         """Main live loop."""
-        if not self.broker.ensure_logged_in():
-            logger.error("Cannot start LiveEquityEngine: not logged in. Run scripts/login_kite.py")
+        if not self._validate_kite_session():
             return
 
         # Start market data + tick subscription
@@ -839,29 +879,30 @@ class LiveEquityEngine:
         """
         Refresh live_capital from broker margins API.
         
-        Uses the new get_live_capital() method which provides:
-        - cash: Available cash
-        - available: Total available margin
-        - utilized: Utilized margin
-        - net: Net equity
         """
         now = time.time()
         if not force and (now - self._last_capital_refresh) < 60:
             return
         try:
-            # Use new get_live_capital method
-            funds = self.broker.get_live_capital()
-            new_cap = float(funds.get("available", 0.0))
-            
+            new_cap = self.capital_provider.refresh()
+            source = getattr(self.capital_provider, "capital_source", "config")
+            last_err = getattr(self.capital_provider, "last_error", "")
+
             if new_cap > 0 and new_cap != self.live_capital:
                 old_cap = self.live_capital
                 self.live_capital = new_cap
                 self.metrics_tracker.starting_capital = new_cap
                 logger.info(
-                    "[LIVE] Updated live capital from broker: %.2f -> %.2f (net=%.2f, utilized=%.2f)",
-                    old_cap, self.live_capital, 
-                    funds.get("net", 0.0),
-                    funds.get("utilized", 0.0)
+                    "[LIVE] Updated live capital (%s): %.2f -> %.2f",
+                    source,
+                    old_cap,
+                    self.live_capital,
+                )
+            elif source == "fallback" and last_err:
+                logger.warning(
+                    "[LIVE] Using FALLBACK capital=%.2f (reason=%s)",
+                    self.live_capital,
+                    last_err,
                 )
             self._last_capital_refresh = now
         except Exception as exc:  # noqa: BLE001

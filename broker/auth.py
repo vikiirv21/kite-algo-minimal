@@ -20,7 +20,10 @@ from kiteconnect import KiteConnect
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-SECRETS_PATH = BASE_DIR / "secrets" / "kite_secrets.json"
+SECRETS_DIR = BASE_DIR / "secrets"
+SECRETS_PATH = SECRETS_DIR / "kite_secrets.json"
+SECRETS_ENV_PATH = SECRETS_DIR / "kite.env"
+TOK_FILE = SECRETS_DIR / "kite_tokens.env"
 ARTIFACTS_PATH = BASE_DIR / "artifacts"
 TOKEN_FILE = ARTIFACTS_PATH / "kite_access_token.txt"
 
@@ -38,16 +41,41 @@ def _read_json_file(path: Path) -> Dict[str, str]:
     return {}
 
 
+def _read_simple_env(path: Path) -> Dict[str, str]:
+    """Read simple KEY=VALUE file (no export)."""
+    data: Dict[str, str] = {}
+    if not path.exists():
+        return data
+    try:
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            data[k.strip()] = v.strip()
+    except Exception:
+        return {}
+    return data
+
+
 def read_kite_api_secrets() -> Dict[str, str]:
     """Return a dict with api_key and api_secret.
 
     Prefer environment variables KITE_API_KEY and KITE_API_SECRET.
-    Fall back to secrets/kite_secrets.json. Raises RuntimeError if not found.
+    Fall back to secrets/kite.env or secrets/kite_secrets.json. Raises RuntimeError if not found.
     """
     api_key = os.environ.get("KITE_API_KEY")
     api_secret = os.environ.get("KITE_API_SECRET")
     if api_key and api_secret:
         return {"api_key": api_key, "api_secret": api_secret}
+
+    # try simple env file (kite.env)
+    env_file = _read_simple_env(SECRETS_ENV_PATH)
+    if env_file:
+        api_key = api_key or env_file.get("KITE_API_KEY")
+        api_secret = api_secret or env_file.get("KITE_API_SECRET")
+        if api_key and api_secret:
+            return {"api_key": api_key, "api_secret": api_secret}
 
     # try secrets file
     cfg = _read_json_file(SECRETS_PATH)
@@ -63,10 +91,15 @@ def read_kite_api_secrets() -> Dict[str, str]:
 
 
 def read_kite_token() -> Optional[str]:
-    """Return access token string if present from env or token file; otherwise None."""
+    """Return access token string if present from env or token files; otherwise None."""
     token = os.environ.get("KITE_ACCESS_TOKEN")
     if token:
         return token.strip()
+
+    # secrets/kite_tokens.env
+    tok_env = _read_simple_env(TOK_FILE)
+    if tok_env.get("KITE_ACCESS_TOKEN"):
+        return tok_env["KITE_ACCESS_TOKEN"].strip()
 
     # fallback token file
     try:
@@ -93,7 +126,7 @@ def make_kite_client_from_env(reload: bool = False) -> KiteConnect:
         try:
             kite.set_access_token(token)
         except Exception:
-            # Don't raise here — token may be invalid; leave it to token_is_valid
+            # Don't raise here – token may be invalid; leave it to token_is_valid
             pass
     return kite
 

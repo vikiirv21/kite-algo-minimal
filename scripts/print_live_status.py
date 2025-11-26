@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.config import load_config
+from core.capital_provider import create_capital_provider
+from broker.auth import make_kite_client_from_env, token_is_valid
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +64,6 @@ def _check_broker_token() -> Tuple[bool, str]:
     Returns: (token_ok, user_id)
     """
     try:
-        from broker.auth import make_kite_client_from_env, token_is_valid
         kite = make_kite_client_from_env()
         if token_is_valid(kite):
             profile = kite.profile()
@@ -158,15 +159,23 @@ def print_status(config_path: str) -> None:
     print(f"  config.live_capital      : {config_capital:.2f}")
     
     if token_ok:
-        funds = _fetch_broker_capital()
-        if funds.get("error"):
-            print(f"  broker.available_capital : ERROR ({funds['error']})")
-            print(f"  broker.net               : N/A")
-        else:
-            print(f"  broker.available_capital : {funds['available']:.2f}")
-            print(f"  broker.net               : {funds['net']:.2f}")
+        try:
+            provider = create_capital_provider(mode="LIVE", config_capital=config_capital)
+            effective = provider.get_available_capital()
+            source = getattr(provider, "capital_source", "config")
+            if source == "broker":
+                print("  source                   : broker")
+                print(f"  broker.effective_capital : {effective:.2f}")
+            else:
+                err = getattr(provider, "last_error", "")
+                print("  source                   : fallback_config")
+                print(f"  config.effective_capital : {effective:.2f}")
+                if err:
+                    print(f"  last_error               : {err}")
+        except Exception as exc:
+            print(f"  source                   : ERROR ({exc})")
     else:
-        print("  broker.available_capital : N/A (token not valid)")
+        print("  source                   : N/A (token not valid)")
         print("  broker.net               : N/A")
     print()
     
