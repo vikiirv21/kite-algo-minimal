@@ -90,9 +90,8 @@ strategy_engine:
         max_risk_per_trade_pct: 0.01
         min_trend_strength: 0.4
         min_confidence: 0.55
-    
-    # Scalping / Support-Resistance Strategy Placeholder
-    # Uncomment and configure when ready to use
+
+    # Placeholder: enable when scalper is implemented
     # - id: EXPIRY_SCALPER
     #   module: strategies.expiry_scalper
     #   class: ExpiryScalper
@@ -101,16 +100,6 @@ strategy_engine:
     #     timeframe: "1m"
     #     max_hold_bars: 10
     #     min_rr: 1.2
-    
-    # Support-Resistance Strategy Placeholder
-    # - id: SR_ZONE_TRADER
-    #   module: strategies.sr_zones
-    #   class: SRZoneTrader
-    #   enabled: false
-    #   params:
-    #     timeframe: "5m"
-    #     zone_width_pct: 0.5
-    #     min_touches: 2
   
   # Additional config for v2 engine
   window_size: 200          # Historical candle window for indicators
@@ -213,10 +202,7 @@ execution:
   # - Set to v2 to fall back to legacy behavior while testing
   engine: v3  # "v2" or "v3" - use v3 for enhanced order lifecycle management
   use_execution_engine_v2: false  # Set to true to enable ExecutionEngine v2
-  
-  # IMPORTANT: Set to false when you are ready to place real orders.
-  # When true, simulates live orders without actual placement (paper-like mode in live).
-  dry_run: true
+  dry_run: true  # When true, simulates live orders without actual placement
   
   # Fill configuration (ExecutionEngine V3)
   fill_mode: "mid"  # "mid", "bid_ask", or "ltp"
@@ -281,11 +267,11 @@ portfolio:
   
   # Per-strategy capital budgets
   strategy_budgets:
-    ema20_50_intraday:
+    EMA_20_50:
       capital_pct: 0.3            # 30% of equity for this strategy
       fixed_qty: 1                # Optional: override default_fixed_qty for this strategy
-    expiry_scalper:
-      capital_pct: 0.4            # 40% of equity for this strategy
+    # EXPIRY_SCALPER:
+    #   capital_pct: 0.4            # 40% of equity for this strategy
 
 # Strategy Orchestrator v3 Configuration (DISABLED by default)
 strategy_orchestrator:

@@ -214,6 +214,35 @@ class KiteBroker:
                 "status": "ERROR",
                 "message": f"Error: {exc}",
             }
+
+    # ------------------------------------------------------------------ capital
+    def get_live_equity_snapshot(self) -> Dict[str, Any]:
+        """
+        Fetch current funds/equity from Kite.
+
+        Returns dict with keys:
+            net_equity, available_cash, used_margin, pnl_today, data (raw response)
+        """
+        if not self.ensure_logged_in():
+            raise RuntimeError("Not logged in to Kite - cannot fetch equity snapshot")
+        try:
+            margins = self.kite.margins("equity")
+            net_equity = margins.get("net") or margins.get("equity") or margins.get("available", {}).get("cash", 0.0)
+            available_cash = margins.get("available", {}).get("cash", 0.0)
+            used_margin = margins.get("utilised", {}).get("debits", 0.0)
+            pnl_today = margins.get("pnl") or 0.0
+            snapshot = {
+                "net_equity": float(net_equity or 0.0),
+                "available_cash": float(available_cash or 0.0),
+                "used_margin": float(used_margin or 0.0),
+                "pnl_today": float(pnl_today or 0.0),
+                "data": margins,
+            }
+            self.logger.debug("Kite equity snapshot: %s", snapshot)
+            return snapshot
+        except Exception as exc:
+            self.logger.error("Failed to fetch live equity snapshot: %s", exc)
+            raise
     
     def fetch_positions(self) -> List[Dict[str, Any]]:
         """

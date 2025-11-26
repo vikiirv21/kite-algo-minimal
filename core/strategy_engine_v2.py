@@ -494,8 +494,12 @@ class StrategyEngineV2:
                 engine.register_strategy(strategy_id, strategy)
                 
                 log.info(
-                    "Loaded strategy: %s (module=%s, class=%s)",
-                    strategy_id, module_name, class_name
+                    "StrategyEngineV2: registered %s (enabled=%s, module=%s, class=%s, timeframe=%s)",
+                    strategy_id,
+                    enabled,
+                    module_name,
+                    class_name,
+                    params.get("timeframe"),
                 )
                 
             except Exception as exc:

@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from analytics.runtime_metrics import RuntimeMetricsTracker
+from analytics.learning_engine import load_tuning
 from analytics.trade_recorder import TradeRecorder
 from broker.kite_bridge import KiteBroker
 from broker.kite_client import KiteClient
@@ -32,10 +33,12 @@ from core.modes import TradingMode
 from core.state_store import JournalStateStore, StateStore
 from core.strategy_engine_v2 import StrategyEngineV2
 from core.universe import load_equity_universe
+from core.regime_engine import RegimeEngine
 from core.reconciliation_engine import ReconciliationEngine
 from engine.execution_engine_v3_adapter import create_execution_engine
 from engine.execution_engine import OrderIntent
 from risk.position_sizer import SizerConfig, DynamicPositionSizer, PortfolioState
+from core.atr_risk import TimeFilterConfig, is_entry_time_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +76,19 @@ class LiveEquityEngine:
         # Pass the base_dir so TradeRecorder creates artifacts_dir correctly
         self.recorder = TradeRecorder(base_dir=str(self.artifacts_dir.parent))
 
+        # Learning engine tuning (optional)
+        learning_cfg = cfg.learning_engine or {}
+        self.learning_enabled = bool(learning_cfg.get("enabled"))
+        default_learning_path = self.artifacts_dir / "learning" / "strategy_tuning.json"
+        tuning_path_raw = learning_cfg.get("tuning_path", default_learning_path)
+        tuning_path = Path(tuning_path_raw)
+        if not tuning_path.is_absolute():
+            tuning_path = (BASE_DIR / tuning_path).resolve()
+        self.learning_tuning_path = tuning_path
+        self.learning_min_multiplier = float(learning_cfg.get("min_risk_multiplier", 0.25))
+        self.learning_max_multiplier = float(learning_cfg.get("max_risk_multiplier", 2.0))
+        self.learning_tuning = self._load_learning_tuning() if self.learning_enabled else {}
+
         # Metrics - use config capital as starting value for metrics tracker
         config_capital = float(
             cfg.trading.get("live_capital", cfg.trading.get("paper_capital", 500_000))
@@ -83,6 +99,7 @@ class LiveEquityEngine:
             artifacts_dir=self.artifacts_dir,
             equity_curve_maxlen=500,
         )
+        self.live_capital = config_capital
 
         # Capital provider - fetches real-time capital from Kite API in LIVE mode
         self.capital_provider: CapitalProvider = create_capital_provider(
@@ -100,6 +117,17 @@ class LiveEquityEngine:
         self.default_qty = int(cfg.trading.get("default_quantity", 1))
         trading_cfg = cfg.trading or {}
         risk_cfg = cfg.risk or {}
+        portfolio_cfg = cfg.raw.get("portfolio", {}) or {}
+        self.max_exposure_pct = float(portfolio_cfg.get("max_exposure_pct", 1.0))
+        self.strategy_budgets: Dict[str, Any] = portfolio_cfg.get("strategy_budgets", {}) or {}
+        time_section = risk_cfg.get("time_filter") or {}
+        self.time_filter_config = TimeFilterConfig(
+            enabled=bool(time_section.get("enabled", False)),
+            allow_sessions=time_section.get("allow_sessions"),
+            block_expiry_scalps_after=time_section.get("block_expiry_scalps_after"),
+            min_time=time_section.get("min_time"),
+            max_time=time_section.get("max_time"),
+        )
         sizer_cfg = SizerConfig(
             max_exposure_pct=float(
                 risk_cfg.get(
@@ -129,8 +157,23 @@ class LiveEquityEngine:
             logger_instance=logger,
         )
 
+        # Regime engine (optional)
+        self.regime_engine = None
+        try:
+            regime_cfg = cfg.raw.get("regime_engine", {})
+            if regime_cfg.get("enabled", True):
+                self.regime_engine = RegimeEngine(cfg.raw, self.market_data_engine, logger_instance=logger)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to initialize RegimeEngine: %s", exc)
+
         # Strategy engine v2 (signals) wired to this engine for execution
-        self.strategy_engine = StrategyEngineV2.from_config(cfg.raw, logger)
+        self.strategy_engine = StrategyEngineV2.from_config(
+            cfg.raw,
+            logger_instance=logger,
+            market_data_engine=self.market_data_engine,
+            state_store=self.state_store,
+            regime_engine=self.regime_engine,
+        )
         self.strategy_engine.market_data = self.market_data_engine
         self.strategy_engine.market_data_engine = self.market_data_engine
         self.strategy_engine.mde = self.market_data_engine
@@ -170,6 +213,8 @@ class LiveEquityEngine:
 
         self.running = True
         self.last_prices: Dict[str, float] = {}
+        self._last_session_status: Optional[str] = None
+        self._last_capital_refresh = 0.0
 
         # Log startup summary
         self._log_startup_summary(cfg)
@@ -258,6 +303,112 @@ class LiveEquityEngine:
             logger.warning("Falling back to empty equity universe (load error: %s)", exc)
             return []
 
+    def _log_session_status(self) -> None:
+        """Log transitions between session active/break based on time filter."""
+        if not self.time_filter_config.enabled:
+            return
+        allowed, reason = is_entry_time_allowed(
+            self.time_filter_config,
+            symbol="SESSION",
+            strategy_id=None,
+            is_expiry_instrument=False,
+        )
+        status = "active" if allowed else f"break:{reason}"
+        if status != self._last_session_status:
+            self._last_session_status = status
+            now_hhmm = datetime.now().strftime("%H:%M")
+            logger.info(
+                "Session status changed: %s (now=%s, sessions=%s)",
+                status,
+                now_hhmm,
+                self.time_filter_config.allow_sessions,
+            )
+
+    def _load_learning_tuning(self) -> Dict[str, Any]:
+        try:
+            return load_tuning(self.learning_tuning_path)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to load learning tuning file %s: %s", self.learning_tuning_path, exc)
+            return {}
+
+    def _apply_learning_adjustments(self, symbol: str, strategy_label: str, qty: int) -> int:
+        """Apply learning-engine derived adjustments to quantity or block trades."""
+        if not self.learning_enabled or qty <= 0:
+            return qty
+        key = f"{symbol}|{strategy_label}"
+        entry = self.learning_tuning.get(key)
+        if not entry:
+            return qty
+
+        status = str(entry.get("status", "active")).lower()
+        if status in {"disabled", "disabled_bad_performance"}:
+            logger.info(
+                "learning_engine: status=%s blocking symbol=%s strategy=%s",
+                status,
+                symbol,
+                strategy_label,
+            )
+            return 0
+
+        multiplier = float(entry.get("risk_multiplier", 1.0))
+        multiplier = max(self.learning_min_multiplier, min(self.learning_max_multiplier, multiplier))
+        adjusted = int(round(qty * multiplier))
+        if adjusted != qty:
+            logger.info(
+                "learning_engine: adjusted qty %s -> %s for %s/%s (multiplier=%.2f)",
+                qty,
+                adjusted,
+                symbol,
+                strategy_label,
+                multiplier,
+            )
+        return max(0, adjusted)
+
+    def _strategy_budget_pct(self, strategy: str) -> Optional[float]:
+        if not strategy:
+            return None
+        # Try exact, then lowercase/uppercase fallbacks
+        if strategy in self.strategy_budgets:
+            return float(self.strategy_budgets[strategy].get("capital_pct", 0.0))
+        low_key = strategy.lower()
+        up_key = strategy.upper()
+        for key in (low_key, up_key):
+            if key in self.strategy_budgets:
+                return float(self.strategy_budgets[key].get("capital_pct", 0.0))
+        return None
+
+    def _within_portfolio_limits(
+        self,
+        *,
+        strategy: str,
+        notional: float,
+        portfolio_state: PortfolioState,
+    ) -> bool:
+        equity = portfolio_state.equity or portfolio_state.capital or 0.0
+        if equity <= 0:
+            logger.info("Blocking trade: equity unavailable or zero")
+            return False
+
+        gross_after = portfolio_state.total_notional + notional
+        if gross_after > equity * self.max_exposure_pct:
+            logger.info(
+                "Blocking trade: exposure limit exceeded (gross_after=%.2f, limit=%.2f)",
+                gross_after,
+                equity * self.max_exposure_pct,
+            )
+            return False
+
+        budget_pct = self._strategy_budget_pct(strategy)
+        if budget_pct and notional > equity * budget_pct:
+            logger.info(
+                "Blocking trade: strategy budget exceeded for %s (notional=%.2f, cap=%.2f)",
+                strategy,
+                notional,
+                equity * budget_pct,
+            )
+            return False
+        return True
+
     # ------------------------------------------------------------------ ticks
     def _on_tick(self, tick: Dict[str, Any]) -> None:
         """Handle normalized tick from KiteBroker."""
@@ -281,6 +432,8 @@ class LiveEquityEngine:
         tokens = list(self.market_data_engine.symbol_tokens.values())
         if tokens:
             self.broker.subscribe_ticks(tokens, self._on_tick)
+        # Initial capital refresh
+        self._refresh_live_capital(force=True)
 
         logger.info("LiveEquityEngine starting loop (tf=%s)", self.primary_timeframe)
         try:
@@ -289,6 +442,7 @@ class LiveEquityEngine:
                     logger.info("Market closed; sleeping 30s")
                     time.sleep(30)
                     continue
+                self._log_session_status()
 
                 # Run strategies (will call _handle_signal via StrategyEngineV2)
                 try:
@@ -298,6 +452,7 @@ class LiveEquityEngine:
 
                 # Update unrealized + equity snapshots
                 self._update_unrealized_and_metrics()
+                self._refresh_live_capital()
 
                 # Optional reconciliation
                 if self.reconciler and self.reconciler.enabled:
@@ -332,6 +487,25 @@ class LiveEquityEngine:
         side = "BUY" if action.upper() in ("BUY", "LONG") else "SELL"
         qty = max(1, self.default_qty)
 
+        # Enforce session/time filter for entries only (exits allowed anytime)
+        if action.upper() in ("BUY", "LONG", "SELL", "SHORT") and self.time_filter_config.enabled:
+            allowed, reason = is_entry_time_allowed(
+                self.time_filter_config,
+                symbol=symbol,
+                strategy_id=strategy_code or strategy_name or "EQUITY_LIVE",
+                is_expiry_instrument=False,
+            )
+            if not allowed:
+                now_hhmm = datetime.now().strftime("%H:%M")
+                logger.info(
+                    "Blocked entry for %s: outside allowed session (now=%s, reason=%s, sessions=%s)",
+                    symbol,
+                    now_hhmm,
+                    reason,
+                    self.time_filter_config.allow_sessions,
+                )
+                return
+
         # Apply simple sizing if position_sizer present
         try:
             portfolio_state = self._build_portfolio_state()
@@ -342,8 +516,17 @@ class LiveEquityEngine:
                 side=side,
                 lot_size=max(1, self.default_qty),
             )
+            if not self._within_portfolio_limits(
+                strategy=strategy_code or strategy_name or "EQUITY_LIVE",
+                notional=abs(qty * price),
+                portfolio_state=portfolio_state,
+            ):
+                return
         except Exception:
             qty = max(1, self.default_qty)
+
+        # Learning engine adjustments (optional, allow block/scale)
+        qty = self._apply_learning_adjustments(symbol, strategy_code or strategy_name or "EQUITY_LIVE", qty)
 
         if qty == 0:
             logger.info("Skipping %s for %s: sized qty=0", side, symbol)
@@ -433,7 +616,7 @@ class LiveEquityEngine:
             positions = []
 
         # Fetch real-time capital from Kite API (or config fallback)
-        live_capital = self.capital_provider.refresh()
+        live_capital = self.live_capital if self.live_capital > 0 else self.capital_provider.refresh()
 
         # Calculate equity (capital + unrealized PnL)
         unrealized_pnl = 0.0
@@ -473,6 +656,26 @@ class LiveEquityEngine:
             logger.debug("Capital refreshed after fill: %.2f", fresh_capital)
         except Exception as exc:  # noqa: BLE001
             logger.debug("Failed to refresh capital after fill: %s", exc)
+
+    def _refresh_live_capital(self, *, force: bool = False) -> None:
+        """Refresh live_capital from broker margins API."""
+        now = time.time()
+        if not force and (now - self._last_capital_refresh) < 60:
+            return
+        try:
+            snapshot = self.broker.get_live_equity_snapshot()
+            new_cap = float(
+                snapshot.get("net_equity")
+                or snapshot.get("available_cash")
+                or self.live_capital
+            )
+            if new_cap > 0 and new_cap != self.live_capital:
+                self.live_capital = new_cap
+                self.metrics_tracker.starting_capital = new_cap
+                logger.info("LiveEquityEngine: updated live_capital from broker: %.2f", self.live_capital)
+            self._last_capital_refresh = now
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("LiveEquityEngine: failed to refresh live capital: %s", exc)
 
     def _update_unrealized_and_metrics(self) -> None:
         if not self.metrics_tracker:
