@@ -192,7 +192,7 @@ def main() -> int:
         try:
             from engine.live_engine import LiveEquityEngine
 
-            engine = LiveEquityEngine(cfg, artifacts_dir=ARTIFACTS_DIR)
+            engine = LiveEquityEngine(cfg, artifacts_dir=ARTIFACTS_DIR, warmup_only=True)
             if not engine._validate_kite_session():
                 logger.error(
                     "Warmup validation failed (auth). Run `python -m scripts.run_day --login --engines none` and retry."
