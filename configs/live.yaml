@@ -144,6 +144,14 @@ risk:
   enable_cost_model: true
   enable_trade_quality_filter: true
   default_raw_edge_bps: 20.0
+  scalping_risk_pct_per_trade: 0.0025   # 0.25% of equity per scalp
+  intraday_risk_pct_per_trade: 0.0075   # 0.75% of equity per intraday trade
+  max_scalping_trades_per_symbol: 10
+  max_intraday_trades_per_symbol: 3
+  max_total_trades_per_day: 200
+  max_loss_streak: 5
+  max_daily_drawdown_pct: 3.0
+  halt_on_pnl_drop_pct: 5.0
   cost:
     brokerage_per_order: 20.0
     turnover_pct: 0.0003

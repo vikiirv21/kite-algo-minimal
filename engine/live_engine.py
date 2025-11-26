@@ -124,6 +124,19 @@ class LiveEquityEngine:
         )
         self.config_fallback_capital = config_capital
         self.live_capital = config_capital
+        risk_cfg = cfg.risk or {}
+        self.scalping_risk_pct = float(
+            risk_cfg.get("scalping_risk_pct_per_trade", risk_cfg.get("risk_per_trade_pct", 0.005))
+        )
+        self.intraday_risk_pct = float(
+            risk_cfg.get("intraday_risk_pct_per_trade", risk_cfg.get("risk_per_trade_pct", 0.005))
+        )
+        self.max_scalping_trades = int(
+            risk_cfg.get("max_scalping_trades_per_symbol", risk_cfg.get("max_concurrent_trades", 5) or 5)
+        )
+        self.max_intraday_trades = int(
+            risk_cfg.get("max_intraday_trades_per_symbol", risk_cfg.get("max_concurrent_trades", 5) or 5)
+        )
 
         # Capital provider - fetches real-time capital from Kite API in LIVE mode
         self.capital_provider = create_capital_provider(
@@ -164,7 +177,8 @@ class LiveEquityEngine:
             self.last_prices = {}
             self._last_session_status = None
             self._last_capital_refresh = 0.0
-            self._log_warmup_summary()
+            self.universe = []
+            self._log_startup_summary(cfg)
             return
 
         # Universe + sizing
@@ -591,6 +605,15 @@ class LiveEquityEngine:
             self.stop()
 
     # ------------------------------------------------------------------ signals
+    def _strategy_role(self, strategy_label: str) -> str:
+        """
+        Infer strategy role (scalping vs intraday) from strategy label.
+        """
+        label = (strategy_label or "").upper()
+        if "SCALP" in label:
+            return "scalping"
+        return "intraday"
+
     def _handle_signal(
         self,
         symbol: str,
@@ -608,6 +631,7 @@ class LiveEquityEngine:
         """Handle StrategyEngineV2 intent -> send to execution v3."""
         side = "BUY" if action.upper() in ("BUY", "LONG") else "SELL"
         qty = max(1, self.default_qty)
+        role = self._strategy_role(strategy_code or strategy_name or "")
 
         # Log signal creation
         strategy_label = strategy_code or strategy_name or "EQUITY_LIVE"
@@ -641,6 +665,13 @@ class LiveEquityEngine:
         # Apply simple sizing if position_sizer present
         try:
             portfolio_state = self._build_portfolio_state()
+            if self.position_sizer and hasattr(self.position_sizer, "config"):
+                self.position_sizer.config.risk_per_trade_pct = (
+                    self.scalping_risk_pct if role == "scalping" else self.intraday_risk_pct
+                )
+                self.position_sizer.config.max_trades = (
+                    self.max_scalping_trades if role == "scalping" else self.max_intraday_trades
+                )
             qty = self.position_sizer.size_order(
                 portfolio_state,
                 symbol=symbol,
@@ -677,7 +708,7 @@ class LiveEquityEngine:
             tag=logical or f"EQ_{symbol}",
             reason=reason or "",
             confidence=confidence or 0.0,
-            metadata={"tf": tf or self.primary_timeframe, "mode": "live"},
+            metadata={"tf": tf or self.primary_timeframe, "mode": "live", "role": role},
         )
 
         try:
@@ -774,6 +805,46 @@ class LiveEquityEngine:
             open_positions=len(positions_dict),
             positions=positions_dict,
         )
+
+    def _within_portfolio_limits(
+        self,
+        *,
+        strategy: str,
+        notional: float,
+        portfolio_state: PortfolioState,
+    ) -> bool:
+        """
+        Enforce basic portfolio/risk guardrails before submitting an order.
+        """
+        equity = portfolio_state.equity or self.live_capital
+        gross_limit = equity * self.max_exposure_pct if equity else 0.0
+        if gross_limit and (portfolio_state.total_notional + notional) > gross_limit:
+            logger.info(
+                "[LIVE] Blocked order (exposure cap). total_notional=%.2f + order=%.2f exceeds gross_limit=%.2f",
+                portfolio_state.total_notional,
+                notional,
+                gross_limit,
+            )
+            return False
+
+        # Strategy-specific capital budget
+        budget_key = strategy
+        base_key = strategy.split("_SCALP")[0].split("_INTRADAY")[0]
+        budget_cfg = self.strategy_budgets.get(budget_key) or self.strategy_budgets.get(base_key)
+        if budget_cfg:
+            capital_pct = float(budget_cfg.get("capital_pct", 0.0) or 0.0)
+            if capital_pct > 0 and equity:
+                cap_limit = equity * capital_pct
+                if notional > cap_limit:
+                    logger.info(
+                        "[LIVE] Blocked order for %s: notional %.2f exceeds strategy cap %.2f (pct=%.2f)",
+                        strategy,
+                        notional,
+                        cap_limit,
+                        capital_pct,
+                    )
+                    return False
+        return True
 
     def _refresh_capital_after_fill(self) -> None:
         """
