@@ -1018,20 +1018,8 @@ class LiveEquityEngine:
             # Update unrealized PnL and metrics
             self._update_unrealized_and_metrics()
             
-            # Run reconciliation if enabled
-            if self.reconciler and hasattr(self.reconciler, "reconcile_orders"):
-                try:
-                    import asyncio
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        asyncio.create_task(self.reconciler.reconcile_orders())
-                    else:
-                        loop.run_until_complete(self.reconciler.reconcile_orders())
-                except RuntimeError:
-                    # No event loop available, skip reconciliation this tick
-                    pass
-                except Exception as exc:  # noqa: BLE001
-                    logger.debug("Reconciliation tick error: %s", exc)
+            # Note: Reconciliation is handled by ReconciliationEngine's background loop.
+            # We don't need to trigger it here - it runs automatically at configured intervals.
 
         except Exception as exc:  # noqa: BLE001
             logger.error("Error in _tick_once: %s", exc, exc_info=True)
