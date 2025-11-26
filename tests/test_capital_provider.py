@@ -96,14 +96,17 @@ class TestLiveCapitalProvider:
         
         with patch("core.capital_provider.make_kite_client_from_env") as mock_make:
             mock_make.return_value = mock_kite
-            mock_kite.margins.side_effect = Exception("API error")
+            # Constructor sanity check will fail, but constructor handles it gracefully
+            mock_kite.margins.side_effect = Exception("API error in constructor")
             
             with patch("core.kite_http.kite_request") as mock_kite_request:
-                mock_kite_request.side_effect = Exception("API error")
+                mock_kite_request.side_effect = Exception("API error in refresh")
                 
                 provider = LiveCapitalProvider(
                     fallback_capital=100000.0,
                 )
+                # Provider should still be created despite constructor error
+                assert provider._kite is mock_kite
                 
                 capital = provider.refresh()
                 

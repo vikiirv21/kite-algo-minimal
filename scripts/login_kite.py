@@ -65,7 +65,11 @@ def interactive_login_once(open_browser: bool = True, request_token: Optional[st
         if not access_token:
             print("Login failed: no access_token in response.")
             sys.exit(1)
-        write_token(access_token, public_token, api_key_for_token=api_key)
+        write_token(
+            access_token=access_token,
+            public_token=public_token,
+            api_key_for_token=api_key,
+        )
         print("\n✅ Login successful.")
         print(f"Access token saved to {TOK_FILE}")
     except kite_exceptions.TokenException as exc:
