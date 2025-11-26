@@ -6,8 +6,8 @@ verify tokens.
 
 Priorities:
 - Environment variables: KITE_API_KEY, KITE_API_SECRET, KITE_ACCESS_TOKEN
-- secrets/kite_secrets.json (for API key/secret)
-- artifacts/kite_access_token.txt (for token)
+- secrets/kite.env
+- secrets/kite_tokens.env
 """
 from __future__ import annotations
 
@@ -18,12 +18,17 @@ from typing import Dict, Optional
 
 from kiteconnect import KiteConnect
 
+# Import canonical paths from kite_env to ensure consistency across the codebase
+from core.kite_env import (
+    BASE_DIR,
+    SECRETS_DIR,
+    API_FILE,
+    TOK_FILE,
+)
 
-BASE_DIR = Path(__file__).resolve().parents[1]
-SECRETS_DIR = BASE_DIR / "secrets"
+# Additional paths for backward compatibility
 SECRETS_PATH = SECRETS_DIR / "kite_secrets.json"
-SECRETS_ENV_PATH = SECRETS_DIR / "kite.env"
-TOK_FILE = SECRETS_DIR / "kite_tokens.env"
+SECRETS_ENV_PATH = API_FILE  # kite.env
 ARTIFACTS_PATH = BASE_DIR / "artifacts"
 TOKEN_FILE = ARTIFACTS_PATH / "kite_access_token.txt"
 

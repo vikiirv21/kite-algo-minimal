@@ -114,7 +114,7 @@ class LiveEquityEngine:
             cache_ttl_seconds=30.0,
         )
         # Use the same Kite client as capital provider for validation
-        self.kite = getattr(self.capital_provider, "_kite", None)
+        self.kite = self.capital_provider.get_client() if hasattr(self.capital_provider, 'get_client') else None
 
         # State + journal
         self.state_store = StateStore(checkpoint_path=self.checkpoint_path)
@@ -545,7 +545,7 @@ class LiveEquityEngine:
                 "Run `python -m scripts.run_day --login --engines none` and retry."
             )
             return False
-        kite = getattr(self.capital_provider, "_kite", None)
+        kite = self.capital_provider.get_client() if hasattr(self.capital_provider, 'get_client') else None
         if kite is None:
             logger.error(
                 "❌ Kite token validation failed - no valid client from LiveCapitalProvider. "
