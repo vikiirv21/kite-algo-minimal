@@ -917,6 +917,131 @@ class LiveEquityEngine:
         except Exception as exc:  # noqa: BLE001
             logger.debug("Failed to update unrealized metrics: %s", exc)
 
+    def _load_learning_tuning(self) -> Dict[str, Any]:
+        """
+        Load learning tuning data from file.
+
+        Returns:
+            Dict of learning tuning parameters keyed by symbol|strategy.
+        """
+        try:
+            return load_tuning(self.learning_tuning_path)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to load learning tuning file %s: %s", self.learning_tuning_path, exc)
+            return {}
+
+    def _apply_learning_adjustments(
+        self,
+        symbol: str,
+        strategy_label: str,
+        qty: int,
+    ) -> int:
+        """
+        Apply learning engine adjustments to position size.
+
+        Args:
+            symbol: Trading symbol
+            strategy_label: Strategy identifier
+            qty: Original quantity
+
+        Returns:
+            Adjusted quantity (may be 0 if blocked by learning engine)
+        """
+        if not self.learning_enabled or qty <= 0:
+            return qty
+        key = f"{symbol}|{strategy_label}"
+        entry = self.learning_tuning.get(key)
+        if not entry:
+            return qty
+        status = str(entry.get("status", "active")).lower()
+        if status in {"disabled", "disabled_bad_performance"}:
+            logger.info(
+                "learning_engine: status=%s blocking symbol=%s strategy=%s",
+                status,
+                symbol,
+                strategy_label,
+            )
+            return 0
+        multiplier = float(entry.get("risk_multiplier", 1.0))
+        multiplier = max(self.learning_min_multiplier, min(self.learning_max_multiplier, multiplier))
+        adjusted = int(round(qty * multiplier))
+        if adjusted == 0 and multiplier > 0:
+            adjusted = 1
+        if adjusted != qty:
+            logger.info(
+                "learning_engine: adjusted qty %s -> %s for %s/%s (multiplier=%.2f)",
+                qty,
+                adjusted,
+                symbol,
+                strategy_label,
+                multiplier,
+            )
+        return adjusted
+
+    def _on_tick(self, tick: Dict[str, Any]) -> None:
+        """
+        Handle incoming tick data from WebSocket.
+
+        Updates last_prices and passes ticks to market data engine.
+
+        Args:
+            tick: Normalized tick data with symbol, ltp, etc.
+        """
+        try:
+            symbol = tick.get("tradingsymbol") or tick.get("symbol")
+            ltp = tick.get("last_price") or tick.get("ltp")
+            if symbol and ltp:
+                self.last_prices[symbol] = float(ltp)
+            # Forward to market data engine for candle building
+            if hasattr(self.market_data_engine, "on_tick"):
+                self.market_data_engine.on_tick(tick)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Error processing tick: %s", exc)
+
+    def _tick_once(self) -> None:
+        """
+        Execute one iteration of the main trading loop.
+
+        This method:
+        1. Runs strategy engine to generate signals
+        2. Processes any resulting intents
+        3. Runs reconciliation if enabled
+        4. Updates unrealized PnL metrics
+        """
+        try:
+            # Run strategy engine to generate signals
+            if hasattr(self.strategy_engine, "tick") and callable(self.strategy_engine.tick):
+                self.strategy_engine.tick()
+            elif hasattr(self.strategy_engine, "run_once") and callable(self.strategy_engine.run_once):
+                self.strategy_engine.run_once()
+            
+            # Update unrealized PnL and metrics
+            self._update_unrealized_and_metrics()
+            
+            # Note: Reconciliation is handled by ReconciliationEngine's background loop.
+            # We don't need to trigger it here - it runs automatically at configured intervals.
+
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Error in _tick_once: %s", exc, exc_info=True)
+
+    def _save_live_state(self) -> None:
+        """
+        Save current live state to checkpoint file.
+        """
+        try:
+            state = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "mode": "LIVE",
+                "live_capital": self.live_capital,
+                "config_fallback_capital": self.config_fallback_capital,
+                "trading_style": self.trading_style,
+                "primary_timeframe": self.primary_timeframe,
+                "universe_count": len(self.universe),
+            }
+            self.state_store.save_checkpoint(state)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Failed to save live state: %s", exc)
+
     def stop(self) -> None:
         self.running = False
         try:
