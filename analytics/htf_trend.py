@@ -129,7 +129,6 @@ def compute_ema_trend(close_prices: List[float], ema_fast_period: int = 20, ema_
 
 def compute_htf_trend(
     symbol: str,
-    primary_df: Optional[Dict[str, List[float]]] = None,
     htf_df_15m: Optional[Dict[str, List[float]]] = None,
     htf_df_1h: Optional[Dict[str, List[float]]] = None,
     ema_fast_period: int = 20,
@@ -143,7 +142,6 @@ def compute_htf_trend(
     
     Args:
         symbol: Trading symbol (for logging purposes)
-        primary_df: Optional primary timeframe data (not used in current implementation)
         htf_df_15m: Dict with 'close' list for 15m timeframe
         htf_df_1h: Dict with 'close' list for 1h timeframe
         ema_fast_period: Period for fast EMA (default: 20)

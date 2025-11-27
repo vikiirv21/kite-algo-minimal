@@ -110,12 +110,16 @@ class PriceActionV1(BaseStrategy):
             reason = "bearish_breakdown"
         
         # Check for bullish engulfing candle pattern
-        if signal is None and len(close_series) >= 2:
+        # Note: We need both open and close series for proper engulfing detection
+        open_series = series.get("open", [])
+        if signal is None and len(close_series) >= 2 and len(open_series) >= 2:
             prev_close = close_series[-2]
-            prev_open = close_series[-2]  # Simplified - would need actual open series
+            prev_open = open_series[-2]
             
             # Bullish engulfing: current close > current open, current body > previous body
-            if close > open_price and (close - open_price) > abs(prev_close - prev_open) * 1.5:
+            prev_body_size = abs(prev_close - prev_open)
+            current_body_size = close - open_price
+            if close > open_price and current_body_size > prev_body_size * 1.5:
                 ema20 = indicators.get("ema20")
                 if ema20 and close > ema20:
                     signal = "BUY"
@@ -123,12 +127,14 @@ class PriceActionV1(BaseStrategy):
                     reason = "bullish_engulfing"
         
         # Check for bearish engulfing candle pattern
-        if signal is None and len(close_series) >= 2:
+        if signal is None and len(close_series) >= 2 and len(open_series) >= 2:
             prev_close = close_series[-2]
-            prev_open = close_series[-2]
+            prev_open = open_series[-2]
             
             # Bearish engulfing: current close < current open, current body > previous body
-            if close < open_price and (open_price - close) > abs(prev_close - prev_open) * 1.5:
+            prev_body_size = abs(prev_close - prev_open)
+            current_body_size = open_price - close
+            if close < open_price and current_body_size > prev_body_size * 1.5:
                 ema20 = indicators.get("ema20")
                 if ema20 and close < ema20:
                     signal = "SELL"

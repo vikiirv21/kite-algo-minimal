@@ -1,5 +1,5 @@
 """
-Tests for EMA 20/50 Intraday Strategy v2 with HTF (Higher Timeframe) filter.
+Tests for EMA 20/50 Intraday Strategy v2 with HTF (Higher-Timeframe) filter.
 """
 
 import unittest
