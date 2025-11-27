@@ -144,12 +144,12 @@ class OptionUniverse:
 
         return result
 
-    def resolve_atm_for_many(self, spots: Dict[str, float]) -> Dict[str, Dict[str, str]]:
+    def resolve_atm_for_many(self, spots: Dict[str, Optional[float]]) -> Dict[str, Dict[str, str]]:
         """
         Resolve ATM CE/PE for multiple logical underlyings.
 
         Args:
-            spots: mapping logical_name -> spot_price
+            spots: mapping logical_name -> spot_price (may contain None values)
 
         Returns:
             mapping logical_name -> {"CE": ts_ce, "PE": ts_pe}
