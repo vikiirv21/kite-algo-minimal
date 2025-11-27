@@ -119,13 +119,31 @@ class OptionUniverse:
         pe_best: Tuple[float, str] | None = None
 
         for c in same_expiry:
-            strike = float(c.get("strike", 0.0))
             ts = c.get("tradingsymbol")
             inst_type = c.get("instrument_type")
             if not ts or not inst_type:
                 continue
 
-            dist = abs(strike - spot)
+            strike_raw = c.get("strike")
+            if strike_raw is None:
+                logger.error(
+                    "resolve_atm_for_underlying: strike is None for contract %s "
+                    "in %s; skipping this contract.",
+                    ts, logical,
+                )
+                continue
+
+            try:
+                strike = float(strike_raw)
+                dist = abs(strike - spot)
+            except (TypeError, ValueError):
+                logger.error(
+                    "resolve_atm_for_underlying: invalid types for strike/spot "
+                    "(strike=%r, spot=%r) for %s; skipping this strike.",
+                    strike_raw, spot, logical,
+                )
+                continue
+
             if inst_type.upper() == "CE":
                 if ce_best is None or dist < ce_best[0]:
                     ce_best = (dist, ts)
