@@ -124,15 +124,23 @@ class OptionUniverse:
             if not ts or not inst_type:
                 continue
 
+            strike_raw = c.get("strike")
+            if strike_raw is None:
+                logger.error(
+                    "resolve_atm_for_underlying: strike is None for contract %s "
+                    "in %s; skipping this contract.",
+                    ts, logical,
+                )
+                continue
+
             try:
-                strike_raw = c.get("strike", 0.0)
-                strike = float(strike_raw) if strike_raw is not None else 0.0
+                strike = float(strike_raw)
                 dist = abs(strike - spot)
             except (TypeError, ValueError):
                 logger.error(
                     "resolve_atm_for_underlying: invalid types for strike/spot "
                     "(strike=%r, spot=%r) for %s; skipping this strike.",
-                    c.get("strike"), spot, logical,
+                    strike_raw, spot, logical,
                 )
                 continue
 
