@@ -103,6 +103,30 @@ def test_resolve_atm_for_many_returns_empty_when_all_none():
     print("✓ test_resolve_atm_for_many_returns_empty_when_all_none")
 
 
+def test_resolve_atm_for_underlying_handles_invalid_strike_type():
+    """Test that resolve_atm_for_underlying handles TypeError from invalid strike gracefully."""
+    today = date.today()
+    
+    # Create universe with a mix of valid strikes and invalid (None) strikes
+    universe = create_test_universe({
+        "NIFTY": [
+            # Valid strike
+            {"tradingsymbol": "NIFTY25NOV25000CE", "strike": 25000, "instrument_type": "CE", "expiry": today},
+            {"tradingsymbol": "NIFTY25NOV25000PE", "strike": 25000, "instrument_type": "PE", "expiry": today},
+            # Invalid strike (None) - should be skipped gracefully
+            {"tradingsymbol": "NIFTY25NOV25100CE", "strike": None, "instrument_type": "CE", "expiry": today},
+        ]
+    })
+    
+    # Should still return valid results, skipping the invalid strike
+    result = universe.resolve_atm_for_underlying("NIFTY", 25050.0)
+    
+    assert result is not None
+    assert result.get("CE") == "NIFTY25NOV25000CE"
+    assert result.get("PE") == "NIFTY25NOV25000PE"
+    print("✓ test_resolve_atm_for_underlying_handles_invalid_strike_type")
+
+
 def run_all_tests():
     """Run all tests and report results."""
     tests = [
@@ -110,6 +134,7 @@ def run_all_tests():
         test_resolve_atm_for_underlying_works_with_valid_spot,
         test_resolve_atm_for_many_skips_none_spots,
         test_resolve_atm_for_many_returns_empty_when_all_none,
+        test_resolve_atm_for_underlying_handles_invalid_strike_type,
     ]
     
     passed = 0
