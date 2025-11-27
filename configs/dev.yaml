@@ -109,28 +109,37 @@ strategy_engine:
         max_risk_per_trade_pct: 0.01
         min_trend_strength: 0.4
         min_confidence: 0.55
-
-    # PRICE_ACTION_V1 Strategy - candlestick patterns + volume analysis
+    
     - id: PRICE_ACTION_V1
-      module: strategies.price_action_v1
-      class: PriceActionV1
-      role: intraday
-      enabled: false        # Can be enabled for paper mode testing
+      module: strategies.price_action_intraday_v1
+      class: PriceActionIntradayV1
+      enabled: false  # Disabled for now; enable when ready for testing
       params:
         timeframe: "5m"
-        min_confidence: 0.55
-        use_htf_filter: true
-        use_volume_filter: true
-        min_rr: 1.5
+        role: "intraday"
+        min_confidence_to_trade: 0.6
+        volume_spike_factor: 1.5
+        atr_period: 14
+        enable_patterns: true
+        ema_fast: 20
+        ema_slow: 50
         body_ratio_threshold: 0.30
         wick_ratio_threshold: 2.0
-        volume_spike_factor: 1.5
         volume_window: 20
+        atr_expand_factor: 1.2
+        atr_compress_factor: 0.8
   
   # Additional config for v2 engine
   window_size: 200          # Historical candle window for indicators
   history_lookback: 200     # Alias for window_size
   use_unified_indicators: true
+  
+  # HTF (Higher Timeframe) trend filter configuration
+  htf_filter:
+    enabled: true             # Enable HTF trend filter in dev mode
+    timeframes: ["15m", "1h"]  # HTF timeframes to analyze
+    ema_fast_period: 20       # Fast EMA period for HTF analysis
+    ema_slow_period: 50       # Slow EMA period for HTF analysis
   
   # V2 filtering and conflict resolution
   conflict_resolution: "highest_confidence"  # "highest_confidence", "priority", or "net_out"

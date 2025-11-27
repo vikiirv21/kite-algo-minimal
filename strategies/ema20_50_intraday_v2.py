@@ -3,6 +3,7 @@ EMA 20/50 Intraday Strategy - Version 2
 
 Modern implementation using Strategy Engine v2 architecture.
 Uses pre-computed indicators instead of maintaining internal state.
+Optionally uses Higher Timeframe (HTF) trend filter for improved signal quality.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ class EMA2050IntradayV2(BaseStrategy):
     - Exit on opposite signal
     
     Uses pre-computed indicators from Strategy Engine v2.
+    Optionally filters signals using Higher Timeframe (HTF) trend analysis.
     """
     
     def __init__(self, config: Dict[str, Any], strategy_state: StrategyState):
@@ -33,6 +35,12 @@ class EMA2050IntradayV2(BaseStrategy):
         self.ema_slow = config.get("ema_slow", 50)
         self.use_regime_filter = config.get("use_regime_filter", True)
         self.min_confidence = config.get("min_confidence", 0.0)
+        
+        # HTF filter parameters
+        self.use_htf_filter = config.get("use_htf_filter", False)
+        self.htf_min_score = config.get("htf_min_score", 0.6)
+        self.htf_conflict_action = config.get("htf_conflict_action", "suppress")  # "suppress" or "reduce_confidence"
+        self.htf_confidence_reduction = config.get("htf_confidence_reduction", 0.3)
         
         # Track previous state for crossover detection
         self._prev_state: Dict[str, Dict[str, Any]] = {}
@@ -162,6 +170,20 @@ class EMA2050IntradayV2(BaseStrategy):
                 if filter_result:
                     # Filter blocked the entry
                     return filter_result
+        
+        # Apply HTF filter if enabled (conservative - only affects entries, not exits)
+        if signal in ["BUY", "SELL"] and self.use_htf_filter:
+            htf_context = context.get("htf_trend") if context else None
+            if htf_context:
+                htf_filter_result = self._apply_htf_filter(signal, confidence, htf_context)
+                if htf_filter_result:
+                    if htf_filter_result.action == "HOLD":
+                        # HTF filter suppressed the signal
+                        return htf_filter_result
+                    else:
+                        # HTF filter adjusted confidence
+                        confidence = htf_filter_result.confidence
+                        reason = f"{reason}|{htf_filter_result.reason}"
         
         # Apply expiry-aware confidence adjustment (light touch, only reduces confidence)
         if signal in ["BUY", "SELL"] and context:
@@ -344,6 +366,89 @@ class EMA2050IntradayV2(BaseStrategy):
         else:
             # Default to NIFTY for most symbols
             return "NIFTY"
+    
+    def _apply_htf_filter(
+        self,
+        signal: str,
+        confidence: float,
+        htf_context: Dict[str, Any],
+    ) -> Optional[Decision]:
+        """
+        Apply Higher Timeframe (HTF) trend filter to proposed entry signal.
+        
+        This filter checks the higher timeframe trend and either:
+        - Suppresses the trade if HTF conflicts with signal direction
+        - Reduces confidence if configured to do so
+        
+        Args:
+            signal: "BUY" or "SELL"
+            confidence: Signal confidence (0-1)
+            htf_context: HTF trend context dict from context["htf_trend"]
+                        Expected keys: htf_bias, aligned, score
+        
+        Returns:
+            Decision to modify/block entry or None to allow
+        """
+        if not htf_context:
+            return None
+        
+        htf_bias = htf_context.get("htf_bias", "sideways")
+        htf_score = htf_context.get("score", 0.0)
+        htf_aligned = htf_context.get("aligned", False)
+        
+        # Determine if HTF conflicts with signal
+        is_conflicting = False
+        conflict_reason = ""
+        
+        if signal in ["BUY", "LONG"]:
+            if htf_bias == "bearish":
+                is_conflicting = True
+                conflict_reason = "htf_bearish_conflicts_long"
+        elif signal in ["SELL", "SHORT"]:
+            if htf_bias == "bullish":
+                is_conflicting = True
+                conflict_reason = "htf_bullish_conflicts_short"
+        
+        # If conflicting, apply configured action
+        if is_conflicting:
+            if self.htf_conflict_action == "suppress":
+                # Suppress the trade entirely
+                return Decision(
+                    action="HOLD",
+                    reason=conflict_reason,
+                    confidence=0.0
+                )
+            else:
+                # Reduce confidence
+                reduced_confidence = confidence * (1.0 - self.htf_confidence_reduction)
+                return Decision(
+                    action=signal,
+                    reason=f"htf_conflict_reduced|{conflict_reason}",
+                    confidence=reduced_confidence
+                )
+        
+        # Check if HTF score is below minimum when aligned
+        if htf_bias == "sideways":
+            # Sideways HTF - optionally reduce confidence slightly
+            reduced_confidence = confidence * 0.9
+            return Decision(
+                action=signal,
+                reason="htf_sideways_caution",
+                confidence=reduced_confidence
+            )
+        
+        # HTF is aligned with signal direction
+        if htf_aligned and htf_score >= self.htf_min_score:
+            # Boost confidence slightly for strong alignment
+            boosted_confidence = min(1.0, confidence * 1.05)
+            return Decision(
+                action=signal,
+                reason="htf_aligned_boost",
+                confidence=boosted_confidence
+            )
+        
+        # HTF aligned but weak score - no change
+        return None
 
 
 # Factory function for easy instantiation
