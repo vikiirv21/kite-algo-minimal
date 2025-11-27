@@ -321,7 +321,9 @@ class PriceActionIntradayV1(BaseStrategy):
         open_list = series.get("open", [])
         close_list = series.get("close", [])
         
-        if len(open_list) >= 2 and len(close_list) >= 2:
+        # Verify both lists have at least 2 elements and same length
+        if (len(open_list) >= 2 and len(close_list) >= 2 and
+            len(open_list) == len(close_list)):
             prev_open = open_list[-2]
             prev_close = close_list[-2]
             
@@ -398,15 +400,22 @@ class PriceActionIntradayV1(BaseStrategy):
         low_list = series.get("low", [])
         close_list = series.get("close", [])
         
-        if len(high_list) < self.atr_period * 2:
+        # Need at least atr_period * 2 bars and equal length lists
+        min_required = self.atr_period * 2
+        if (len(high_list) < min_required or
+            len(low_list) < min_required or
+            len(close_list) < min_required):
             return "normal"
         
         # Calculate simple ATR average over the period
         tr_values = []
-        for i in range(1, min(self.atr_period, len(close_list))):
+        # Ensure we don't go beyond available data
+        max_lookback = min(self.atr_period, len(close_list) - 1)
+        for i in range(1, max_lookback + 1):
             h = high_list[-i]
             l = low_list[-i]
-            c_prev = close_list[-i-1] if i < len(close_list) else close_list[-i]
+            # i ranges from 1 to max_lookback, so -i-1 is valid since we have at least 2*atr_period bars
+            c_prev = close_list[-i-1]
             tr = max(h - l, abs(h - c_prev), abs(l - c_prev))
             tr_values.append(tr)
         
