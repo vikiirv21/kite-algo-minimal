@@ -2,7 +2,7 @@
 Price Action Strategy V1
 
 Technical analysis strategy using candlestick patterns and volume analysis.
-Leverages ta_patterns module for pattern detection.
+Implements pattern detection for hammer, engulfing, pinbar, and momentum candles.
 Designed for intraday trading on index options (NIFTY, BANKNIFTY, FINNIFTY).
 """
 

@@ -247,6 +247,9 @@ class OptionsPaperEngine:
         # Snapshot every N loops
         self.snapshot_every_n_loops = 5
         self._loop_counter = 0
+        
+        # Per-bar logging frequency (configurable via trading config)
+        self.bar_stats_log_frequency = int(self.cfg.trading.get("bar_stats_log_frequency", 5))
 
         # Capital and basic risk meta (reuse paper_capital from config)
         self.paper_capital: float = float(self.cfg.trading.get("paper_capital", 500000))
@@ -743,7 +746,8 @@ class OptionsPaperEngine:
                         reason = "|".join(part for part in reason_parts if part)
 
                     # Check for HTF filter blocking (log if present in reason)
-                    if "htf_filter" in reason.lower() or "htf_trend" in reason.lower():
+                    reason_lower = reason.lower()
+                    if "htf_filter" in reason_lower or "htf_trend" in reason_lower:
                         bar_stats["htf_filter_blocked"] += 1
                         logger.info(
                             "[HTF_FILTER_BLOCKED] %s for %s: reason=%s",
@@ -751,7 +755,7 @@ class OptionsPaperEngine:
                         )
                     
                     # Check for volume filter blocking
-                    if "low_vol" in reason.lower() or "volume_filter" in reason.lower():
+                    if "low_vol" in reason_lower or "volume_filter" in reason_lower:
                         bar_stats["volume_filter_blocked"] += 1
 
                     trend_context = regime or ""
@@ -878,8 +882,8 @@ class OptionsPaperEngine:
                 except Exception as exc:  # noqa: BLE001
                     logger.exception("Error processing option logical=%s symbol=%s: %s", logical_base, ts, exc)
 
-        # Log per-bar statistics (lightweight, every 5 loops to avoid spam)
-        if self._loop_counter % 5 == 0 or bar_stats["orders_proposed"] > 0:
+        # Log per-bar statistics (configurable frequency to avoid spam)
+        if self._loop_counter % self.bar_stats_log_frequency == 0 or bar_stats["orders_proposed"] > 0:
             logger.info(
                 "[BAR_STATS] loop=%d signals_emitted=%d orders_proposed=%d BUY=%d SELL=%d "
                 "htf_blocked=%d vol_blocked=%d pattern_blocked=%d",
