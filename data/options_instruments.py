@@ -87,14 +87,23 @@ class OptionUniverse:
 
         return [c for c in dated if c["expiry"] == target_expiry]
 
-    def resolve_atm_for_underlying(self, logical: str, spot: float) -> Dict[str, str]:
+    def resolve_atm_for_underlying(self, logical: str, spot: Optional[float]) -> Optional[Dict[str, str]]:
         """
         Given an underlying logical name (e.g., NIFTY) and a spot price, return
         ATM CE and ATM PE tradingsymbols on the nearest expiry.
 
         Returns:
             {"CE": "NIFTY25NOV25000CE", "PE": "NIFTY25NOV25000PE"} or {} if not found.
+            Returns None if spot is None (missing LTP data).
         """
+        # Handle missing spot price gracefully
+        if spot is None:
+            logger.error(
+                "Cannot resolve ATM for underlying=%s: spot price is None (missing LTP data)",
+                logical,
+            )
+            return None
+
         key = logical.upper()
         contracts = self._by_name.get(key, [])
         if not contracts:
@@ -135,12 +144,12 @@ class OptionUniverse:
 
         return result
 
-    def resolve_atm_for_many(self, spots: Dict[str, float]) -> Dict[str, Dict[str, str]]:
+    def resolve_atm_for_many(self, spots: Dict[str, Optional[float]]) -> Dict[str, Dict[str, str]]:
         """
         Resolve ATM CE/PE for multiple logical underlyings.
 
         Args:
-            spots: mapping logical_name -> spot_price
+            spots: mapping logical_name -> spot_price (may contain None values)
 
         Returns:
             mapping logical_name -> {"CE": ts_ce, "PE": ts_pe}

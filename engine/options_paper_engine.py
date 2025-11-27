@@ -21,7 +21,7 @@ from broker.paper_broker import PaperBroker
 from broker.kite_client import KiteClient
 from kiteconnect import KiteConnect
 from configs.timeframes import MULTI_TF_CONFIG, resolve_multi_tf_config
-from data.broker_feed import BrokerFeed
+from data.broker_feed import BrokerFeed, BrokerAuthError
 from data.instruments import resolve_fno_symbols
 from data.options_instruments import OptionUniverse
 from strategies.base import Decision
@@ -584,6 +584,19 @@ class OptionsPaperEngine:
                 except KeyboardInterrupt:
                     logger.info("OptionsPaperEngine interrupted by user.")
                     self.running = False
+                except BrokerAuthError as exc:
+                    # FATAL: Broker authentication failed - stop engine gracefully
+                    logger.critical(
+                        "[FATAL] Broker auth failed: %s. "
+                        "Please re-login via scripts.run_day --login. Stopping engine.",
+                        exc,
+                    )
+                    publish_engine_health(
+                        "options_paper_engine",
+                        "error",
+                        {"mode": self.mode.value, "error": "broker_auth_failed"},
+                    )
+                    self.running = False
                 except Exception as exc:  # noqa: BLE001
                     logger.exception("Unexpected error in options engine loop: %s", exc)
                     time.sleep(self.sleep_sec)
@@ -632,11 +645,35 @@ class OptionsPaperEngine:
                 logger.exception("Error fetching FUT LTP for logical=%s symbol=%s: %s", logical_base, fut_ts, exc)
 
         if not spots:
-            logger.debug("No underlying spots available this loop; skipping.")
+            logger.warning(
+                "No underlying spots available this loop (empty spots dict); sleeping 1s."
+            )
+            time.sleep(1)
+            return
+
+        # Check if all spot values are None (LTP failures / auth issues)
+        all_spots_none = all(v is None for v in spots.values())
+        if all_spots_none:
+            logger.error(
+                "All %d spot prices are None; this likely indicates a Kite LTP/auth issue. "
+                "Underlyings: %s. Sleeping 2s before retrying.",
+                len(spots),
+                list(spots.keys()),
+            )
+            time.sleep(2)
             return
 
         # Step 2: resolve ATM options for each underlying
         atm_map = self.option_universe.resolve_atm_for_many(spots)
+
+        if not atm_map:
+            logger.error(
+                "ATM resolution returned empty map for spots=%s; likely all spot prices were None. "
+                "Sleeping 2s before retrying.",
+                {k: v for k, v in spots.items() if v is not None},
+            )
+            time.sleep(2)
+            return
 
         price_cache: Dict[str, float] = {}
 
