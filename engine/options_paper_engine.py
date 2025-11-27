@@ -529,6 +529,28 @@ class OptionsPaperEngine:
             )
             return
 
+        # CRITICAL SAFETY CHECK: In live mode, execution.dry_run MUST be True
+        # This prevents accidental real order placement via the paper options engine
+        if self.mode == TradingMode.LIVE:
+            execution_cfg = self.cfg.raw.get("execution", {})
+            dry_run = execution_cfg.get("dry_run", False)
+            if not dry_run:
+                error_msg = (
+                    "SAFETY VIOLATION: OptionsPaperEngine in LIVE mode requires execution.dry_run=true! "
+                    "Real orders would be sent. Aborting to prevent accidental live trades."
+                )
+                logger.critical(error_msg)
+                publish_engine_health(
+                    "options_paper_engine",
+                    "error",
+                    {"mode": self.mode.value, "error": "dry_run_disabled_in_live"}
+                )
+                raise RuntimeError(error_msg)
+            logger.warning(
+                "[LIVE_DRY_RUN] OptionsPaperEngine running in LIVE mode with dry_run=True. "
+                "No real orders will be placed."
+            )
+
         logger.info(
             "Starting OptionsPaperEngine for underlyings=%s (mode=%s)",
             self.logical_underlyings,
@@ -580,6 +602,19 @@ class OptionsPaperEngine:
 
     def _loop_once(self) -> None:
         self._loop_counter += 1
+
+        # Per-bar logging counters
+        bar_stats = {
+            "strategies_emitted_signals": 0,
+            "orders_proposed": 0,
+            "buy_count": 0,
+            "sell_count": 0,
+            "htf_filter_blocked": 0,
+            "volume_filter_blocked": 0,
+            "pattern_filter_blocked": 0,
+            "signals_by_strategy": {},
+            "signals_by_symbol": {},
+        }
 
         # Step 1: get underlying FUT spots
         spots: Dict[str, float] = {}
@@ -693,16 +728,31 @@ class OptionsPaperEngine:
                     )
                     base_reason = build_reason(price, indicators, regime, signal)
                     final_signal = signal
+                    blocked_reason = None
                     if signal in ("BUY", "SELL"):
                         if not pattern_ok:
                             final_signal = "HOLD"
                             reason = pattern_reason or decision.reason or "pattern_filter_block"
+                            blocked_reason = "pattern_filter"
+                            bar_stats["pattern_filter_blocked"] += 1
                         else:
                             reason_parts = [decision.reason, pattern_reason, base_reason]
                             reason = "|".join(part for part in reason_parts if part)
                     else:
                         reason_parts = [pattern_reason, decision.reason, base_reason]
                         reason = "|".join(part for part in reason_parts if part)
+
+                    # Check for HTF filter blocking (log if present in reason)
+                    if "htf_filter" in reason.lower() or "htf_trend" in reason.lower():
+                        bar_stats["htf_filter_blocked"] += 1
+                        logger.info(
+                            "[HTF_FILTER_BLOCKED] %s for %s: reason=%s",
+                            signal, ts, reason
+                        )
+                    
+                    # Check for volume filter blocking
+                    if "low_vol" in reason.lower() or "volume_filter" in reason.lower():
+                        bar_stats["volume_filter_blocked"] += 1
 
                     trend_context = regime or ""
                     vol_spike_flag = bool(indicators.get("vol_spike")) if indicators else False
@@ -787,7 +837,28 @@ class OptionsPaperEngine:
                         # Never let diagnostics crash the engine
                         logger.debug("Diagnostics emission failed for %s: %s", ts, diag_exc)
 
+                    # Update per-bar stats
+                    if signal in ("BUY", "SELL"):
+                        bar_stats["strategies_emitted_signals"] += 1
+                        # Track by strategy
+                        if strategy_label not in bar_stats["signals_by_strategy"]:
+                            bar_stats["signals_by_strategy"][strategy_label] = {"BUY": 0, "SELL": 0, "HOLD": 0}
+                        bar_stats["signals_by_strategy"][strategy_label][signal] = (
+                            bar_stats["signals_by_strategy"][strategy_label].get(signal, 0) + 1
+                        )
+                        # Track by symbol
+                        if ts not in bar_stats["signals_by_symbol"]:
+                            bar_stats["signals_by_symbol"][ts] = {"BUY": 0, "SELL": 0}
+                        bar_stats["signals_by_symbol"][ts][signal] = (
+                            bar_stats["signals_by_symbol"][ts].get(signal, 0) + 1
+                        )
+
                     if final_signal in ("BUY", "SELL"):
+                        bar_stats["orders_proposed"] += 1
+                        if final_signal == "BUY":
+                            bar_stats["buy_count"] += 1
+                        else:
+                            bar_stats["sell_count"] += 1
                         record_strategy_signal(self.primary_strategy_code, timestamp=signal_ts)
                         self._handle_signal(
                             ts,
@@ -806,6 +877,28 @@ class OptionsPaperEngine:
                         )
                 except Exception as exc:  # noqa: BLE001
                     logger.exception("Error processing option logical=%s symbol=%s: %s", logical_base, ts, exc)
+
+        # Log per-bar statistics (lightweight, every 5 loops to avoid spam)
+        if self._loop_counter % 5 == 0 or bar_stats["orders_proposed"] > 0:
+            logger.info(
+                "[BAR_STATS] loop=%d signals_emitted=%d orders_proposed=%d BUY=%d SELL=%d "
+                "htf_blocked=%d vol_blocked=%d pattern_blocked=%d",
+                self._loop_counter,
+                bar_stats["strategies_emitted_signals"],
+                bar_stats["orders_proposed"],
+                bar_stats["buy_count"],
+                bar_stats["sell_count"],
+                bar_stats["htf_filter_blocked"],
+                bar_stats["volume_filter_blocked"],
+                bar_stats["pattern_filter_blocked"],
+            )
+            # Log per-strategy signal breakdown if any
+            if bar_stats["signals_by_strategy"]:
+                for strat_id, counts in bar_stats["signals_by_strategy"].items():
+                    logger.debug(
+                        "[BAR_STATS_DETAIL] strategy=%s BUY=%d SELL=%d HOLD=%d",
+                        strat_id, counts.get("BUY", 0), counts.get("SELL", 0), counts.get("HOLD", 0)
+                    )
 
         # Step 4: enforce per-trade stop-loss on options positions
         self._enforce_per_trade_stop()
