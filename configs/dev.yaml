@@ -109,6 +109,25 @@ strategy_engine:
         max_risk_per_trade_pct: 0.01
         min_trend_strength: 0.4
         min_confidence: 0.55
+    
+    - id: PRICE_ACTION_V1
+      module: strategies.price_action_intraday_v1
+      class: PriceActionIntradayV1
+      enabled: false  # Disabled for now; enable when ready for testing
+      params:
+        timeframe: "5m"
+        role: "intraday"
+        min_confidence_to_trade: 0.6
+        volume_spike_factor: 1.5
+        atr_period: 14
+        enable_patterns: true
+        ema_fast: 20
+        ema_slow: 50
+        body_ratio_threshold: 0.30
+        wick_ratio_threshold: 2.0
+        volume_window: 20
+        atr_expand_factor: 1.2
+        atr_compress_factor: 0.8
   
   # Additional config for v2 engine
   window_size: 200          # Historical candle window for indicators
