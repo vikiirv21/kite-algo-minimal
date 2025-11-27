@@ -394,6 +394,13 @@ class StrategyEngineV2:
         self.max_trades_per_day = self.config.get("max_trades_per_day", 10)
         self.max_loss_streak = self.config.get("max_loss_streak", 3)
         
+        # HTF (Higher Timeframe) filter config
+        htf_config = self.config.get("htf_filter", {})
+        self.htf_filter_enabled = htf_config.get("enabled", False)
+        self.htf_timeframes = htf_config.get("timeframes", ["15m", "1h"])
+        self.htf_ema_fast_period = htf_config.get("ema_fast_period", 20)
+        self.htf_ema_slow_period = htf_config.get("ema_slow_period", 50)
+        
         # Paper engine reference (for execution)
         self.paper_engine = None
         
@@ -414,6 +421,8 @@ class StrategyEngineV2:
         self.logger.info("StrategyEngineV2 initialized with %d strategies", len(self.enabled_strategies))
         if self.regime_engine:
             self.logger.info("StrategyEngineV2: RegimeEngine enabled")
+        if self.htf_filter_enabled:
+            self.logger.info("StrategyEngineV2: HTF filter enabled with timeframes %s", self.htf_timeframes)
         if self.conflict_resolution_mode:
             self.logger.info("StrategyEngineV2: Conflict resolution mode: %s", self.conflict_resolution_mode)
     
@@ -960,6 +969,68 @@ class StrategyEngineV2:
         
         return ind
     
+    def compute_htf_trend(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """
+        Compute higher timeframe trend for a symbol.
+        
+        Fetches candle data for 15m and 1h timeframes and computes
+        EMA-based trend analysis.
+        
+        Args:
+            symbol: Trading symbol
+            
+        Returns:
+            HTF trend context dict or None if not available
+        """
+        if not self.htf_filter_enabled:
+            return None
+        
+        if not self.market_data:
+            return None
+        
+        try:
+            from analytics.htf_trend import compute_htf_trend_from_series
+            
+            close_15m = None
+            close_1h = None
+            
+            # Fetch 15m candle data
+            if "15m" in self.htf_timeframes:
+                try:
+                    window_15m = self.market_data.get_window(symbol, "15m", 100)
+                    if window_15m and len(window_15m) >= 50:
+                        close_15m = [c.get("close", 0.0) for c in window_15m]
+                except Exception as e:
+                    self.logger.debug("Failed to get 15m data for %s: %s", symbol, e)
+            
+            # Fetch 1h candle data
+            if "1h" in self.htf_timeframes:
+                try:
+                    window_1h = self.market_data.get_window(symbol, "1h", 100)
+                    if window_1h and len(window_1h) >= 50:
+                        close_1h = [c.get("close", 0.0) for c in window_1h]
+                except Exception as e:
+                    self.logger.debug("Failed to get 1h data for %s: %s", symbol, e)
+            
+            # If we don't have enough HTF data, return None (won't filter)
+            if not close_15m and not close_1h:
+                return None
+            
+            # Compute HTF trend
+            htf_result = compute_htf_trend_from_series(
+                symbol=symbol,
+                close_15m=close_15m,
+                close_1h=close_1h,
+                ema_fast_period=self.htf_ema_fast_period,
+                ema_slow_period=self.htf_ema_slow_period,
+            )
+            
+            return htf_result.to_dict()
+            
+        except Exception as e:
+            self.logger.debug("Failed to compute HTF trend for %s: %s", symbol, e)
+            return None
+    
     def run_strategy(
         self,
         strategy_code: str,
@@ -1040,8 +1111,17 @@ class StrategyEngineV2:
                 except Exception as e:
                     self.logger.debug("Failed to get regime snapshot for %s: %s", symbol, e)
             
+            # Build context dict for strategy
+            context = {}
+            
+            # Compute and add HTF trend to context if enabled
+            if self.htf_filter_enabled:
+                htf_trend = self.compute_htf_trend(symbol)
+                if htf_trend:
+                    context["htf_trend"] = htf_trend
+            
             # Generate signal
-            decision = strategy.generate_signal(current_candle, series, ind)
+            decision = strategy.generate_signal(current_candle, series, ind, context)
             
             # Publish decision trace to telemetry
             if self._enable_telemetry and decision:

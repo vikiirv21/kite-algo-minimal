@@ -109,11 +109,23 @@ strategy_engine:
         max_risk_per_trade_pct: 0.01
         min_trend_strength: 0.4
         min_confidence: 0.55
+        # HTF filter configuration (enabled in dev)
+        use_htf_filter: true
+        htf_min_score: 0.6
+        htf_conflict_action: "suppress"  # "suppress" or "reduce_confidence"
+        htf_confidence_reduction: 0.3
   
   # Additional config for v2 engine
   window_size: 200          # Historical candle window for indicators
   history_lookback: 200     # Alias for window_size
   use_unified_indicators: true
+  
+  # HTF (Higher Timeframe) trend filter configuration
+  htf_filter:
+    enabled: true             # Enable HTF trend filter in dev mode
+    timeframes: ["15m", "1h"]  # HTF timeframes to analyze
+    ema_fast_period: 20       # Fast EMA period for HTF analysis
+    ema_slow_period: 50       # Slow EMA period for HTF analysis
   
   # V2 filtering and conflict resolution
   conflict_resolution: "highest_confidence"  # "highest_confidence", "priority", or "net_out"
